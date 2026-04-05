@@ -1,6 +1,6 @@
-# Universal Media Downloader
+# StreamAura
 
-A modern, production-ready Progressive Web App (PWA) for downloading videos and music from any platform. Built with React, TypeScript, Tailwind CSS, and Firebase.
+A modern, production-ready Progressive Web App (PWA) for downloading videos, movies and music from any platform. Built with React, TypeScript, Tailwind CSS, and Firebase.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![React](https://img.shields.io/badge/react-18.0+-61DAFB.svg)
@@ -12,6 +12,7 @@ A modern, production-ready Progressive Web App (PWA) for downloading videos and 
 ### Core Functionality
 - **Video Downloader**: Download videos from YouTube, TikTok, Instagram, Facebook, Twitter/X
 - **Music Downloader**: Download audio from Spotify, SoundCloud, Apple Music, Deezer
+- **Movie Downloader**: Download or watch any movie of your choice 
 - **Bulk Download**: Process multiple URLs at once with queue management
 - **Quality Selection**: Choose from multiple quality options (144p to 4K for video, 128kbps to Lossless for audio)
 - **Auto-Detect**: Automatically detects media type on paste
@@ -269,8 +270,10 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Support
 
-For support, email support@mediadl.app or join our Discord server.
+For support, email john@feelflytech.site or join our Discord server.
 
 ---
 
 **Note**: This is a demonstration project. For production use, ensure you comply with all applicable laws and terms of service for the platforms you're downloading from.
+
+**Made with love ❤️ by Bobbizy**
