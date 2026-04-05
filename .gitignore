@@ -1,0 +1,40 @@
+# Node / Frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vscode/
+.idea/
+.DS_Store
+
+# Environment Variables (CRITICAL)
+.env
+.env.production
+.env.development
+backend/.env
+
+# Python / Backend
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+backend/venv/
+backend/.venv/
+.env
+backend/.env
+
+# App Specific
+backend/downloads/
+*.mp4
+*.mp3
+server.log
+
+# Firebase
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+
+# TypeScript
+*.tsbuildinfo

@@ -1,0 +1,245 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Dark mode as default - Glassmorphism theme */
+    --background: 240 20% 4%;
+    --foreground: 0 0% 98%;
+    --card: 240 15% 8%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 15% 8%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 250 95% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 10% 15%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 10% 15%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 280 95% 60%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 10% 20%;
+    --input: 240 10% 15%;
+    --ring: 250 95% 60%;
+    --radius: 1rem;
+    
+    /* Glassmorphism custom properties */
+    --glass-bg: rgba(15, 15, 35, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    --glass-blur: blur(20px);
+    
+    /* Gradient colors */
+    --gradient-start: hsl(250, 95%, 60%);
+    --gradient-end: hsl(280, 95%, 60%);
+    --gradient-accent: hsl(320, 95%, 60%);
+
+    /* Background animated gradient colors */
+    --bg-grad-1: #0f0f23;
+    --bg-grad-2: #1a1a3e;
+    --bg-grad-3: #2d1b69;
+  }
+
+  .light {
+    --background: 0 0% 100%;
+    --foreground: 224 71.4% 4.1%; /* Deep Charcoal */
+    --card: 0 0% 100%;
+    --card-foreground: 224 71.4% 4.1%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 71.4% 4.1%;
+    --primary: 250 95% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 10% 90%;
+    --secondary-foreground: 224 71.4% 4.1%;
+    --muted: 240 10% 94%;
+    --muted-foreground: 240 5% 25%; /* Much darker gray for readability */
+    --accent: 280 95% 60%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 10% 70%; /* Darker borders for visible lines */
+    --input: 240 10% 85%;
+    --ring: 250 95% 60%;
+    
+    --glass-bg: rgba(255, 255, 255, 0.95);
+    --glass-border: rgba(0, 0, 0, 0.15); /* Stronger border outlines */
+    --glass-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+
+    /* Background animated gradient colors - Light Mode */
+    --bg-grad-1: #ffffff;
+    --bg-grad-2: #fcfcff;
+    --bg-grad-3: #f8faff;
+  }
+}
+
+/* Force Icon Visibility in Light Mode */
+.light .lucide {
+  color: #4b5563; /* Solid Slate-600 */
+}
+
+/* Global Placeholder Fix */
+::placeholder {
+  color: rgba(0, 0, 0, 0.5) !important;
+  opacity: 1 !important;
+}
+
+.dark ::placeholder {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+@layer base {
+  * {
+    @apply border-border transition-colors duration-200;
+  }
+  
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--background));
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 4px;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+@layer components {
+  /* Glassmorphism card styles */
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .light .glass {
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.15); /* VISIBLE LINES AROUND CARDS */
+  }
+  
+  .glass-card {
+    @apply glass rounded-2xl;
+  }
+  
+  .glass-input {
+    @apply glass rounded-xl px-4 py-3;
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .light .glass-input {
+    background: white;
+    border: 1px solid rgba(0, 0, 0, 0.2); /* VISIBLE INPUT BORDER */
+  }
+  
+  .glass-button {
+    @apply glass rounded-xl px-6 py-3 font-bold transition-all duration-300 flex items-center justify-center gap-2;
+    background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+    color: white;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  }
+
+  .light .glass-button {
+    background: #4f46e5; /* STRONG SOLID BACKGROUND FOR BUTTON */
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+  }
+  
+  .glass-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 40px rgba(139, 92, 246, 0.4);
+  }
+  
+  .glass-button:active {
+    transform: translateY(0);
+  }
+  
+  /* Gradient text */
+  .gradient-text {
+    background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end), var(--gradient-accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  /* Animated background gradient */
+  .animated-gradient {
+    background: linear-gradient(-45deg, var(--bg-grad-1), var(--bg-grad-2), var(--bg-grad-3), var(--bg-grad-1));
+    background-size: 400% 400%;
+    animation: gradient-shift 15s ease infinite;
+  }
+  
+  @keyframes gradient-shift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  
+  /* Floating animation */
+  .float {
+    animation: float 6s ease-in-out infinite;
+  }
+  
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-20px); }
+  }
+  
+  /* Pulse glow animation */
+  .pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+  
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 20px rgba(139, 92, 246, 0.3); }
+    50% { box-shadow: 0 0 40px rgba(139, 92, 246, 0.6); }
+  }
+  
+  /* Shimmer loading effect */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.05) 50%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+  
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+}
+
+/* Utilities */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
