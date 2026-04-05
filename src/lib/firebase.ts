@@ -312,10 +312,12 @@ export const getGlobalHistory = async (limitCount = 100): Promise<GlobalHistoryI
 export const logVisit = async (country: string, device: string = 'Unknown'): Promise<void> => {
   try {
     const visitsRef = collection(db, 'visits');
+    const now = new Date();
     await addDoc(visitsRef, {
       country,
       device,
       timestamp: serverTimestamp(),
+      hour: now.getHours(), // For peak time analysis
       platform: navigator.platform
     });
   } catch (error) {
@@ -336,13 +338,81 @@ export const clearAllTraffic = async (): Promise<void> => {
   }
 };
 
+export const logFeatureUsage = async (feature: string, userId?: string): Promise<void> => {
+  try {
+    const featureRef = collection(db, 'feature_usage');
+    await addDoc(featureRef, {
+      feature,
+      userId: userId || 'anonymous',
+      timestamp: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error logging feature usage:', error);
+  }
+};
+
+export const logSearch = async (queryText: string, type: 'movie' | 'video' | 'music', userId?: string): Promise<void> => {
+  try {
+    const searchRef = collection(db, 'searches');
+    await addDoc(searchRef, {
+      query: queryText,
+      type,
+      userId: userId || 'anonymous',
+      timestamp: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error logging search:', error);
+  }
+};
+
+export const logMediaInteraction = async (
+  item: { id: string; title: string; mediaType: string; platform: string }, 
+  action: 'watch' | 'download',
+  userId?: string
+): Promise<void> => {
+  try {
+    const interactionRef = collection(db, 'interactions');
+    await addDoc(interactionRef, {
+      ...item,
+      action,
+      userId: userId || 'anonymous',
+      timestamp: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error logging interaction:', error);
+  }
+};
+
 export const updateUserPresence = async (uid: string, device?: string): Promise<void> => {
   try {
     const userDocRef = doc(db, 'users', uid);
-    const updateData: any = { lastActive: serverTimestamp() };
+    const now = Date.now();
+    const userDoc = await getDoc(userDocRef);
+    
+    let totalTime = 0;
+    let lastActive = now;
+    
+    if (userDoc.exists()) {
+      const data = userDoc.data();
+      totalTime = data.totalTimeMinutes || 0;
+      lastActive = data.lastActive?.toMillis?.() || now;
+      
+      // If last active was less than 10 mins ago, count the difference as session time
+      const diffMs = now - lastActive;
+      if (diffMs < 10 * 60 * 1000) {
+        totalTime += Math.round(diffMs / (60 * 1000));
+      }
+    }
+
+    const updateData: any = { 
+      lastActive: serverTimestamp(),
+      totalTimeMinutes: totalTime
+    };
+    
     if (device && device !== 'Unknown') {
       updateData.lastDevice = device;
     }
+    
     await updateDoc(userDocRef, updateData);
   } catch (error) {
     // Fail silently
@@ -354,41 +424,166 @@ export interface SystemStats {
   totalVisits: number;
   onlineNow: number;
   topCountries: { country: string; count: number }[];
+  topUsers: { email: string; name: string; visits: number; timeSpent: number }[];
+  featureUsage: { feature: string; count: number }[];
+  topSearches: { query: string; count: number }[];
+  topMovies: { title: string; watches: number; downloads: number }[];
+  peakHours: { hour: number; count: number }[];
+  topPlatforms: { platform: string; count: number }[];
 }
 
 export const getStatsSummary = async (): Promise<SystemStats> => {
   try {
     const usersRef = collection(db, 'users');
     const visitsRef = collection(db, 'visits');
+    const featuresRef = collection(db, 'feature_usage');
+    const searchesRef = collection(db, 'searches');
+    const interactionsRef = collection(db, 'interactions');
+    const historyRef = collection(db, 'downloads');
     
     // FETCH IN PARALLEL for speed
     const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000);
     const onlineQuery = query(usersRef, where('lastActive', '>=', Timestamp.fromDate(fiveMinsAgo)));
-    const countryQuery = query(visitsRef, orderBy('timestamp', 'desc'), limit(500));
+    const recentVisitsQuery = query(visitsRef, orderBy('timestamp', 'desc'), limit(1000));
+    
+    // Fetch users for top users analysis
+    const allUsersQuery = query(usersRef, orderBy('totalTimeMinutes', 'desc'), limit(20));
 
-    const [usersCount, visitsCount, onlineSnapshot, countrySnapshot] = await Promise.all([
+    const [
+      usersCount, 
+      visitsCount, 
+      onlineSnapshot, 
+      visitsSnapshot,
+      usersSnapshot,
+      featuresSnapshot,
+      searchesSnapshot,
+      interactionsSnapshot,
+      historySnapshot
+    ] = await Promise.all([
       getCountFromServer(usersRef),
       getCountFromServer(visitsRef),
       getCountFromServer(onlineQuery),
-      getDocs(countryQuery)
+      getDocs(recentVisitsQuery),
+      getDocs(allUsersQuery),
+      getDocs(query(featuresRef, orderBy('timestamp', 'desc'), limit(1000))),
+      getDocs(query(searchesRef, where('type', '==', 'movie'), orderBy('timestamp', 'desc'), limit(500))),
+      getDocs(query(interactionsRef, orderBy('timestamp', 'desc'), limit(1000))),
+      getDocs(query(historyRef, orderBy('downloadedAt', 'desc'), limit(1000)))
     ]);
 
+    // 1. Top Countries & Peak Hours (12h format)
     const countryMap: Record<string, number> = {};
-    countrySnapshot.docs.forEach(doc => {
-      const country = doc.data().country || 'Unknown';
+    const hoursMap: Record<number, number> = {};
+    visitsSnapshot.docs.forEach(doc => {
+      const data = doc.data();
+      const country = data.country || 'Unknown';
+      const hour = data.hour !== undefined ? data.hour : (data.timestamp?.toDate()?.getHours() || 0);
       countryMap[country] = (countryMap[country] || 0) + 1;
+      hoursMap[hour] = (hoursMap[hour] || 0) + 1;
     });
     
     const topCountries = Object.entries(countryMap)
       .map(([country, count]) => ({ country, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
+      
+    const peakHours = Object.entries(hoursMap)
+      .map(([hour, count]) => {
+        const h = parseInt(hour);
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const displayHour = h % 12 || 12;
+        return { hour: h, display: `${displayHour}:00 ${ampm}`, count };
+      })
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6);
+
+    // 2. Top Users with Activity Details
+    const topUsers = usersSnapshot.docs.map(doc => {
+      const data = doc.data();
+      const uid = doc.id;
+      
+      // Filter interactions for this specific user
+      const userInteractions = interactionsSnapshot.docs
+        .filter(d => d.data().userId === uid)
+        .map(d => ({ title: d.data().title, action: d.data().action }));
+        
+      const userHistory = historySnapshot.docs
+        .filter(d => d.data().userId === uid)
+        .map(d => ({ title: d.data().title, platform: d.data().platform }));
+
+      return {
+        uid,
+        email: data.email || 'Unknown',
+        name: data.displayName || 'Anonymous',
+        timeSpent: data.totalTimeMinutes || 0,
+        recentActivity: [...userInteractions, ...userHistory].slice(0, 5)
+      };
+    }).filter(u => u.timeSpent > 0);
+
+    // 3. Feature Usage
+    const featureMap: Record<string, number> = {};
+    featuresSnapshot.docs.forEach(doc => {
+      const feature = doc.data().feature;
+      if (feature) featureMap[feature] = (featureMap[feature] || 0) + 1;
+    });
+    const featureUsage = Object.entries(featureMap)
+      .map(([feature, count]) => ({ feature, count }))
+      .sort((a, b) => b.count - a.count);
+
+    // 4. Top Searches (Threshold: 10)
+    const searchMap: Record<string, number> = {};
+    searchesSnapshot.docs.forEach(doc => {
+      const q = doc.data().query?.toLowerCase().trim();
+      if (q) searchMap[q] = (searchMap[q] || 0) + 1;
+    });
+    const topSearches = Object.entries(searchMap)
+      .filter(([_, count]) => count >= 10) // THRESHOLD
+      .map(([query, count]) => ({ query, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    // 5. Top Movies (Threshold: 10 total interactions)
+    const movieMap: Record<string, { watches: number; downloads: number }> = {};
+    interactionsSnapshot.docs.forEach(doc => {
+      const data = doc.data();
+      const title = data.title;
+      if (title && data.mediaType === 'movie') {
+        if (!movieMap[title]) movieMap[title] = { watches: 0, downloads: 0 };
+        if (data.action === 'watch') movieMap[title].watches += 1;
+        if (data.action === 'download') movieMap[title].downloads += 1;
+      }
+    });
+    
+    const topMovies = Object.entries(movieMap)
+      .filter(([_, stats]) => (stats.watches + stats.downloads) >= 10) // THRESHOLD
+      .map(([title, stats]) => ({ title, ...stats }))
+      .sort((a, b) => (b.watches + b.downloads) - (a.watches + a.downloads))
+      .slice(0, 10);
+
+    // 6. Top Platforms (From Video/Music History)
+    const platformMap: Record<string, number> = {};
+    historySnapshot.docs.forEach(doc => {
+      const p = doc.data().platform;
+      if (p && p !== 'MovieBox') { // Exclude MovieBox for converter stats
+        platformMap[p] = (platformMap[p] || 0) + 1;
+      }
+    });
+    const topPlatforms = Object.entries(platformMap)
+      .map(([platform, count]) => ({ platform, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
 
     return {
       totalUsers: usersCount.data().count,
       totalVisits: visitsCount.data().count,
       onlineNow: onlineSnapshot.data().count,
-      topCountries
+      topCountries,
+      topUsers,
+      featureUsage,
+      topSearches,
+      topMovies,
+      peakHours,
+      topPlatforms
     };
   } catch (error) {
     console.error('Error fetching stats:', error);

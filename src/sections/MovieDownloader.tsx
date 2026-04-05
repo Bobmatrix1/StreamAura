@@ -20,10 +20,13 @@ import {
 } from 'lucide-react';
 import { useDownload } from '../contexts/DownloadContext';
 import { useToast } from '../contexts/ToastContext';
+import { useAuth } from '../contexts/AuthContext';
 import mediaApi, { API_BASE_URL } from '../api/mediaApi';
+import { logSearch, logMediaInteraction } from '../lib/firebase';
 import type { MovieInfo, VideoQuality } from '../types';
 
 const MovieDownloader: React.FC = () => {
+  const { user } = useAuth();
   const [query, setQuery] = useState('');
   const [searchType, setSearchType] = useState<'movie' | 'series'>('movie');
   const [isSearching, setIsSearching] = useState(false);
@@ -57,16 +60,15 @@ const MovieDownloader: React.FC = () => {
   // Body scroll lock
   useEffect(() => {
     if (showPlayer || (isLoadingDetails && !selectedMovie)) {
+      const originalStyle = window.getComputedStyle(document.body).overflow;
+      const originalHeight = document.body.style.height;
       document.body.style.overflow = 'hidden';
-      document.body.style.height = '100vh';
-    } else {
-      document.body.style.overflow = 'auto';
-      document.body.style.height = 'auto';
+      document.body.style.height = '100dvh';
+      return () => {
+        document.body.style.overflow = originalStyle;
+        document.body.style.height = originalHeight;
+      };
     }
-    return () => { 
-      document.body.style.overflow = 'auto';
-      document.body.style.height = 'auto';
-    };
   }, [showPlayer, isLoadingDetails, selectedMovie]);
 
   // Close dropdowns on outside click
@@ -84,6 +86,7 @@ const MovieDownloader: React.FC = () => {
     if (!query.trim()) return;
     setIsSearching(true);
     setSelectedMovie(null);
+    logSearch(query, searchType, user?.uid);
     try {
       const result = await mediaApi.searchMovies(query, searchType);
       if (result.success && result.data) {
@@ -204,6 +207,14 @@ const MovieDownloader: React.FC = () => {
       showError('Please select a quality first');
       return;
     }
+    
+    logMediaInteraction({
+      id: selectedMovie.id,
+      title: selectedMovie.title,
+      mediaType: searchType,
+      platform: 'MovieBox'
+    }, 'watch', user?.uid);
+
     setShowPlayer(true);
   };
 
@@ -215,8 +226,7 @@ const MovieDownloader: React.FC = () => {
   const getStreamUrl = () => {
     if (!selectedQuality || !selectedMovie) return '';
     const baseUrl = API_BASE_URL || window.location.origin;
-    // We add a timestamp to force player to reload source if quality changes
-    return `${baseUrl}/api/stream?url=${encodeURIComponent(selectedQuality.url)}&referer=${encodeURIComponent(selectedMovie.referer || 'https://fmoviesunblocked.net/')}&t=${Date.now()}`;
+    return `${baseUrl}/api/stream?url=${encodeURIComponent(selectedQuality.url)}&referer=${encodeURIComponent(selectedMovie.referer || 'https://fmoviesunblocked.net/')}`;
   };
 
   return (
@@ -712,8 +722,8 @@ const MovieDownloader: React.FC = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[99999] bg-black/95 backdrop-blur-3xl flex flex-col items-center justify-center p-4 md:p-10 overflow-hidden"
-              style={{ top: 0, left: 0, height: '100dvh', width: '100vw' }}
+              className="fixed inset-0 z-[999999] bg-black/95 backdrop-blur-3xl flex flex-col items-center justify-center p-4 md:p-10 overflow-hidden"
+              style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, height: '100dvh', width: '100vw' }}
             >
               <div className="w-full max-w-5xl space-y-4">
                 <div className="flex justify-between items-center text-white">
@@ -738,6 +748,7 @@ const MovieDownloader: React.FC = () => {
                     controls 
                     autoPlay
                     preload="auto"
+                    playsInline
                     className="w-full h-full"
                     poster={selectedMovie?.thumbnail}
                   >
@@ -767,8 +778,8 @@ const MovieDownloader: React.FC = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[99999] bg-black/60 backdrop-blur-md flex flex-col items-center justify-center"
-              style={{ top: 0, left: 0, height: '100dvh', width: '100vw' }}
+              className="fixed inset-0 z-[999999] bg-black/60 backdrop-blur-md flex flex-col items-center justify-center"
+              style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, height: '100dvh', width: '100vw' }}
             >
               <div className="w-20 h-20 rounded-3xl glass flex items-center justify-center mb-4">
                 <Loader2 className={`w-10 h-10 animate-spin ${searchType === 'movie' ? 'text-cyan-500' : 'text-purple-500'}`} />

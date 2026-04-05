@@ -18,7 +18,18 @@ import {
   Tablet as TabletIcon,
   HelpCircle,
   RefreshCcw,
-  Settings
+  Settings,
+  LineChart,
+  Clock,
+  Film,
+  TrendingUp,
+  Box,
+  Eye,
+  Download,
+  ChevronRight,
+  History as HistoryIcon,
+  Link2,
+  MoreHorizontal
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -47,13 +58,17 @@ const AdminDashboard: React.FC = () => {
   const { user: currentUser } = useAuth();
   const { showSuccess, showError } = useToast();
   
-  const [activeTab, setActiveTab] = useState<'users' | 'history' | 'traffic'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'history' | 'traffic' | 'insights'>('users');
   const [users, setUsers] = useState<User[]>([]);
   const [history, setHistory] = useState<GlobalHistoryItem[]>([]);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Insight Accordion State
+  const [expandedInsight, setExpandedInsight] = useState<string | null>('users');
+  const [showAllItems, setShowAllItems] = useState<Record<string, boolean>>({});
 
   // Modal State
   const [confirmModal, setConfirmModal] = useState<{
@@ -108,7 +123,6 @@ const AdminDashboard: React.FC = () => {
   // --- ACTIONS ---
 
   const handleToggleAdminAction = (uid: string, name: string, isAdmin: boolean) => {
-    console.log(`[ACTION] Toggle Admin Clicked for: ${name} (${uid})`);
     if (uid === currentUser?.uid) {
       showError("Self-demotion is restricted.");
       return;
@@ -120,7 +134,6 @@ const AdminDashboard: React.FC = () => {
       message: `Are you sure you want to change ${name}'s role?`,
       type: 'warning',
       onConfirm: async () => {
-        console.log(`[ACTION] Confirming Admin Change for ${uid}`);
         try {
           await toggleAdminStatus(uid, !isAdmin);
           showSuccess(`${name} role updated.`);
@@ -134,7 +147,6 @@ const AdminDashboard: React.FC = () => {
   };
 
   const handleDeleteUserAction = (uid: string, name: string) => {
-    console.log(`[ACTION] Delete User Clicked for: ${name} (${uid})`);
     if (uid === currentUser?.uid) {
       showError("You cannot delete yourself.");
       return;
@@ -146,7 +158,6 @@ const AdminDashboard: React.FC = () => {
       message: `Delete ${name}'s account and profile data? This is permanent.`,
       type: 'danger',
       onConfirm: async () => {
-        console.log(`[ACTION] Confirming Deletion for ${uid}`);
         try {
           await deleteUserAccount(uid);
           showSuccess(`${name} removed.`);
@@ -249,6 +260,14 @@ const AdminDashboard: React.FC = () => {
     return n.toString();
   };
 
+  const formatTime = (minutes: number) => {
+    if (!minutes) return '0m';
+    if (minutes < 60) return `${minutes}m`;
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  };
+
   const sortedUserIds = Object.keys(groupedHistory).sort((a, b) => {
     const latestA = groupedHistory[a].downloads[0].downloadedAt;
     const latestB = groupedHistory[b].downloads[0].downloadedAt;
@@ -258,6 +277,10 @@ const AdminDashboard: React.FC = () => {
   const filteredTraffic = stats?.topCountries.filter(c => 
     c.country.toLowerCase().includes(searchQuery.toLowerCase())
   ) || [];
+
+  const toggleShowAll = (id: string) => {
+    setShowAllItems(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   return (
     <div className="space-y-6 pb-10">
@@ -287,10 +310,11 @@ const AdminDashboard: React.FC = () => {
           <h1 className="text-2xl font-bold gradient-text">Admin Dashboard</h1>
           <p className="text-muted-foreground text-sm">System management & live monitoring.</p>
         </div>
-        <div className="flex items-center gap-2 p-1 glass rounded-xl w-fit">
+        <div className="flex flex-wrap items-center gap-2 p-1 glass rounded-xl w-fit">
           <button onClick={() => setActiveTab('users')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'users' ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Users className="w-4 h-4" />Users</button>
           <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'history' ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Activity className="w-4 h-4" />Activity</button>
           <button onClick={() => setActiveTab('traffic')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'traffic' ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Globe className="w-4 h-4" />Traffic</button>
+          <button onClick={() => setActiveTab('insights')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'insights' ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/25' : 'text-muted-foreground hover:text-foreground'}`}><LineChart className="w-4 h-4" />Insights</button>
         </div>
       </div>
 
@@ -381,7 +405,7 @@ const AdminDashboard: React.FC = () => {
                 );
               })}
             </div>
-          ) : (
+          ) : activeTab === 'traffic' ? (
             <div className="space-y-6 p-4">
               <div className="glass-card p-6 border-red-500/20 bg-red-500/[0.02]">
                 <div className="flex flex-col md:flex-row items-center justify-between gap-6">
@@ -400,6 +424,156 @@ const AdminDashboard: React.FC = () => {
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          ) : (
+            <div className="space-y-4 p-4">
+              {/* 1. Top Engaged Users */}
+              <div className="glass-card overflow-hidden border-white/5">
+                <button onClick={() => setExpandedInsight(expandedInsight === 'users' ? null : 'users')} className="w-full p-5 flex items-center justify-between hover:bg-white/[0.02] transition-all">
+                  <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center text-blue-400"><Users className="w-5 h-5" /></div><div className="text-left"><h3 className="font-bold text-foreground">Top Engaged Users</h3><p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Activity tracking enabled</p></div></div>
+                  <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${expandedInsight === 'users' ? 'rotate-180' : ''}`} />
+                </button>
+                <AnimatePresence>
+                  {expandedInsight === 'users' && (
+                    <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden bg-black/20 border-t border-white/5">
+                      <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {(stats as any)?.topUsers?.slice(0, showAllItems['users'] ? undefined : 4).map((u: any, i: number) => (
+                          <div key={i} className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 space-y-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center font-bold text-white text-xs">{u.name.charAt(0)}</div><div><p className="font-bold text-sm text-foreground">{u.name}</p><p className="text-[10px] text-muted-foreground">{u.email}</p></div></div>
+                              <p className="text-xs font-black text-blue-400 flex items-center gap-1"><Clock className="w-3 h-3" /> {formatTime(u.timeSpent)}</p>
+                            </div>
+                            <div className="space-y-2">
+                              <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-1.5"><HistoryIcon className="w-3 h-3" /> Recent Activities</p>
+                              <div className="space-y-1.5">
+                                {u.recentActivity?.map((act: any, idx: number) => (
+                                  <div key={idx} className="flex items-center gap-2 text-[11px] bg-white/5 p-2 rounded-lg">
+                                    {act.action === 'watch' ? <Eye className="w-3 h-3 text-cyan-400" /> : <Download className="w-3 h-3 text-purple-400" />}
+                                    <span className="flex-1 truncate font-medium">{act.title}</span>
+                                    <span className="text-[9px] font-bold uppercase opacity-40">{act.platform || act.action}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {(stats as any)?.topUsers?.length > 4 && (
+                        <div className="p-4 border-t border-white/5 flex justify-center">
+                          <button onClick={() => toggleShowAll('users')} className="text-[10px] font-black uppercase tracking-widest text-blue-400 flex items-center gap-2 hover:brightness-125 transition-all">
+                            {showAllItems['users'] ? 'Show Less' : 'View All Users'} <ChevronDown className={`w-3 h-3 ${showAllItems['users'] ? 'rotate-180' : ''}`} />
+                          </button>
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* 2. Top Searches & Media Trends */}
+              <div className="glass-card overflow-hidden border-white/5">
+                <button onClick={() => setExpandedInsight(expandedInsight === 'trends' ? null : 'trends')} className="w-full p-5 flex items-center justify-between hover:bg-white/[0.02] transition-all">
+                  <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center text-purple-400"><TrendingUp className="w-5 h-5" /></div><div className="text-left"><h3 className="font-bold text-foreground">Search & Media Trends</h3><p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Filtered by 10+ interactions</p></div></div>
+                  <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${expandedInsight === 'trends' ? 'rotate-180' : ''}`} />
+                </button>
+                <AnimatePresence>
+                  {expandedInsight === 'trends' && (
+                    <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden bg-black/20 border-t border-white/5">
+                      <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-4">
+                          <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Top Hot Searches</h4>
+                          <div className="space-y-2">
+                            {(stats?.topSearches || []).slice(0, showAllItems['trends'] ? undefined : 5).map((s, i) => (
+                              <div key={i} className="flex justify-between items-center p-3 rounded-xl bg-white/[0.02] border border-white/5">
+                                <span className="text-sm font-bold truncate pr-4">{s.query}</span>
+                                <span className="text-[10px] font-black bg-white/10 px-2 py-1 rounded-lg">{formatNumber(s.count)} HITS</span>
+                              </div>
+                            ))}
+                            {(!stats?.topSearches || stats.topSearches.length === 0) && <p className="text-xs text-muted-foreground italic opacity-50">Threshold (10 hits) not reached</p>}
+                          </div>
+                        </div>
+                        <div className="space-y-4">
+                          <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Popular Content</h4>
+                          <div className="space-y-2">
+                            {(stats?.topMovies || []).slice(0, showAllItems['trends'] ? undefined : 5).map((m, i) => (
+                              <div key={i} className="p-3 rounded-xl bg-white/[0.02] border border-white/5 space-y-2">
+                                <span className="text-sm font-bold truncate block">{m.title}</span>
+                                <div className="flex gap-4"><div className="flex items-center gap-1.5"><Eye className="w-3 h-3 text-cyan-400" /> <span className="text-[10px] font-black text-cyan-400">{formatNumber(m.watches)}</span></div><div className="flex items-center gap-1.5"><Download className="w-3 h-3 text-purple-400" /> <span className="text-[10px] font-black text-purple-400">{formatNumber(m.downloads)}</span></div></div>
+                              </div>
+                            ))}
+                            {(!stats?.topMovies || stats.topMovies.length === 0) && <p className="text-xs text-muted-foreground italic opacity-50">Threshold (10+ interactions) not reached</p>}
+                          </div>
+                        </div>
+                      </div>
+                      {((stats?.topSearches?.length || 0) > 5 || (stats?.topMovies?.length || 0) > 5) && (
+                        <div className="p-4 border-t border-white/5 flex justify-center"><button onClick={() => toggleShowAll('trends')} className="text-[10px] font-black uppercase tracking-widest text-purple-400 flex items-center gap-2 hover:brightness-125 transition-all">{showAllItems['trends'] ? 'Show Less' : 'View Full Leaderboard'} <ChevronDown className={`w-3 h-3 ${showAllItems['trends'] ? 'rotate-180' : ''}`} /></button></div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* 3. Usage & Platforms */}
+              <div className="glass-card overflow-hidden border-white/5">
+                <button onClick={() => setExpandedInsight(expandedInsight === 'usage' ? null : 'usage')} className="w-full p-5 flex items-center justify-between hover:bg-white/[0.02] transition-all">
+                  <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-orange-500/20 flex items-center justify-center text-orange-400"><BarChart className="w-5 h-5" /></div><div className="text-left"><h3 className="font-bold text-foreground">Usage Analytics</h3><p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Features & Platforms</p></div></div>
+                  <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${expandedInsight === 'usage' ? 'rotate-180' : ''}`} />
+                </button>
+                <AnimatePresence>
+                  {expandedInsight === 'usage' && (
+                    <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden bg-black/20 border-t border-white/5">
+                      <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-4">
+                          <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Feature Popularity</h4>
+                          <div className="space-y-4">
+                            {stats?.featureUsage.map((f, i) => {
+                              const max = stats.featureUsage[0].count;
+                              const percentage = (f.count / max) * 100;
+                              return (
+                                <div key={i} className="space-y-2">
+                                  <div className="flex justify-between text-[10px] font-black uppercase text-foreground"><span>{f.feature}</span><span>{formatNumber(f.count)} ACTIONS</span></div>
+                                  <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${percentage}%` }} className={`h-full ${i === 0 ? 'bg-cyan-500' : 'bg-white/20'}`} /></div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <div className="space-y-4">
+                          <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Source Conversion</h4>
+                          <div className="grid grid-cols-2 gap-2">
+                            {stats?.topPlatforms.map((p, i) => (
+                              <div key={i} className="flex justify-between items-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><span className="text-xs font-bold capitalize">{p.platform}</span><span className="text-[10px] font-black text-orange-400">{formatNumber(p.count)}</span></div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* 4. Peak Traffic Times */}
+              <div className="glass-card overflow-hidden border-white/5">
+                <button onClick={() => setExpandedInsight(expandedInsight === 'time' ? null : 'time')} className="w-full p-5 flex items-center justify-between hover:bg-white/[0.02] transition-all">
+                  <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-green-500/20 flex items-center justify-center text-green-400"><Clock className="w-5 h-5" /></div><div className="text-left"><h3 className="font-bold text-foreground">Peak Usage Times</h3><p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">24H Heat Map (12H Format)</p></div></div>
+                  <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${expandedInsight === 'time' ? 'rotate-180' : ''}`} />
+                </button>
+                <AnimatePresence>
+                  {expandedInsight === 'time' && (
+                    <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden bg-black/20 border-t border-white/5">
+                      <div className="p-6 flex flex-wrap gap-3">
+                        {stats?.peakHours.map((h: any, i: number) => (
+                          <div key={i} className="flex-1 min-w-[120px] p-4 rounded-2xl bg-white/[0.03] border border-white/5 text-center space-y-1">
+                            <p className="text-xl font-black text-blue-400">{h.display}</p>
+                            <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">{formatNumber(h.count)} VISITS</p>
+                            <div className="w-full h-1 bg-white/5 mt-2 rounded-full overflow-hidden"><div className="h-full bg-blue-500/40" style={{ width: `${(h.count / stats.peakHours[0].count) * 100}%` }} /></div>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
           )}
         </div>

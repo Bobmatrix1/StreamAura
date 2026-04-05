@@ -129,11 +129,11 @@ def format_size(size_bytes):
 
 @app.get("/api/stream")
 async def stream_video(url: str, request: Request, referer: Optional[str] = None):
-    # This endpoint now pipes data directly with NO BUFFERING
     active_referer = referer if referer else "https://fmoviesunblocked.net/"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
         "Referer": active_referer,
+        "Accept": "*/*"
     }
     
     range_header = request.headers.get("Range")
@@ -142,29 +142,29 @@ async def stream_video(url: str, request: Request, referer: Optional[str] = None
 
     try:
         client = httpx.AsyncClient(follow_redirects=True, timeout=None)
-        # Build and send the request with streaming enabled
+        # Use a single-pass streaming request for instant playback
         source_req = client.build_request("GET", url, headers=headers)
         source_resp = await client.send(source_req, stream=True)
 
         async def stream_generator():
             try:
-                async for chunk in source_resp.aiter_bytes(chunk_size=1024*128):
+                # Small 16KB chunks initially for fast metadata loading, then 128KB for stability
+                async for chunk in source_resp.aiter_bytes(chunk_size=16384):
                     yield chunk
             finally:
                 await source_resp.aclose()
                 await client.aclose()
 
-        # Extract only the headers needed for streaming
-        response_headers = {}
-        for key in ["content-type", "content-length", "accept-ranges", "content-range"]:
+        response_headers = {
+            "Accept-Ranges": "bytes",
+            "Access-Control-Allow-Origin": "*",
+            "Content-Type": source_resp.headers.get("content-type", "video/mp4")
+        }
+        
+        # Pass through length and range headers if they exist
+        for key in ["content-length", "content-range"]:
             if key in source_resp.headers:
                 response_headers[key] = source_resp.headers[key]
-        
-        # Ensure correct type if missing
-        if "content-type" not in response_headers:
-            response_headers["Content-Type"] = "video/mp4"
-        
-        response_headers["Access-Control-Allow-Origin"] = "*"
 
         return StreamingResponse(
             stream_generator(),
@@ -172,7 +172,7 @@ async def stream_video(url: str, request: Request, referer: Optional[str] = None
             headers=response_headers
         )
     except Exception as e:
-        print(f"Streaming Proxy Error: {e}")
+        print(f"Streaming Error: {e}")
         return JSONResponse(status_code=500, content={"success": False, "error": "Stream initialization failed"})
 
 @app.post("/api/extract")
@@ -225,36 +225,14 @@ async def start_movie_download(request: Request, background_tasks: BackgroundTas
             target_q = q_map.get(quality.lower(), 'BEST')
             async def progress_hook(tracker: DownloadTracker):
                 if not download_events[task_id].is_set():
-                    download_tasks[task_id]["status"], download_tasks[task_id]["stage"] = "paused", "Download Paused"
                     await download_events[task_id].wait()
-                if tracker.expected_size > 2 * 1024 * 1024:
+                if tracker.expected_size > 5 * 1024 * 1024:
                     p = round((tracker.downloaded_size / tracker.expected_size) * 100, 1)
                     if p > download_tasks[task_id]["progress"]: download_tasks[task_id]["progress"] = p
-                    download_tasks[task_id]["status"], download_tasks[task_id]["stage"] = "downloading", "Downloading Movie..."
-            is_direct = url and ('sign=' in url or url.endswith('.mp4'))
-            if is_direct:
-                temp_p = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
-                try:
-                    async with httpx.AsyncClient(timeout=600.0, follow_redirects=True) as client:
-                        async with client.stream("GET", url, headers={"User-Agent": "Mozilla/5.0", "Referer": referer}) as resp:
-                            if resp.status_code == 200:
-                                length = int(resp.headers.get("Content-Length", 0))
-                                dl = 0
-                                with open(temp_p, "wb") as f:
-                                    async for chunk in resp.aiter_bytes():
-                                        if not download_events[task_id].is_set():
-                                            await download_events[task_id].wait()
-                                        f.write(chunk)
-                                        dl += len(chunk)
-                                        if length > 0:
-                                            p = round((dl / length) * 100, 1)
-                                            if p > download_tasks[task_id]["progress"]: download_tasks[task_id]["progress"], download_tasks[task_id]["status"] = p, "downloading"
-                                download_tasks[task_id]["status"], download_tasks[task_id]["progress"], download_tasks[task_id]["path"] = "completed", 100, temp_p
-                                return
-                except Exception: pass
+                    download_tasks[task_id]["status"] = "downloading"
             downloader = Downloader()
             downloaded_file = None
-            search_query = title if title else subject_id
+            search_query = subject_id if subject_id else title
             try:
                 if media_type == "series" and season and episode:
                     results = await downloader.download_tv_series(title, season=int(season), episode=int(episode), limit=1, yes=True, quality=target_q, dir=DOWNLOAD_DIR, progress_hook=progress_hook)

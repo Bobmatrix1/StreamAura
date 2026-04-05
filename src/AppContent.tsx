@@ -14,7 +14,7 @@ import BulkDownloader from '@/sections/BulkDownloader';
 import History from '@/sections/History';
 import AdminDashboard from '@/sections/AdminDashboard';
 import InstallPWA from '@/components/InstallPWA';
-import { logVisit, updateUserPresence } from '@/lib/firebase';
+import { logVisit, updateUserPresence, logFeatureUsage } from '@/lib/firebase';
 import type { ViewType } from '@/types';
 
 /**
@@ -80,6 +80,9 @@ export const AppContent: React.FC = () => {
 
   const handleTabChange = (tab: ViewType) => {
     setActiveView(tab);
+    if (isAuthenticated && user?.uid) {
+      logFeatureUsage(tab, user.uid);
+    }
   };
 
   if (isLoading) {
@@ -144,7 +147,7 @@ export const AppContent: React.FC = () => {
           className="mt-12 text-center"
         >
           <div className="flex items-center justify-center gap-2 mb-1">
-            <span className="text-xl font-bold tracking-tight gradient-text">Media Engine</span>
+            <span className="text-xl font-bold tracking-tight gradient-text">StreamAura</span>
             <div className="flex gap-1">
               {[0, 1, 2].map((i) => (
                 <motion.div
@@ -157,7 +160,7 @@ export const AppContent: React.FC = () => {
             </div>
           </div>
           <p className="text-muted-foreground text-xs uppercase tracking-[0.2em] font-medium opacity-60">
-            Initializing System Core
+            Download Anything. Feel the Aura.
           </p>
         </motion.div>
       </div>
