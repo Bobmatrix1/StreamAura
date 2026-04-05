@@ -12,10 +12,9 @@ import {
   signOut,
   onAuthStateChanged,
   updateProfile,
-  GoogleAuthProvider,
-  signInWithPopup,
   sendPasswordResetEmail,
-  type User as FirebaseUser
+  GoogleAuthProvider,
+  signInWithPopup
 } from 'firebase/auth';
 import { 
   getFirestore, 
@@ -103,18 +102,12 @@ export const updateAppBadge = (count: number) => {
 
 export const sendGlobalNotification = async (title: string, message: string) => {
   try {
-    // 1. Store in a global collection for everyone to pull
-    const globalRef = collection(db, 'notifications_broadcast');
-    await addDoc(globalRef, {
-      title,
-      message,
-      timestamp: serverTimestamp(),
-      type: 'update'
+    const response = await fetch('/api/admin/broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, message })
     });
-
-    // 2. In a production environment with Cloud Functions, 
-    // this would trigger an FCM push to all tokens in the 'users' collection.
-    return true;
+    return response.ok;
   } catch (error) {
     console.error('Error sending notification:', error);
     return false;
@@ -165,123 +158,71 @@ export const clearAllUserNotifications = async (userId: string) => {
   await batch.commit();
 };
 
-// Google Analytics disabled to prevent network timeouts/errors
-export const analytics = null;
-
 // Google Auth Provider
 const googleProvider = new GoogleAuthProvider();
 
-/**
- * Helper to handle Firebase errors with better messages
- */
-const handleAuthError = (error: any): never => {
-  console.error('Firebase Auth Error:', error);
-  if (error.code === 'auth/network-request-failed' || error.message?.includes('503')) {
-    throw new Error('Google Auth servers are temporarily unavailable. Please wait a minute and try again.');
-  }
-  if (error.code === 'auth/user-not-found' || error.message?.includes('not registered')) {
-    throw new Error('This email address is not registered in our system.');
-  }
-  if (error.code === 'auth/popup-closed-by-user') {
-    throw new Error('Sign-in window was closed. Please try again.');
-  }
-  throw error;
-};
-
-/**
- * Convert Firebase user to our User type
- */
-const convertToUser = async (firebaseUser: FirebaseUser, createIfMissing = true): Promise<User | null> => {
-  const userDocRef = doc(db, 'users', firebaseUser.uid);
-  let userDoc;
-  
+export const signInWithGoogle = async (): Promise<User | null> => {
   try {
-    userDoc = await getDoc(userDocRef);
-    if (!userDoc.exists() && !createIfMissing) {
-      userDoc = await getDocFromServer(userDocRef);
+    const result = await signInWithPopup(auth, googleProvider);
+    const user = result.user;
+    
+    const userDocRef = doc(db, 'users', user.uid);
+    const userDoc = await getDoc(userDocRef);
+    
+    if (!userDoc.exists()) {
+      const userData: User = {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: user.photoURL,
+        isAdmin: false,
+        createdAt: Date.now()
+      };
+      await setDoc(userDocRef, userData);
+      return userData;
     }
-  } catch (err) {
-    try {
-      userDoc = await getDocFromServer(userDocRef);
-    } catch (serverErr) {
-      return null;
-    }
+    
+    return userDoc.data() as User;
+  } catch (error) {
+    console.error('Google Sign In error:', error);
+    throw new Error('Failed to sign in with Google');
   }
-  
-  let isAdmin = false;
-  let createdAt = Date.now();
-  let lastDevice = 'Unknown';
-  
-  if (userDoc.exists()) {
-    const userData = userDoc.data();
-    isAdmin = userData.isAdmin || false;
-    createdAt = userData.createdAt?.toMillis?.() || Date.now();
-    lastDevice = userData.lastDevice || 'Unknown';
-  } else {
-    if (!createIfMissing) return null;
-    await setDoc(userDocRef, {
-      email: firebaseUser.email,
-      displayName: firebaseUser.displayName,
-      photoURL: firebaseUser.photoURL,
-      isAdmin: false,
-      createdAt: serverTimestamp(),
-      lastDevice: 'Desktop'
-    });
-  }
-  
-  return {
-    uid: firebaseUser.uid,
-    email: firebaseUser.email,
-    displayName: firebaseUser.displayName,
-    photoURL: firebaseUser.photoURL,
-    isAdmin,
-    createdAt,
-    lastDevice
-  } as any;
 };
-
-/**
- * Authentication Functions
- */
 
 export const signUpWithEmail = async (email: string, password: string, displayName: string): Promise<User> => {
   try {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    await updateProfile(userCredential.user, { displayName });
-    const user = await convertToUser(userCredential.user);
-    if (!user) throw new Error('Failed to create user profile');
-    return user;
-  } catch (error) {
-    return handleAuthError(error);
+    const result = await createUserWithEmailAndPassword(auth, email, password);
+    const user = result.user;
+    await updateProfile(user, { displayName });
+    const userData: User = {
+      uid: user.uid,
+      email: user.email,
+      displayName: displayName,
+      photoURL: null,
+      isAdmin: false,
+      createdAt: Date.now()
+    };
+    await setDoc(doc(db, 'users', user.uid), userData);
+    return userData;
+  } catch (error: any) {
+    throw new Error(error.message || 'Failed to sign up');
   }
 };
 
 export const signInWithEmail = async (email: string, password: string): Promise<User> => {
   try {
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    const user = await convertToUser(userCredential.user);
-    if (!user) throw new Error('User profile not found');
-    return user;
-  } catch (error) {
-    return handleAuthError(error);
-  }
-};
-
-export const signInWithGoogle = async (): Promise<User> => {
-  try {
-    const userCredential = await signInWithPopup(auth, googleProvider);
-    const user = await convertToUser(userCredential.user, false);
-    if (!user) {
-      const currentUser = auth.currentUser;
-      if (currentUser) {
-        await signOut(auth);
-        try { await currentUser.delete(); } catch (e) {}
-      }
-      throw new Error('Account not found. Please sign up first.');
-    }
-    return user;
-  } catch (error) {
-    return handleAuthError(error);
+    const result = await signInWithEmailAndPassword(auth, email, password);
+    const user = result.user;
+    const userDoc = await getDoc(doc(db, 'users', user.uid));
+    if (userDoc.exists()) return userDoc.data() as User;
+    const userData: User = {
+      uid: user.uid, email: user.email, displayName: user.displayName,
+      photoURL: user.photoURL, isAdmin: false, createdAt: Date.now()
+    };
+    await setDoc(doc(db, 'users', user.uid), userData);
+    return userData;
+  } catch (error: any) {
+    throw new Error(error.message || 'Failed to sign in');
   }
 };
 
@@ -289,117 +230,74 @@ export const logOut = async (): Promise<void> => {
   await signOut(auth);
 };
 
-export const resetPassword = async (email: string): Promise<void> => {
-  try {
-    const usersRef = collection(db, 'users');
-    const q = query(usersRef, where('email', '==', email));
-    const querySnapshot = await getDocsFromServer(q);
-    if (querySnapshot.empty) {
-      throw new Error('This email address is not registered in our system.');
-    }
-    await sendPasswordResetEmail(auth, email);
-  } catch (error: any) {
-    return handleAuthError(error);
-  }
-};
-
-export const getCurrentUser = (): Promise<User | null> => {
-  return new Promise((resolve) => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
-      unsubscribe();
-      if (firebaseUser) {
-        const user = await convertToUser(firebaseUser, false);
-        resolve(user);
-      } else {
-        resolve(null);
-      }
-    });
-  });
-};
-
-export const checkIsAdmin = async (uid: string): Promise<boolean> => {
-  const userDocRef = doc(db, 'users', uid);
-  const userDoc = await getDoc(userDocRef);
-  return userDoc.exists() ? userDoc.data().isAdmin || false : false;
-};
-
-export const onAuthChange = (callback: (user: User | null) => void): (() => void) => {
-  return onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
+export const onAuthChange = (callback: (user: User | null) => void) => {
+  return onAuthStateChanged(auth, async (firebaseUser) => {
     if (firebaseUser) {
-      const user = await convertToUser(firebaseUser, false);
-      callback(user);
+      const userData = await getUserData(firebaseUser.uid);
+      callback(userData);
     } else {
       callback(null);
     }
   });
 };
 
-/**
- * Admin Functions
- */
+export const resetPassword = async (email: string): Promise<void> => {
+  await sendPasswordResetEmail(auth, email);
+};
+
+export const getUserData = async (uid: string, createIfMissing = false): Promise<User | null> => {
+  const userDocRef = doc(db, 'users', uid);
+  try {
+    let userDoc = await getDoc(userDocRef);
+    if (!userDoc.exists() && !createIfMissing) userDoc = await getDocFromServer(userDocRef);
+    if (userDoc.exists()) return userDoc.data() as User;
+    return null;
+  } catch (err) {
+    return null;
+  }
+};
+
+export const toggleAdminStatus = async (uid: string, isAdmin: boolean): Promise<void> => {
+  await updateDoc(doc(db, 'users', uid), { isAdmin });
+};
+
+export const deleteUserAccount = async (uid: string): Promise<void> => {
+  await deleteDoc(doc(db, 'users', uid));
+};
 
 export const getAllUsers = async (): Promise<User[]> => {
   try {
     const usersRef = collection(db, 'users');
-    const q = query(usersRef, orderBy('createdAt', 'desc'));
+    const q = query(usersRef, orderBy('createdAt', 'desc'), limit(500));
     const snapshot = await getDocs(q);
     return snapshot.docs.map(doc => {
       const data = doc.data();
       return {
         uid: doc.id,
-        email: data.email || null,
-        displayName: data.displayName || null,
-        photoURL: data.photoURL || null,
+        email: data.email,
+        displayName: data.displayName,
+        photoURL: data.photoURL,
         isAdmin: data.isAdmin || false,
-        createdAt: data.createdAt?.toMillis?.() || Date.now(),
+        createdAt: data.createdAt?.toMillis?.() || data.createdAt || Date.now(),
         lastDevice: data.lastDevice || 'Unknown'
-      };
+      } as any;
     });
   } catch (error) {
-    console.error('Error fetching users:', error);
-    throw new Error('Failed to fetch users');
+    return [];
   }
 };
 
-export const toggleAdminStatus = async (userId: string, status: boolean): Promise<void> => {
+export const saveDownloadHistory = async (userId: string, userEmail: string | null, userDisplayName: string | null, historyItem: any): Promise<void> => {
   try {
-    console.log(`[Firebase] Updating isAdmin to ${status} for ${userId}`);
-    const userRef = doc(db, 'users', userId);
-    await updateDoc(userRef, { isAdmin: status });
-  } catch (error: any) {
-    console.error('Error updating admin status:', error);
-    if (error.code === 'permission-denied') {
-      throw new Error('Permission Denied: Your account does not have permission to modify users. Check your Firestore rules.');
-    }
-    throw new Error(error.message || 'Failed to update admin status');
-  }
-};
-
-export const deleteUserAccount = async (userId: string): Promise<void> => {
-  try {
-    console.log(`[Firebase] Deleting user account ${userId}`);
-    const userRef = doc(db, 'users', userId);
-    await deleteDoc(userRef);
-  } catch (error: any) {
-    console.error('Error deleting user:', error);
-    if (error.code === 'permission-denied') {
-      throw new Error('Permission Denied: You do not have permission to delete users.');
-    }
-    throw new Error(error.message || 'Failed to delete user account');
-  }
-};
-
-/**
- * Global History Functions
- */
-
-export const saveDownloadHistory = async (item: GlobalHistoryItem): Promise<void> => {
-  try {
-    const historyDocRef = doc(db, 'downloads', item.id);
-    await setDoc(historyDocRef, item);
-  } catch (error) {
-    console.error('Error saving global history:', error);
-  }
+    const historyRef = collection(db, 'downloads');
+    await addDoc(historyRef, {
+      ...historyItem,
+      userId,
+      userEmail,
+      userDisplayName,
+      downloadedAt: Date.now()
+    });
+  } catch (error) {}
 };
 
 export const getGlobalHistory = async (limitCount = 100): Promise<GlobalHistoryItem[]> => {
@@ -409,8 +307,7 @@ export const getGlobalHistory = async (limitCount = 100): Promise<GlobalHistoryI
     const snapshot = await getDocs(q);
     return snapshot.docs.map(doc => doc.data() as GlobalHistoryItem);
   } catch (error) {
-    console.error('Error fetching global history:', error);
-    throw new Error('Failed to fetch global history');
+    return [];
   }
 };
 
@@ -423,55 +320,36 @@ export const logVisit = async (country: string, device: string = 'Unknown'): Pro
     const visitsRef = collection(db, 'visits');
     const now = new Date();
     await addDoc(visitsRef, {
-      country,
-      device,
-      timestamp: serverTimestamp(),
-      hour: now.getHours(), // For peak time analysis
-      platform: navigator.platform
+      country, device, timestamp: serverTimestamp(),
+      hour: now.getHours(), platform: navigator.platform
     });
-  } catch (error) {
-    console.error('Error logging visit:', error);
-  }
+  } catch (error) {}
 };
 
 export const clearAllTraffic = async (): Promise<void> => {
-  try {
-    const visitsRef = collection(db, 'visits');
-    const snapshot = await getDocs(visitsRef);
-    const batch = writeBatch(db);
-    snapshot.docs.forEach(doc => batch.delete(doc.ref));
-    await batch.commit();
-  } catch (error) {
-    console.error('Error clearing traffic:', error);
-    throw new Error('Failed to clear traffic data');
-  }
+  const visitsRef = collection(db, 'visits');
+  const snapshot = await getDocs(query(visitsRef, limit(500)));
+  const batch = writeBatch(db);
+  snapshot.docs.forEach(doc => batch.delete(doc.ref));
+  await batch.commit();
 };
 
 export const logFeatureUsage = async (feature: string, userId?: string): Promise<void> => {
   try {
     const featureRef = collection(db, 'feature_usage');
     await addDoc(featureRef, {
-      feature,
-      userId: userId || 'anonymous',
-      timestamp: serverTimestamp()
+      feature, userId: userId || 'anonymous', timestamp: serverTimestamp()
     });
-  } catch (error) {
-    console.error('Error logging feature usage:', error);
-  }
+  } catch (error) {}
 };
 
 export const logSearch = async (queryText: string, type: 'movie' | 'video' | 'music', userId?: string): Promise<void> => {
   try {
     const searchRef = collection(db, 'searches');
     await addDoc(searchRef, {
-      query: queryText,
-      type,
-      userId: userId || 'anonymous',
-      timestamp: serverTimestamp()
+      query: queryText, type, userId: userId || 'anonymous', timestamp: serverTimestamp()
     });
-  } catch (error) {
-    console.error('Error logging search:', error);
-  }
+  } catch (error) {}
 };
 
 export const logMediaInteraction = async (
@@ -482,14 +360,9 @@ export const logMediaInteraction = async (
   try {
     const interactionRef = collection(db, 'interactions');
     await addDoc(interactionRef, {
-      ...item,
-      action,
-      userId: userId || 'anonymous',
-      timestamp: serverTimestamp()
+      ...item, action, userId: userId || 'anonymous', timestamp: serverTimestamp()
     });
-  } catch (error) {
-    console.error('Error logging interaction:', error);
-  }
+  } catch (error) {}
 };
 
 export const updateUserPresence = async (uid: string, device?: string): Promise<void> => {
@@ -498,46 +371,43 @@ export const updateUserPresence = async (uid: string, device?: string): Promise<
     const now = Date.now();
     const userDoc = await getDoc(userDocRef);
     
-    let totalTime = 0;
-    let lastActive = now;
-    
     if (userDoc.exists()) {
       const data = userDoc.data();
-      totalTime = data.totalTimeMinutes || 0;
-      lastActive = data.lastActive?.toMillis?.() || now;
+      const lastActive = data.lastActive?.toMillis?.() || data.lastActive || now;
+      let totalTime = data.totalTimeMinutes || 0;
       
-      // If last active was less than 10 mins ago, count the difference as session time
       const diffMs = now - lastActive;
-      if (diffMs < 10 * 60 * 1000) {
+      if (diffMs < 10 * 60 * 1000 && diffMs > 0) {
         totalTime += Math.round(diffMs / (60 * 1000));
       }
-    }
 
-    const updateData: any = { 
-      lastActive: serverTimestamp(),
-      totalTimeMinutes: totalTime
-    };
-    
-    if (device && device !== 'Unknown') {
-      updateData.lastDevice = device;
+      await updateDoc(userDocRef, { 
+        lastActive: serverTimestamp(),
+        totalTimeMinutes: totalTime,
+        lastDevice: device || data.lastDevice || 'Unknown'
+      });
+    } else {
+      await setDoc(userDocRef, {
+        lastActive: serverTimestamp(),
+        totalTimeMinutes: 0,
+        createdAt: now,
+        lastDevice: device || 'Unknown'
+      }, { merge: true });
     }
-    
-    await updateDoc(userDocRef, updateData);
-  } catch (error) {
-    // Fail silently
-  }
+  } catch (error) {}
 };
 
 export interface SystemStats {
   totalUsers: number;
   totalVisits: number;
   onlineNow: number;
+  dailyActiveUsers: number;
   topCountries: { country: string; count: number }[];
-  topUsers: { email: string; name: string; visits: number; timeSpent: number }[];
+  topUsers: { email: string; name: string; visits: number; timeSpent: number; recentActivity: any[] }[];
   featureUsage: { feature: string; count: number }[];
   topSearches: { query: string; count: number }[];
   topMovies: { title: string; watches: number; downloads: number }[];
-  peakHours: { hour: number; count: number }[];
+  peakHours: { hour: number; display: string; count: number }[];
   topPlatforms: { platform: string; count: number }[];
 }
 
@@ -550,185 +420,116 @@ export const getStatsSummary = async (): Promise<SystemStats> => {
     const interactionsRef = collection(db, 'interactions');
     const historyRef = collection(db, 'downloads');
     
-    // FETCH IN PARALLEL for speed
-    const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000);
-    const onlineQuery = query(usersRef, where('lastActive', '>=', Timestamp.fromDate(fiveMinsAgo)));
-    const recentVisitsQuery = query(visitsRef, orderBy('timestamp', 'desc'), limit(1000));
+    // FETCH IN PARALLEL with reduced limits for speed
+    const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     
-    // Fetch users for top users analysis
-    const allUsersQuery = query(usersRef, orderBy('totalTimeMinutes', 'desc'), limit(20));
+    const onlineQuery = query(usersRef, where('lastActive', '>=', Timestamp.fromDate(thirtyMinsAgo)));
+    const dailyQuery = query(usersRef, where('lastActive', '>=', Timestamp.fromDate(twentyFourHoursAgo)));
 
     const [
-      usersCount, 
-      visitsCount, 
-      onlineSnapshot, 
-      visitsSnapshot,
-      usersSnapshot,
-      featuresSnapshot,
-      searchesSnapshot,
-      interactionsSnapshot,
-      historySnapshot
+      usersCount, visitsCount, onlineSnapshot, dailySnapshot,
+      visitsSnapshot, usersSnapshot, featuresSnapshot, searchesSnapshot,
+      interactionsSnapshot, historySnapshot
     ] = await Promise.all([
       getCountFromServer(usersRef),
       getCountFromServer(visitsRef),
-      getCountFromServer(onlineQuery),
-      getDocs(recentVisitsQuery),
-      getDocs(allUsersQuery),
-      getDocs(query(featuresRef, orderBy('timestamp', 'desc'), limit(1000))),
-      getDocs(query(searchesRef, where('type', '==', 'movie'), orderBy('timestamp', 'desc'), limit(500))),
-      getDocs(query(interactionsRef, orderBy('timestamp', 'desc'), limit(1000))),
-      getDocs(query(historyRef, orderBy('downloadedAt', 'desc'), limit(1000)))
+      getDocs(onlineQuery), // Changed to getDocs for 100% reliability
+      getCountFromServer(dailyQuery),
+      getDocs(query(visitsRef, orderBy('timestamp', 'desc'), limit(200))),
+      getDocs(query(usersRef, orderBy('totalTimeMinutes', 'desc'), limit(20))),
+      getDocs(query(featuresRef, orderBy('timestamp', 'desc'), limit(200))),
+      getDocs(query(searchesRef, orderBy('timestamp', 'desc'), limit(200))),
+      getDocs(query(interactionsRef, orderBy('timestamp', 'desc'), limit(200))),
+      getDocs(query(historyRef, orderBy('downloadedAt', 'desc'), limit(200)))
     ]);
 
-    // 1. Top Countries & Peak Hours (12h format)
+    // 1. Countries & Peak Hours
     const countryMap: Record<string, number> = {};
     const hoursMap: Record<number, number> = {};
     visitsSnapshot.docs.forEach(doc => {
       const data = doc.data();
-      const country = data.country || 'Unknown';
       const hour = data.hour !== undefined ? data.hour : (data.timestamp?.toDate()?.getHours() || 0);
-      countryMap[country] = (countryMap[country] || 0) + 1;
+      countryMap[data.country || 'Unknown'] = (countryMap[data.country || 'Unknown'] || 0) + 1;
       hoursMap[hour] = (hoursMap[hour] || 0) + 1;
     });
     
-    const topCountries = Object.entries(countryMap)
-      .map(([country, count]) => ({ country, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
-      
-    const peakHours = Object.entries(hoursMap)
-      .map(([hour, count]) => {
-        const h = parseInt(hour);
-        const ampm = h >= 12 ? 'PM' : 'AM';
-        const displayHour = h % 12 || 12;
-        return { hour: h, display: `${displayHour}:00 ${ampm}`, count };
-      })
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 6);
+    const peakHours = Object.entries(hoursMap).map(([hour, count]) => {
+      const h = parseInt(hour);
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      return { hour: h, display: `${h % 12 || 12}:00 ${ampm}`, count };
+    }).sort((a, b) => b.count - a.count).slice(0, 6);
 
-    // 2. Top Users with Activity Details
+    // 2. Top Users
     const topUsers = usersSnapshot.docs.map(doc => {
       const data = doc.data();
       const uid = doc.id;
-      
-      // Filter interactions for this specific user
-      const userInteractions = interactionsSnapshot.docs
-        .filter(d => d.data().userId === uid)
-        .map(d => ({ title: d.data().title, action: d.data().action }));
-        
-      const userHistory = historySnapshot.docs
-        .filter(d => d.data().userId === uid)
-        .map(d => ({ title: d.data().title, platform: d.data().platform }));
-
+      const userInteractions = interactionsSnapshot.docs.filter(d => d.data().userId === uid).map(d => ({ title: d.data().title, action: d.data().action }));
+      const userHistory = historySnapshot.docs.filter(d => d.data().userId === uid).map(d => ({ title: d.data().title, platform: d.data().platform }));
       return {
-        uid,
-        email: data.email || 'Unknown',
-        name: data.displayName || 'Anonymous',
-        timeSpent: data.totalTimeMinutes || 0,
-        recentActivity: [...userInteractions, ...userHistory].slice(0, 5)
+        email: data.email || 'Unknown', name: data.displayName || 'Anonymous',
+        timeSpent: data.totalTimeMinutes || 0, recentActivity: [...userInteractions, ...userHistory].slice(0, 5)
       };
     }).filter(u => u.timeSpent > 0);
 
     // 3. Feature Usage
     const featureMap: Record<string, number> = {};
     featuresSnapshot.docs.forEach(doc => {
-      const feature = doc.data().feature;
-      if (feature) featureMap[feature] = (featureMap[feature] || 0) + 1;
+      const f = doc.data().feature;
+      if (f) featureMap[f] = (featureMap[f] || 0) + 1;
     });
-    const featureUsage = Object.entries(featureMap)
-      .map(([feature, count]) => ({ feature, count }))
-      .sort((a, b) => b.count - a.count);
 
-    // 4. Top Searches (Threshold: 10)
+    // 4. Searches & Media (Min 10 threshold)
     const searchMap: Record<string, number> = {};
     searchesSnapshot.docs.forEach(doc => {
       const q = doc.data().query?.toLowerCase().trim();
       if (q) searchMap[q] = (searchMap[q] || 0) + 1;
     });
-    const topSearches = Object.entries(searchMap)
-      .filter(([_, count]) => count >= 10) // THRESHOLD
-      .map(([query, count]) => ({ query, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
 
-    // 5. Top Movies (Threshold: 10 total interactions)
     const movieMap: Record<string, { watches: number; downloads: number }> = {};
     interactionsSnapshot.docs.forEach(doc => {
       const data = doc.data();
-      const title = data.title;
-      if (title && data.mediaType === 'movie') {
-        if (!movieMap[title]) movieMap[title] = { watches: 0, downloads: 0 };
-        if (data.action === 'watch') movieMap[title].watches += 1;
-        if (data.action === 'download') movieMap[title].downloads += 1;
+      if (data.title && (data.mediaType === 'movie' || data.mediaType === 'series')) {
+        if (!movieMap[data.title]) movieMap[data.title] = { watches: 0, downloads: 0 };
+        if (data.action === 'watch') movieMap[data.title].watches += 1;
+        if (data.action === 'download') movieMap[data.title].downloads += 1;
       }
     });
-    
-    const topMovies = Object.entries(movieMap)
-      .filter(([_, stats]) => (stats.watches + stats.downloads) >= 10) // THRESHOLD
-      .map(([title, stats]) => ({ title, ...stats }))
-      .sort((a, b) => (b.watches + b.downloads) - (a.watches + a.downloads))
-      .slice(0, 10);
 
-    // 6. Top Platforms (From Video/Music History)
     const platformMap: Record<string, number> = {};
     historySnapshot.docs.forEach(doc => {
       const p = doc.data().platform;
-      if (p && p !== 'MovieBox') { // Exclude MovieBox for converter stats
-        platformMap[p] = (platformMap[p] || 0) + 1;
-      }
+      if (p && p !== 'MovieBox') platformMap[p] = (platformMap[p] || 0) + 1;
     });
-    const topPlatforms = Object.entries(platformMap)
-      .map(([platform, count]) => ({ platform, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 8);
 
     return {
-      totalUsers: usersCount.data().count,
-      totalVisits: visitsCount.data().count,
-      onlineNow: onlineSnapshot.data().count,
-      topCountries,
-      topUsers,
-      featureUsage,
-      topSearches,
-      topMovies,
-      peakHours,
-      topPlatforms
+      totalUsers: usersCount.data().count, totalVisits: visitsCount.data().count,
+      onlineNow: onlineSnapshot.size, dailyActiveUsers: dailySnapshot.data().count,
+      topCountries: Object.entries(countryMap).map(([country, count]) => ({ country, count })).sort((a, b) => b.count - a.count).slice(0, 5),
+      topUsers, featureUsage: Object.entries(featureMap).map(([feature, count]) => ({ feature, count })).sort((a, b) => b.count - a.count),
+      topSearches: Object.entries(searchMap).filter(([_, count]) => count >= 10).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 10),
+      topMovies: Object.entries(movieMap).filter(([_, s]) => (s.watches + s.downloads) >= 10).map(([title, s]) => ({ title, ...s })).sort((a, b) => (b.watches + b.downloads) - (a.watches + a.downloads)).slice(0, 10),
+      peakHours, topPlatforms: Object.entries(platformMap).map(([platform, count]) => ({ platform, count })).sort((a, b) => b.count - a.count).slice(0, 8)
     };
   } catch (error) {
-    console.error('Error fetching stats:', error);
     throw new Error('Failed to fetch system statistics');
   }
 };
 
 export const clearUserHistory = async (userId: string): Promise<void> => {
-  try {
-    const historyRef = collection(db, 'downloads');
-    const q = query(historyRef, where('userId', '==', userId));
-    const snapshot = await getDocs(q);
-    const batch = writeBatch(db);
-    snapshot.docs.forEach((doc) => {
-      batch.delete(doc.ref);
-    });
-    await batch.commit();
-  } catch (error) {
-    console.error('Error clearing user history:', error);
-    throw new Error('Failed to clear user history');
-  }
+  const historyRef = collection(db, 'downloads');
+  const snapshot = await getDocs(query(historyRef, where('userId', '==', userId)));
+  const batch = writeBatch(db);
+  snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+  await batch.commit();
 };
 
 export const clearAllHistory = async (): Promise<void> => {
-  try {
-    const historyRef = collection(db, 'downloads');
-    const snapshot = await getDocs(historyRef);
-    const batch = writeBatch(db);
-    snapshot.docs.forEach((doc) => {
-      batch.delete(doc.ref);
-    });
-    await batch.commit();
-  } catch (error) {
-    console.error('Error clearing global history:', error);
-    throw new Error('Failed to clear global history');
-  }
+  const historyRef = collection(db, 'downloads');
+  const snapshot = await getDocs(query(historyRef, limit(500)));
+  const batch = writeBatch(db);
+  snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+  await batch.commit();
 };
 
 export default app;
