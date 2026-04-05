@@ -7,6 +7,8 @@ import uuid
 import html
 import traceback
 from typing import List, Optional, Union
+import firebase_admin
+from firebase_admin import credentials, messaging, firestore
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
@@ -23,6 +25,25 @@ from moviebox_api.v1 import MovieDetails, DownloadableMovieFilesDetail
 load_dotenv()
 
 app = FastAPI(title="StreamAura API")
+
+# Initialize Firebase Admin
+try:
+    # This will look for GOOGLE_APPLICATION_CREDENTIALS env var or use default service account if on GCP
+    service_account_path = os.path.join(os.path.dirname(__file__), "serviceAccountKey.json")
+    if os.path.exists(service_account_path):
+        cred = credentials.Certificate(service_account_path)
+        firebase_admin.initialize_app(cred)
+        print(f"--- Firebase Admin Initialized via File: {service_account_path} ---")
+    else:
+        # 2. Fallback to default credentials (environment variable)
+        firebase_admin.initialize_app()
+        print("--- Firebase Admin Initialized via Default Credentials ---")
+    
+    db_admin = firestore.client()
+except Exception as e:
+    print(f"--- Firebase Admin Initialization Warning: {e} ---")
+    print("--- (Broadcast notifications will be disabled until credentials are provided) ---")
+    db_admin = None
 
 # CORS
 app.add_middleware(
@@ -204,6 +225,103 @@ async def download_video(url: str, background_tasks: BackgroundTasks, filename: 
         return FileResponse(path=temp_path, filename=filename)
     except Exception as e:
         if os.path.exists(temp_path): os.remove(temp_path)
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+@app.post("/api/admin/broadcast")
+async def broadcast_notification(request: Request):
+    if not db_admin:
+        return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Admin not initialized"})
+    
+    data = await request.json()
+    title = data.get('title')
+    message = data.get('message')
+    
+    if not title or not message:
+        raise HTTPException(status_code=400, detail="Title and message required")
+
+    try:
+        # 1. Get all users
+        users_ref = db_admin.collection('users')
+        users_docs = users_ref.stream()
+        
+        tokens = []
+        user_ids = []
+        
+        for doc in users_docs:
+            u_data = doc.to_dict()
+            user_ids.append(doc.id)
+            if u_data.get('fcmToken'):
+                tokens.append(u_data.get('fcmToken'))
+
+        # 2. Add notification to each user's inbox in Firestore (Batch)
+        # Firestore batch has a limit of 500 operations
+        for i in range(0, len(user_ids), 500):
+            batch = db_admin.batch()
+            chunk = user_ids[i:i + 500]
+            for uid in chunk:
+                notif_ref = db_admin.collection('users').document(uid).collection('notifications').document()
+                batch.set(notif_ref, {
+                    "title": title,
+                    "message": message,
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                    "read": False,
+                    "type": "update"
+                })
+            batch.commit()
+
+        # 3. Send Push Notification to devices
+        if tokens:
+            # FCM multicast also limited to 500 tokens at a time
+            for j in range(0, len(tokens), 500):
+                token_chunk = tokens[j:j + 500]
+                message_obj = messaging.MulticastMessage(
+                    notification=messaging.Notification(
+                        title=title,
+                        body=message,
+                    ),
+                    data={
+                        "url": "/notifications",
+                        "unreadCount": "1"
+                    },
+                    tokens=token_chunk,
+                )
+                messaging.send_each_for_multicast(message_obj)
+
+        return {"success": True, "delivered_to": len(user_ids)}
+    except Exception as e:
+        print(f"Broadcast Error: {e}")
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+@app.delete("/api/admin/notifications/clear")
+async def clear_all_notifications():
+    if not db_admin:
+        return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Admin not initialized"})
+    
+    try:
+        users_ref = db_admin.collection('users')
+        users_docs = users_ref.stream()
+        
+        cleared_count = 0
+        for user_doc in users_docs:
+            notifs_ref = users_ref.document(user_doc.id).collection('notifications')
+            notifs = notifs_ref.stream()
+            
+            # Use batches for large collections
+            batch = db_admin.batch()
+            count = 0
+            for n in notifs:
+                batch.delete(n.reference)
+                count += 1
+                cleared_count += 1
+                if count >= 400: # Firestore batch limit safety
+                    batch.commit()
+                    batch = db_admin.batch()
+                    count = 0
+            batch.commit()
+            
+        return {"success": True, "total_cleared": cleared_count}
+    except Exception as e:
+        print(f"Clear All Error: {e}")
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.post("/api/movies/download/start")

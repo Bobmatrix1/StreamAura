@@ -13,8 +13,9 @@ import MovieDownloader from '@/sections/MovieDownloader';
 import BulkDownloader from '@/sections/BulkDownloader';
 import History from '@/sections/History';
 import AdminDashboard from '@/sections/AdminDashboard';
+import Notifications from '@/sections/Notifications';
 import InstallPWA from '@/components/InstallPWA';
-import { logVisit, updateUserPresence, logFeatureUsage } from '@/lib/firebase';
+import { logVisit, updateUserPresence, logFeatureUsage, requestNotificationPermission } from '@/lib/firebase';
 import type { ViewType } from '@/types';
 
 /**
@@ -69,6 +70,9 @@ export const AppContent: React.FC = () => {
 
       syncPresence();
       interval = setInterval(syncPresence, 2 * 60 * 1000);
+      
+      // Request notification permission
+      requestNotificationPermission(user.uid);
     }
 
     return () => {
@@ -210,6 +214,7 @@ export const AppContent: React.FC = () => {
             {activeView === 'music' && <MusicDownloader />}
             {activeView === 'movie' && <MovieDownloader />}
             {activeView === 'bulk' && <BulkDownloader />}
+            {activeView === 'notifications' && <Notifications />}
             {activeView === 'history' && <History />}
             {activeView === 'admin' && isAdmin && <AdminDashboard />}
             {activeView === 'admin' && !isAdmin && <VideoDownloader />}

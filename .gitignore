@@ -35,6 +35,9 @@ server.log
 firebase-debug.log*
 firestore-debug.log*
 ui-debug.log*
+backend/serviceAccountKey.json
+*.json.key
+serviceAccountKey.json
 
 # TypeScript
 *.tsbuildinfo

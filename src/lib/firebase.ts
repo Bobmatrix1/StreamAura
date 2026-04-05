@@ -36,8 +36,10 @@ import {
   getCountFromServer,
   addDoc,
   Timestamp,
-  writeBatch
+  writeBatch,
+  onSnapshot
 } from 'firebase/firestore';
+import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import type { User, GlobalHistoryItem } from '@/types';
 
 // Firebase configuration
@@ -55,6 +57,113 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const messaging = typeof window !== 'undefined' ? getMessaging(app) : null;
+
+// --- NOTIFICATION TYPES ---
+export interface AppNotification {
+  id: string;
+  title: string;
+  message: string;
+  timestamp: number;
+  read: boolean;
+  type: 'update' | 'alert' | 'general';
+}
+
+// --- NOTIFICATION ACTIONS ---
+
+export const requestNotificationPermission = async (userId: string) => {
+  if (!messaging) return;
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      const token = await getToken(messaging, {
+        vapidKey: 'BPxPQyw6UvHCTItO8iXpUN-HcK09nLlss1XQqg9IG2FBjHQu1yX02VkAqSHb9WJXKgEPdm5jN715TLglfCIaH54'
+      });
+      if (token) {
+        await updateDoc(doc(db, 'users', userId), {
+          fcmToken: token,
+          notificationsEnabled: true
+        });
+        return true;
+      }
+    }
+    return false;
+  } catch (error) {
+    console.error('Permission error:', error);
+    return false;
+  }
+};
+
+export const updateAppBadge = (count: number) => {
+  if ('setAppBadge' in navigator) {
+    if (count > 0) (navigator as any).setAppBadge(count);
+    else (navigator as any).clearAppBadge();
+  }
+};
+
+export const sendGlobalNotification = async (title: string, message: string) => {
+  try {
+    // 1. Store in a global collection for everyone to pull
+    const globalRef = collection(db, 'notifications_broadcast');
+    await addDoc(globalRef, {
+      title,
+      message,
+      timestamp: serverTimestamp(),
+      type: 'update'
+    });
+
+    // 2. In a production environment with Cloud Functions, 
+    // this would trigger an FCM push to all tokens in the 'users' collection.
+    return true;
+  } catch (error) {
+    console.error('Error sending notification:', error);
+    return false;
+  }
+};
+
+export const listenToNotifications = (userId: string, callback: (notifs: AppNotification[]) => void) => {
+  const q = query(
+    collection(db, 'users', userId, 'notifications'),
+    orderBy('timestamp', 'desc'),
+    limit(50)
+  );
+
+  return onSnapshot(q, (snapshot) => {
+    const notifs = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      timestamp: doc.data().timestamp?.toMillis() || Date.now()
+    })) as AppNotification[];
+    callback(notifs);
+    
+    const unreadCount = notifs.filter(n => !n.read).length;
+    updateAppBadge(unreadCount);
+  });
+};
+
+export const markAsRead = async (userId: string, notifId: string) => {
+  await updateDoc(doc(db, 'users', userId, 'notifications', notifId), { read: true });
+};
+
+export const markAllAsRead = async (userId: string) => {
+  const q = query(collection(db, 'users', userId, 'notifications'), where('read', '==', false));
+  const snapshot = await getDocs(q);
+  const batch = writeBatch(db);
+  snapshot.docs.forEach(d => batch.update(d.ref, { read: true }));
+  await batch.commit();
+};
+
+export const clearNotification = async (userId: string, notifId: string) => {
+  await deleteDoc(doc(db, 'users', userId, 'notifications', notifId));
+};
+
+export const clearAllUserNotifications = async (userId: string) => {
+  const q = collection(db, 'users', userId, 'notifications');
+  const snapshot = await getDocs(q);
+  const batch = writeBatch(db);
+  snapshot.docs.forEach(d => batch.delete(d.ref));
+  await batch.commit();
+};
 
 // Google Analytics disabled to prevent network timeouts/errors
 export const analytics = null;

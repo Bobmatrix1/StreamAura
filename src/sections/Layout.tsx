@@ -5,7 +5,7 @@
  * Features glassmorphism design and smooth animations.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Video, 
@@ -21,12 +21,14 @@ import {
   Download,
   ChevronDown,
   Shield,
-  Film
+  Film,
+  Bell
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useDownload } from '../contexts/DownloadContext';
 import { useIsMobile } from '../hooks/use-mobile';
+import { listenToNotifications } from '../lib/firebase';
 import type { ViewType } from '@/types';
 
 interface LayoutProps {
@@ -48,6 +50,7 @@ const tabs: Tab[] = [
   { id: 'music', label: 'Music', icon: Music, color: 'orange' },
   { id: 'movie', label: 'Movies', icon: Film, color: 'cyan' },
   { id: 'bulk', label: 'Bulk Download', icon: List, color: 'purple' },
+  { id: 'notifications', label: 'Notifications', icon: Bell, color: 'rose' },
   { id: 'history', label: 'History', icon: History, color: 'green' },
   { id: 'admin', label: 'Admin Dashboard', icon: Shield, color: 'red', adminOnly: true }
 ];
@@ -59,6 +62,15 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
   const isMobile = useIsMobile();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsubscribe = listenToNotifications(user.uid, (notifs) => {
+      setUnreadCount(notifs.filter(n => !n.read).length);
+    });
+    return () => unsubscribe();
+  }, [user?.uid]);
 
   const handleLogout = async () => {
     try {
@@ -80,12 +92,25 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
           </div>
           <span className="font-bold gradient-text">StreamAura</span>
         </div>
-        <button
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="p-2 rounded-lg hover:bg-white/5 transition-colors"
-        >
-          {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-        </button>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => onTabChange('notifications')}
+            className="p-2 rounded-lg hover:bg-white/5 transition-colors relative"
+          >
+            <Bell className={`w-6 h-6 ${unreadCount > 0 ? 'text-rose-500 animate-pulse' : ''}`} />
+            {unreadCount > 0 && (
+              <span className="absolute top-1 right-1 w-4 h-4 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-slate-900">
+                {unreadCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="p-2 rounded-lg hover:bg-white/5 transition-colors"
+          >
+            {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </div>
       </div>
 
       {/* Sidebar */}
@@ -117,7 +142,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
             <Download className="w-5 h-5 text-white" />
           </div>
-          <span className="font-bold text-xl gradient-text">MediaDL</span>
+          <span className="font-bold text-xl gradient-text">StreamAura</span>
         </div>
 
         {/* Navigation */}
@@ -135,7 +160,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
               orange: 'bg-orange-500/10 text-orange-500 border-orange-500/20 shadow-orange-500/10',
               green: 'bg-green-500/10 text-green-500 border-green-500/20 shadow-green-500/10',
               red: 'bg-red-500/10 text-red-500 border-red-500/20 shadow-red-500/10',
-              cyan: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20 shadow-cyan-500/10'
+              cyan: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20 shadow-cyan-500/10',
+              rose: 'bg-rose-500/10 text-rose-500 border-rose-500/20 shadow-rose-500/10'
             };
 
             const activeClass = colorClasses[tab.color] || colorClasses.blue;
@@ -162,6 +188,11 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
                 {tab.id === 'bulk' && queueCount > 0 && (
                   <span className={`ml-auto ${isActive ? 'bg-orange-500' : 'bg-muted-foreground/30'} text-white text-xs px-2 py-0.5 rounded-full`}>
                     {queueCount}
+                  </span>
+                )}
+                {tab.id === 'notifications' && unreadCount > 0 && (
+                  <span className={`ml-auto ${isActive ? 'bg-rose-500' : 'bg-rose-500/50'} text-white text-[10px] font-black px-2 py-0.5 rounded-full`}>
+                    {unreadCount}
                   </span>
                 )}
               </motion.button>

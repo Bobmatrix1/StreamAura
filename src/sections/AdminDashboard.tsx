@@ -29,7 +29,10 @@ import {
   ChevronRight,
   History as HistoryIcon,
   Link2,
-  MoreHorizontal
+  MoreHorizontal,
+  Send,
+  MessageSquare,
+  Info
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -42,6 +45,7 @@ import {
   clearUserHistory,
   clearAllHistory,
   clearAllTraffic,
+  sendGlobalNotification,
   type SystemStats
 } from '../lib/firebase';
 import type { User, GlobalHistoryItem } from '../types';
@@ -58,13 +62,18 @@ const AdminDashboard: React.FC = () => {
   const { user: currentUser } = useAuth();
   const { showSuccess, showError } = useToast();
   
-  const [activeTab, setActiveTab] = useState<'users' | 'history' | 'traffic' | 'insights'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'history' | 'traffic' | 'insights' | 'messages'>('users');
   const [users, setUsers] = useState<User[]>([]);
   const [history, setHistory] = useState<GlobalHistoryItem[]>([]);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Notification State
+  const [notifTitle, setNotifTitle] = useState('');
+  const [notifMessage, setNotifMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
 
   // Insight Accordion State
   const [expandedInsight, setExpandedInsight] = useState<string | null>('users');
@@ -121,6 +130,60 @@ const AdminDashboard: React.FC = () => {
   };
 
   // --- ACTIONS ---
+
+  const handleSendNotification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!notifTitle || !notifMessage) return;
+    
+    setIsSending(true);
+    try {
+      const response = await fetch('/api/admin/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: notifTitle,
+          message: notifMessage
+        })
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        showSuccess(`Broadcast sent to ${result.delivered_to} users!`);
+        setNotifTitle('');
+        setNotifMessage('');
+      } else {
+        showError(result.error || "Failed to broadcast.");
+      }
+    } catch (err) {
+      showError("Connection to backend failed.");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleWipeNotificationsAction = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: "Wipe System Notifications",
+      message: "DANGER: This will delete ALL notifications from EVERY user's inbox. This cannot be undone.",
+      type: 'danger',
+      onConfirm: async () => {
+        setIsSending(true);
+        try {
+          const resp = await fetch('/api/admin/notifications/clear', { method: 'DELETE' });
+          const res = await resp.json();
+          if (res.success) {
+            showSuccess(`Cleared ${res.total_cleared} notifications system-wide.`);
+            closeConfirmModal();
+          }
+        } catch (e) {
+          showError("Clear failed.");
+        } finally {
+          setIsSending(false);
+        }
+      }
+    });
+  };
 
   const handleToggleAdminAction = (uid: string, name: string, isAdmin: boolean) => {
     if (uid === currentUser?.uid) {
@@ -315,6 +378,7 @@ const AdminDashboard: React.FC = () => {
           <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'history' ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Activity className="w-4 h-4" />Activity</button>
           <button onClick={() => setActiveTab('traffic')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'traffic' ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Globe className="w-4 h-4" />Traffic</button>
           <button onClick={() => setActiveTab('insights')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'insights' ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/25' : 'text-muted-foreground hover:text-foreground'}`}><LineChart className="w-4 h-4" />Insights</button>
+          <button onClick={() => setActiveTab('messages')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'messages' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Send className="w-4 h-4" />Messages</button>
         </div>
       </div>
 
@@ -327,21 +391,23 @@ const AdminDashboard: React.FC = () => {
       </div>
 
       <div className="glass-card p-6">
-        {/* TOOLBAR */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
-          <div className="relative w-full sm:w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input type="text" placeholder="Filter data..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full glass-input pl-10 pr-4 py-2 text-sm focus:outline-none transition-all rounded-lg border-white/10" />
+        {/* TOOLBAR (Optional for some tabs) */}
+        {activeTab !== 'messages' && activeTab !== 'insights' && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input type="text" placeholder="Filter data..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full glass-input pl-10 pr-4 py-2 text-sm focus:outline-none transition-all rounded-lg border-white/10" />
+            </div>
+            <div className="flex items-center gap-3">
+              {activeTab === 'history' && (
+                <button onClick={() => handleClearHistoryAction()} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all text-xs font-bold"><Trash2 className="w-3.5 h-3.5" />Wipe Records</button>
+              )}
+              {activeTab === 'traffic' && (
+                <button onClick={handleResetTrafficAction} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all text-xs font-bold"><RefreshCcw className="w-3.5 h-3.5" />Reset Traffic</button>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            {activeTab === 'history' && (
-              <button onClick={() => handleClearHistoryAction()} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all text-xs font-bold"><Trash2 className="w-3.5 h-3.5" />Wipe Records</button>
-            )}
-            {activeTab === 'traffic' && (
-              <button onClick={handleResetTrafficAction} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all text-xs font-bold"><RefreshCcw className="w-3.5 h-3.5" />Reset Traffic</button>
-            )}
-          </div>
-        </div>
+        )}
 
         {/* MAIN AREA */}
         <div className="overflow-hidden rounded-xl border border-white/5">
@@ -362,7 +428,6 @@ const AdminDashboard: React.FC = () => {
                     <TableCell><div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-white/5 border border-white/5 w-fit">{getDeviceIcon((user as any).lastDevice)}<span className="text-[10px] font-black uppercase">{(user as any).lastDevice || 'Unknown'}</span></div></TableCell>
                     <TableCell className="text-xs text-muted-foreground">{new Date(user.createdAt).toLocaleDateString()}</TableCell>
                     <TableCell className="text-right pr-6">
-                      {/* ACTION BUTTONS */}
                       <div className="flex items-center justify-end gap-2 relative z-[100]">
                         <button
                           onClick={(e) => {
@@ -424,6 +489,63 @@ const AdminDashboard: React.FC = () => {
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          ) : activeTab === 'messages' ? (
+            <div className="p-8 max-w-2xl mx-auto space-y-8">
+              <div className="text-center space-y-2">
+                <div className="w-16 h-16 bg-indigo-500/20 rounded-2xl flex items-center justify-center text-indigo-400 mx-auto">
+                  <MessageSquare className="w-8 h-8" />
+                </div>
+                <h3 className="text-xl font-bold">Broadcast Center</h3>
+                <p className="text-sm text-muted-foreground">Send a live push notification to all StreamAura users.</p>
+              </div>
+
+              <div className="flex justify-end">
+                <button 
+                  onClick={handleWipeNotificationsAction}
+                  className="px-4 py-2 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all text-[10px] font-black uppercase flex items-center gap-2"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Wipe Global Inbox
+                </button>
+              </div>
+
+              <form onSubmit={handleSendNotification} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-black uppercase text-muted-foreground tracking-widest px-1">Headline / Title</label>
+                  <input 
+                    type="text" 
+                    value={notifTitle}
+                    onChange={(e) => setNotifTitle(e.target.value)}
+                    placeholder="e.g. New Features Added! 🚀" 
+                    className="w-full glass-input p-4 rounded-xl focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black uppercase text-muted-foreground tracking-widest px-1">Message Content</label>
+                  <textarea 
+                    value={notifMessage}
+                    onChange={(e) => setNotifMessage(e.target.value)}
+                    placeholder="Tell your users what's new in this update..." 
+                    className="w-full glass-input p-4 rounded-xl h-32 resize-none focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all"
+                    required
+                  />
+                </div>
+                <button 
+                  type="submit"
+                  disabled={isSending || !notifTitle || !notifMessage}
+                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-3 hover:brightness-110 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Send className="w-4 h-4" /> Broadcast Now</>}
+                </button>
+              </form>
+
+              <div className="p-4 rounded-xl bg-indigo-500/5 border border-indigo-500/10 flex items-start gap-3">
+                <Info className="w-4 h-4 text-indigo-400 mt-0.5" />
+                <p className="text-[10px] text-muted-foreground leading-relaxed uppercase font-bold">
+                  Note: This will trigger a live notification on all installed PWAs and increment the app icon badge count for every user.
+                </p>
+              </div>
             </div>
           ) : (
             <div className="space-y-4 p-4">
