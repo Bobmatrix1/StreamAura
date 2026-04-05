@@ -14,6 +14,9 @@ import BulkDownloader from '@/sections/BulkDownloader';
 import History from '@/sections/History';
 import AdminDashboard from '@/sections/AdminDashboard';
 import Notifications from '@/sections/Notifications';
+import About from '@/sections/About';
+import PrivacyPolicy from '@/sections/PrivacyPolicy';
+import ContactUs from '@/sections/ContactUs';
 import InstallPWA from '@/components/InstallPWA';
 import { logVisit, updateUserPresence, logFeatureUsage, requestNotificationPermission } from '@/lib/firebase';
 import type { ViewType } from '@/types';
@@ -216,6 +219,9 @@ export const AppContent: React.FC = () => {
             {activeView === 'bulk' && <BulkDownloader />}
             {activeView === 'notifications' && <Notifications />}
             {activeView === 'history' && <History />}
+            {activeView === 'about' && <About />}
+            {activeView === 'privacy' && <PrivacyPolicy />}
+            {activeView === 'contact' && <ContactUs />}
             {activeView === 'admin' && isAdmin && <AdminDashboard />}
             {activeView === 'admin' && !isAdmin && <VideoDownloader />}
           </motion.div>

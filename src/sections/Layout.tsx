@@ -22,7 +22,9 @@ import {
   ChevronDown,
   Shield,
   Film,
-  Bell
+  Bell,
+  Info,
+  HelpCircle
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -51,7 +53,10 @@ const tabs: Tab[] = [
   { id: 'movie', label: 'Movies', icon: Film, color: 'cyan' },
   { id: 'bulk', label: 'Bulk Download', icon: List, color: 'purple' },
   { id: 'notifications', label: 'Notifications', icon: Bell, color: 'rose' },
-  { id: 'history', label: 'History', icon: History, color: 'green' },
+  { id: 'history', label: 'History', icon: History, color: 'indigo' },
+  { id: 'about', label: 'About', icon: Info, color: 'fuchsia' },
+  { id: 'privacy', label: 'Privacy', icon: Shield, color: 'emerald' },
+  { id: 'contact', label: 'Contact', icon: HelpCircle, color: 'lime' },
   { id: 'admin', label: 'Admin Dashboard', icon: Shield, color: 'red', adminOnly: true }
 ];
 
@@ -71,6 +76,15 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
     });
     return () => unsubscribe();
   }, [user?.uid]);
+
+  // Lock scroll when mobile menu is open
+  useEffect(() => {
+    if (isMobile && isMobileMenuOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+  }, [isMobile, isMobileMenuOpen]);
 
   const handleLogout = async () => {
     try {
@@ -135,18 +149,19 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
           md:m-0 md:static md:translate-x-0 md:opacity-100
           flex flex-col md:rounded-none md:border-r md:border-l-0 md:border-t-0 md:border-b-0
           bg-background md:bg-transparent glass-card md:glass-none
+          h-[calc(100vh-2rem)] md:h-screen
         `}
       >
         {/* Logo */}
-        <div className="p-6 hidden md:flex items-center gap-3">
+        <div className="p-6 hidden md:flex items-center gap-3 flex-shrink-0">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
             <Download className="w-5 h-5 text-white" />
           </div>
           <span className="font-bold text-xl gradient-text">StreamAura</span>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 px-4 py-4 space-y-2">
+        {/* Navigation - Scrollable Area */}
+        <nav className="flex-1 px-4 py-4 space-y-2 overflow-y-auto custom-scrollbar">
           {tabs.map((tab) => {
             if (tab.adminOnly && !isAdmin) return null;
             
@@ -161,7 +176,11 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
               green: 'bg-green-500/10 text-green-500 border-green-500/20 shadow-green-500/10',
               red: 'bg-red-500/10 text-red-500 border-red-500/20 shadow-red-500/10',
               cyan: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20 shadow-cyan-500/10',
-              rose: 'bg-rose-500/10 text-rose-500 border-rose-500/20 shadow-rose-500/10'
+              rose: 'bg-rose-500/10 text-rose-500 border-rose-500/20 shadow-rose-500/10',
+              indigo: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20 shadow-indigo-500/10',
+              emerald: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shadow-emerald-500/10',
+              fuchsia: 'bg-fuchsia-500/10 text-fuchsia-500 border-fuchsia-500/20 shadow-fuchsia-500/10',
+              lime: 'bg-lime-500/10 text-lime-500 border-lime-500/20 shadow-lime-500/10'
             };
 
             const activeClass = colorClasses[tab.color] || colorClasses.blue;
@@ -201,7 +220,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
         </nav>
 
         {/* Bottom Section */}
-        <div className="p-4 border-t border-white/10 space-y-2">
+        <div className="p-4 border-t border-white/10 space-y-2 flex-shrink-0">
           {/* Active Downloads Indicator */}
           {activeDownloads > 0 && (
             <div className="px-4 py-2 bg-primary/10 rounded-xl border border-primary/20">
