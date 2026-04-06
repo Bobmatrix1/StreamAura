@@ -18,7 +18,6 @@ import {
   User,
   Menu,
   X,
-  Download,
   ChevronDown,
   Shield,
   Film,
@@ -101,8 +100,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
       {/* Mobile Header */}
       <div className="md:hidden glass-card mx-4 mt-4 p-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-            <Download className="w-5 h-5 text-white" />
+          <div className="w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center p-1 bg-white/5">
+            <img src="/logo.png" alt="StreamAura" className="w-full h-full object-contain" />
           </div>
           <span className="font-bold gradient-text">StreamAura</span>
         </div>
@@ -154,8 +153,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
       >
         {/* Logo */}
         <div className="p-6 hidden md:flex items-center gap-3 flex-shrink-0">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-            <Download className="w-5 h-5 text-white" />
+          <div className="w-14 h-14 rounded-2xl overflow-hidden flex items-center justify-center p-1.5 bg-white/5 shadow-xl border border-white/10">
+            <img src="/logo.png" alt="StreamAura" className="w-full h-full object-contain" />
           </div>
           <span className="font-bold text-xl gradient-text">StreamAura</span>
         </div>

@@ -17,9 +17,9 @@ const About: React.FC = () => {
         <motion.div
           initial={{ scale: 0.5, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          className="w-24 h-24 mx-auto rounded-3xl bg-gradient-to-br from-fuchsia-500 to-purple-600 flex items-center justify-center shadow-lg shadow-fuchsia-500/20"
+          className="w-28 h-24 mx-auto rounded-3xl overflow-hidden flex items-center justify-center p-2 bg-white/5 shadow-2xl border border-white/10"
         >
-          <Star className="w-12 h-12 text-white" />
+          <img src="/logo.png" alt="StreamAura" className="w-full h-full object-contain scale-110" />
         </motion.div>
         <h2 className="text-5xl font-black gradient-text">About StreamAura</h2>
         <p className="text-muted-foreground text-lg max-w-2xl mx-auto">

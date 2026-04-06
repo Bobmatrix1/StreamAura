@@ -124,7 +124,7 @@ export const AppContent: React.FC = () => {
           <motion.div
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            className="relative w-20 h-20 rounded-3xl glass flex items-center justify-center shadow-2xl border border-white/10"
+            className="relative w-24 h-24 rounded-3xl overflow-hidden flex items-center justify-center shadow-2xl border border-white/10 bg-white/5"
           >
             <motion.div
               animate={{ 
@@ -132,9 +132,9 @@ export const AppContent: React.FC = () => {
                 scale: [1, 1.1, 1]
               }}
               transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-              className="text-primary"
+              className="w-full h-full p-4 flex items-center justify-center"
             >
-              <Download className="w-10 h-10" />
+              <img src="/logo.png" alt="StreamAura" className="w-full h-full object-contain scale-125" />
             </motion.div>
             
             <motion.div
@@ -185,7 +185,7 @@ export const AppContent: React.FC = () => {
             exit={{ opacity: 0, x: 20 }}
             className="min-h-screen flex items-center justify-center p-4 bg-background"
           >
-            <Login onSwitchToSignup={toggleAuthView} />
+            <Login onToggleView={toggleAuthView} />
           </motion.div>
         ) : (
           <motion.div
@@ -195,7 +195,7 @@ export const AppContent: React.FC = () => {
             exit={{ opacity: 0, x: -20 }}
             className="min-h-screen flex items-center justify-center p-4 bg-background"
           >
-            <Signup onSwitchToLogin={toggleAuthView} />
+            <Signup onToggleView={toggleAuthView} />
           </motion.div>
         )}
       </AnimatePresence>

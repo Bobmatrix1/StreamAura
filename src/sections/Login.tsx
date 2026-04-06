@@ -12,8 +12,7 @@ import {
   Lock, 
   Eye, 
   EyeOff, 
-  ArrowRight,
-  Download
+  ArrowRight
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -49,9 +48,9 @@ const Login: React.FC<LoginProps> = ({ onToggleView }) => {
     setIsSubmitting(true);
     try {
       await resetPassword(email);
-      showSuccess('Password reset email sent! Check your inbox.');
+      showSuccess('Password reset link sent to your email');
     } catch (err: any) {
-      showError(err.message || 'Failed to send password reset email');
+      showError(err.message || 'Failed to send reset link');
     } finally {
       setIsSubmitting(false);
     }
@@ -61,7 +60,7 @@ const Login: React.FC<LoginProps> = ({ onToggleView }) => {
     e.preventDefault();
     clearError();
     
-    if (!email.trim() || !password.trim()) {
+    if (!email || !password) {
       showError('Please fill in all fields');
       return;
     }
@@ -70,8 +69,9 @@ const Login: React.FC<LoginProps> = ({ onToggleView }) => {
     
     try {
       await signIn(email, password);
+      showSuccess('Welcome back!');
     } catch (err: any) {
-      showError(err.message || 'Failed to sign in');
+      showError(err.message || 'Invalid email or password');
     } finally {
       setIsSubmitting(false);
     }
@@ -79,9 +79,9 @@ const Login: React.FC<LoginProps> = ({ onToggleView }) => {
 
   const handleGoogleSignIn = async () => {
     setIsSubmitting(true);
-    
     try {
       await signInGoogle();
+      showSuccess('Welcome back!');
     } catch (err: any) {
       showError(err.message || 'Failed to sign in with Google');
     } finally {
@@ -90,13 +90,13 @@ const Login: React.FC<LoginProps> = ({ onToggleView }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen w-full flex items-center justify-center p-4 relative overflow-hidden">
       {/* Animated Background */}
       <div className="absolute inset-0 animated-gradient" />
       
       {/* Floating Orbs */}
-      <div className="absolute top-20 left-10 w-72 h-72 bg-purple-500/20 rounded-full blur-[100px] float" />
-      <div className="absolute bottom-20 right-10 w-96 h-96 bg-blue-500/20 rounded-full blur-[100px] float" style={{ animationDelay: '-3s' }} />
+      <div className="absolute top-20 left-10 w-72 h-72 bg-blue-500/20 rounded-full blur-[100px] float" />
+      <div className="absolute bottom-20 right-10 w-96 h-96 bg-purple-500/20 rounded-full blur-[100px] float" style={{ animationDelay: '-3s' }} />
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-pink-500/10 rounded-full blur-[120px] float" style={{ animationDelay: '-1.5s' }} />
 
       {/* Login Card */}
@@ -113,9 +113,9 @@ const Login: React.FC<LoginProps> = ({ onToggleView }) => {
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               transition={{ delay: 0.2, type: 'spring' }}
-              className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center"
+              className="w-20 h-20 mx-auto mb-4 rounded-3xl overflow-hidden flex items-center justify-center p-2 bg-white/5 shadow-2xl border border-white/10"
             >
-              <Download className="w-8 h-8 text-white" />
+              <img src="/logo.png" alt="StreamAura" className="w-full h-full object-contain scale-110" />
             </motion.div>
             <h1 className="text-2xl font-bold gradient-text mb-2">
               Welcome Back
@@ -148,56 +148,57 @@ const Login: React.FC<LoginProps> = ({ onToggleView }) => {
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email Input */}
             <div className="relative">
-              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                <Mail className="w-5 h-5" />
+              </div>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="Email address"
-                className="w-full glass-input pl-12 pr-4 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all"
-                disabled={isSubmitting}
+                placeholder="Email Address"
+                className="w-full glass-input pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                required
               />
             </div>
 
             {/* Password Input */}
             <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                <Lock className="w-5 h-5" />
+              </div>
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Password"
-                className="w-full glass-input pl-12 pr-12 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all"
-                disabled={isSubmitting}
+                className="w-full glass-input pl-10 pr-12 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                required
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
               >
-                {showPassword ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
 
-            {/* Forgot Password */}
+            {/* Forgot Password Link */}
             <div className="text-right">
               <button
                 type="button"
                 onClick={handleForgotPassword}
-                disabled={isSubmitting}
-                className="text-sm text-purple-400 hover:text-purple-300 transition-colors disabled:opacity-50"
+                className="text-xs text-primary hover:underline transition-all font-medium"
               >
-                Forgot password?
+                Forgot Password?
               </button>
             </div>
 
             {/* Submit Button */}
-            <motion.button
+            <button
               type="submit"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
               disabled={isSubmitting}
-              className="w-full glass-button flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full py-3 rounded-xl bg-primary text-white font-bold shadow-lg shadow-primary/20 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {isSubmitting ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -207,18 +208,18 @@ const Login: React.FC<LoginProps> = ({ onToggleView }) => {
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
-            </motion.button>
+            </button>
           </form>
 
-          {/* Sign Up Link */}
-          <div className="mt-6 text-center">
+          {/* Signup Link */}
+          <div className="mt-8 text-center">
             <p className="text-sm text-muted-foreground">
               Don't have an account?{' '}
               <button
                 onClick={onToggleView}
-                className="text-purple-400 hover:text-purple-300 font-medium transition-colors"
+                className="text-primary font-bold hover:underline transition-all"
               >
-                Sign up
+                Sign Up Now
               </button>
             </p>
           </div>
