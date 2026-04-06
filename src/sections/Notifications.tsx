@@ -11,7 +11,8 @@ import {
   ChevronRight,
   Inbox,
   CheckCheck,
-  X
+  X,
+  RefreshCcw
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { 
@@ -27,17 +28,39 @@ const Notifications: React.FC = () => {
   const { user } = useAuth();
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
+  const loadNotifications = () => {
+    if (!user?.uid) return () => {};
+    
+    setIsLoading(true);
+    setError(null);
+
+    // Safety timeout: stop spinner after 5 seconds no matter what
+    const timer = setTimeout(() => setIsLoading(false), 5000);
+
+    const unsubscribe = listenToNotifications(
+      user.uid, 
+      (notifs) => {
+        clearTimeout(timer);
+        setNotifications(notifs);
+        setIsLoading(false);
+      },
+      (err) => {
+        clearTimeout(timer);
+        console.error('Notification error:', err);
+        setError('Failed to load notifications.');
+        setIsLoading(false);
+      }
+    );
+
+    return unsubscribe;
+  };
+
   useEffect(() => {
-    if (!user?.uid) return;
-
-    const unsubscribe = listenToNotifications(user.uid, (notifs) => {
-      setNotifications(notifs);
-      setIsLoading(false);
-    });
-
-    return () => unsubscribe();
+    const unsubscribe = loadNotifications();
+    return () => { if (typeof unsubscribe === 'function') unsubscribe(); };
   }, [user?.uid]);
 
   const handleMarkRead = async (id: string) => {
@@ -124,6 +147,15 @@ const Notifications: React.FC = () => {
         </div>
         <h2 className="text-4xl font-bold gradient-text">Notifications</h2>
         <p className="text-muted-foreground">Stay updated with the latest improvements and alerts.</p>
+        
+        {(!isLoading && notifications.length === 0) && (
+          <button 
+            onClick={() => loadNotifications()}
+            className="flex items-center gap-2 mx-auto px-4 py-2 rounded-full bg-white/5 border border-white/10 text-[10px] font-black uppercase hover:bg-white/10 transition-all"
+          >
+            <RefreshCcw className="w-3 h-3" /> Sync Inbox
+          </button>
+        )}
       </div>
 
       <div className="glass-card overflow-hidden">

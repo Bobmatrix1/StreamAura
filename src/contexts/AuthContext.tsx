@@ -1,10 +1,3 @@
-/**
- * Authentication Context
- * 
- * Provides authentication state and methods to all components in the app.
- * Uses Firebase Auth for authentication and Firestore for user data.
- */
-
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import type { User } from '@/types';
 import { 
@@ -13,8 +6,11 @@ import {
   signInWithGoogle, 
   logOut, 
   onAuthChange,
-  resetPassword as firebaseResetPassword
+  resetPassword as firebaseResetPassword,
+  getUserData,
+  db
 } from '@/lib/firebase';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 interface AuthContextType {
   user: User | null;
@@ -32,27 +28,36 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const useAuth = (): AuthContextType => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
-
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Subscribe to auth state changes on mount
+  // Use a more robust auth state observer
   useEffect(() => {
-    const unsubscribe = onAuthChange((user) => {
-      setUser(user);
+    const unsubscribe = onAuthChange(async (firebaseUser) => {
+      if (firebaseUser) {
+        // ENSURE USER DOCUMENT EXISTS (Crucial for Notifications/Admin)
+        try {
+          const userRef = doc(db, 'users', firebaseUser.uid);
+          const syncData: any = {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email || '',
+            displayName: firebaseUser.displayName || 'Anonymous',
+            isAdmin: firebaseUser.isAdmin || false,
+            lastActive: serverTimestamp(),
+            createdAt: firebaseUser.createdAt || Date.now()
+          };
+          if (firebaseUser.photoURL) syncData.photoURL = firebaseUser.photoURL;
+          
+          await setDoc(userRef, syncData, { merge: true });
+        } catch (e) {
+          console.error("Profile sync failed", e);
+        }
+        setUser(firebaseUser);
+      } else {
+        setUser(null);
+      }
       setIsLoading(false);
     });
 
@@ -94,7 +99,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setIsLoading(true);
       setError(null);
       const googleUser = await signInWithGoogle();
-      setUser(googleUser);
+      if (googleUser) setUser(googleUser);
     } catch (err: any) {
       setError(err.message || 'Failed to sign in with Google');
       throw err;
@@ -105,31 +110,25 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const resetPassword = async (email: string): Promise<void> => {
     try {
-      setIsLoading(true);
       setError(null);
       await firebaseResetPassword(email);
     } catch (err: any) {
-      setError(err.message || 'Failed to send password reset email');
+      setError(err.message || 'Failed to send reset email');
       throw err;
-    } finally {
-      setIsLoading(false);
     }
   };
 
   const logout = async (): Promise<void> => {
     try {
-      setIsLoading(true);
-      setError(null);
       await logOut();
+      setUser(null);
     } catch (err: any) {
-      setError(err.message || 'Failed to log out');
+      setError(err.message || 'Failed to logout');
       throw err;
-    } finally {
-      setIsLoading(false);
     }
   };
 
-  const value: AuthContextType = {
+  const value = {
     user,
     isAuthenticated: !!user,
     isLoading,
@@ -143,11 +142,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     clearError
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-export default AuthContext;
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};

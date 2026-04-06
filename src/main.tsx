@@ -2,7 +2,6 @@
  * Main Entry Point
  * 
  * Initializes the React application. 
- * NOTE: Service worker disabled to resolve Cache/Interactivity conflicts.
  */
 
 import React from 'react';
@@ -10,13 +9,12 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 
-// UNREGISTER Service worker to fix broken Cache issues
+// Register Service Worker for PWA and Notifications
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then((registrations) => {
-    for (const registration of registrations) {
-      registration.unregister();
-      console.log('Broken SW Unregistered');
-    }
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => console.log('SW registered:', reg))
+      .catch(err => console.log('SW registration failed:', err));
   });
 }
 

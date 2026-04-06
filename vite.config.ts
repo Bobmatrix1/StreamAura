@@ -90,7 +90,12 @@ export default defineConfig({
     },
   },
   server: {
-    port: 1577,
+    port: 1578,
+    strictPort: true,
+    host: true,
+    hmr: {
+      port: 1578,
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:8000',

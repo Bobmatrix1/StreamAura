@@ -1,7 +1,5 @@
 /**
  * Firebase Configuration
- * 
- * This file contains the Firebase configuration and initializes Firebase services.
  */
 
 import { initializeApp } from 'firebase/app';
@@ -36,12 +34,12 @@ import {
   addDoc,
   Timestamp,
   writeBatch,
-  onSnapshot
+  onSnapshot,
+  initializeFirestore
 } from 'firebase/firestore';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import type { User, GlobalHistoryItem } from '@/types';
 
-// Firebase configuration
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -52,13 +50,16 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+// Force Long Polling to fix ERR_HTTP2_PING_FAILED and stabilize live updates
+export const db = initializeFirestore(app, {
+  experimentalAutoDetectLongPolling: true
+});
+
 export const messaging = typeof window !== 'undefined' ? getMessaging(app) : null;
 
-// --- NOTIFICATION TYPES ---
 export interface AppNotification {
   id: string;
   title: string;
@@ -67,8 +68,6 @@ export interface AppNotification {
   read: boolean;
   type: 'update' | 'alert' | 'general';
 }
-
-// --- NOTIFICATION ACTIONS ---
 
 export const requestNotificationPermission = async (userId: string) => {
   if (!messaging) return;
@@ -88,7 +87,6 @@ export const requestNotificationPermission = async (userId: string) => {
     }
     return false;
   } catch (error) {
-    console.error('Permission error:', error);
     return false;
   }
 };
@@ -114,23 +112,31 @@ export const sendGlobalNotification = async (title: string, message: string) => 
   }
 };
 
-export const listenToNotifications = (userId: string, callback: (notifs: AppNotification[]) => void) => {
-  const q = query(
-    collection(db, 'users', userId, 'notifications'),
-    orderBy('timestamp', 'desc'),
-    limit(50)
-  );
+export const listenToNotifications = (userId: string, callback: (notifs: AppNotification[]) => void, onError?: (error: any) => void) => {
+  if (!userId) return () => {};
 
-  return onSnapshot(q, (snapshot) => {
-    const notifs = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      timestamp: doc.data().timestamp?.toMillis() || Date.now()
-    })) as AppNotification[];
-    callback(notifs);
-    
-    const unreadCount = notifs.filter(n => !n.read).length;
-    updateAppBadge(unreadCount);
+  const colRef = collection(db, 'users', userId, 'notifications');
+  const q = query(colRef, limit(50));
+
+  return onSnapshot(q, {
+    next: (snapshot) => {
+      const notifs = snapshot.docs.map(doc => {
+        const data = doc.data();
+        let ts = Date.now();
+        if (data.timestamp?.toMillis) ts = data.timestamp.toMillis();
+        else if (data.timestamp instanceof Date) ts = data.timestamp.getTime();
+        else if (typeof data.timestamp === 'number') ts = data.timestamp;
+        return { id: doc.id, ...data, timestamp: ts };
+      }) as AppNotification[];
+      
+      notifs.sort((a, b) => b.timestamp - a.timestamp);
+      callback(notifs);
+      updateAppBadge(notifs.filter(n => !n.read).length);
+    },
+    error: (error) => {
+      console.error('[NotificationSystem] Listener error:', error);
+      if (onError) onError(error);
+    }
   });
 };
 
@@ -158,35 +164,24 @@ export const clearAllUserNotifications = async (userId: string) => {
   await batch.commit();
 };
 
-// Google Auth Provider
 const googleProvider = new GoogleAuthProvider();
 
 export const signInWithGoogle = async (): Promise<User | null> => {
   try {
     const result = await signInWithPopup(auth, googleProvider);
     const user = result.user;
-    
     const userDocRef = doc(db, 'users', user.uid);
     const userDoc = await getDoc(userDocRef);
-    
     if (!userDoc.exists()) {
       const userData: User = {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName,
-        photoURL: user.photoURL,
-        isAdmin: false,
-        createdAt: Date.now()
+        uid: user.uid, email: user.email, displayName: user.displayName,
+        photoURL: user.photoURL, isAdmin: false, createdAt: Date.now()
       };
       await setDoc(userDocRef, userData);
       return userData;
     }
-    
-    return userDoc.data() as User;
-  } catch (error) {
-    console.error('Google Sign In error:', error);
-    throw new Error('Failed to sign in with Google');
-  }
+    return { ...userDoc.data(), uid: user.uid } as User;
+  } catch (error) { throw new Error('Failed to sign in with Google'); }
 };
 
 export const signUpWithEmail = async (email: string, password: string, displayName: string): Promise<User> => {
@@ -195,18 +190,12 @@ export const signUpWithEmail = async (email: string, password: string, displayNa
     const user = result.user;
     await updateProfile(user, { displayName });
     const userData: User = {
-      uid: user.uid,
-      email: user.email,
-      displayName: displayName,
-      photoURL: null,
-      isAdmin: false,
-      createdAt: Date.now()
+      uid: user.uid, email: user.email, displayName: displayName,
+      photoURL: null, isAdmin: false, createdAt: Date.now()
     };
     await setDoc(doc(db, 'users', user.uid), userData);
     return userData;
-  } catch (error: any) {
-    throw new Error(error.message || 'Failed to sign up');
-  }
+  } catch (error: any) { throw new Error(error.message || 'Failed to sign up'); }
 };
 
 export const signInWithEmail = async (email: string, password: string): Promise<User> => {
@@ -214,36 +203,34 @@ export const signInWithEmail = async (email: string, password: string): Promise<
     const result = await signInWithEmailAndPassword(auth, email, password);
     const user = result.user;
     const userDoc = await getDoc(doc(db, 'users', user.uid));
-    if (userDoc.exists()) return userDoc.data() as User;
+    if (userDoc.exists()) return { ...userDoc.data(), uid: user.uid } as User;
     const userData: User = {
       uid: user.uid, email: user.email, displayName: user.displayName,
       photoURL: user.photoURL, isAdmin: false, createdAt: Date.now()
     };
     await setDoc(doc(db, 'users', user.uid), userData);
     return userData;
-  } catch (error: any) {
-    throw new Error(error.message || 'Failed to sign in');
-  }
+  } catch (error: any) { throw new Error(error.message || 'Failed to sign in'); }
 };
 
-export const logOut = async (): Promise<void> => {
-  await signOut(auth);
-};
+export const logOut = async (): Promise<void> => { await signOut(auth); };
 
-export const onAuthChange = (callback: (user: User | null) => void) => {
+export const onAuthChange = (callback: (user: any | null) => void) => {
   return onAuthStateChanged(auth, async (firebaseUser) => {
     if (firebaseUser) {
       const userData = await getUserData(firebaseUser.uid);
-      callback(userData);
-    } else {
-      callback(null);
-    }
+      // GUARANTEE the UID exists even if the Firestore doc is missing
+      callback(userData ? { ...userData, uid: firebaseUser.uid } : { 
+        uid: firebaseUser.uid, 
+        email: firebaseUser.email,
+        displayName: firebaseUser.displayName,
+        photoURL: firebaseUser.photoURL
+      });
+    } else callback(null);
   });
 };
 
-export const resetPassword = async (email: string): Promise<void> => {
-  await sendPasswordResetEmail(auth, email);
-};
+export const resetPassword = async (email: string): Promise<void> => { await sendPasswordResetEmail(auth, email); };
 
 export const getUserData = async (uid: string, createIfMissing = false): Promise<User | null> => {
   const userDocRef = doc(db, 'users', uid);
@@ -252,49 +239,26 @@ export const getUserData = async (uid: string, createIfMissing = false): Promise
     if (!userDoc.exists() && !createIfMissing) userDoc = await getDocFromServer(userDocRef);
     if (userDoc.exists()) return userDoc.data() as User;
     return null;
-  } catch (err) {
-    return null;
-  }
+  } catch (err) { return null; }
 };
 
-export const toggleAdminStatus = async (uid: string, isAdmin: boolean): Promise<void> => {
-  await updateDoc(doc(db, 'users', uid), { isAdmin });
-};
-
-export const deleteUserAccount = async (uid: string): Promise<void> => {
-  await deleteDoc(doc(db, 'users', uid));
-};
+export const toggleAdminStatus = async (uid: string, isAdmin: boolean): Promise<void> => { await updateDoc(doc(db, 'users', uid), { isAdmin }); };
+export const deleteUserAccount = async (uid: string): Promise<void> => { await deleteDoc(doc(db, 'users', uid)); };
 
 export const getAllUsers = async (): Promise<User[]> => {
   try {
     const usersRef = collection(db, 'users');
     const q = query(usersRef, orderBy('createdAt', 'desc'), limit(500));
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        uid: doc.id,
-        email: data.email,
-        displayName: data.displayName,
-        photoURL: data.photoURL,
-        isAdmin: data.isAdmin || false,
-        createdAt: data.createdAt?.toMillis?.() || data.createdAt || Date.now(),
-        lastDevice: data.lastDevice || 'Unknown'
-      } as any;
-    });
-  } catch (error) {
-    return [];
-  }
+    return snapshot.docs.map(doc => ({ ...doc.data(), uid: doc.id } as any));
+  } catch (error) { return []; }
 };
 
 export const saveDownloadHistory = async (userId: string, userEmail: string | null, userDisplayName: string | null, historyItem: any): Promise<void> => {
   try {
     const historyRef = collection(db, 'downloads');
     await addDoc(historyRef, {
-      ...historyItem,
-      userId,
-      userEmail,
-      userDisplayName,
+      ...historyItem, userId, userEmail, userDisplayName,
       downloadedAt: Date.now()
     });
   } catch (error) {}
@@ -306,22 +270,15 @@ export const getGlobalHistory = async (limitCount = 100): Promise<GlobalHistoryI
     const q = query(historyRef, orderBy('downloadedAt', 'desc'), limit(limitCount));
     const snapshot = await getDocs(q);
     return snapshot.docs.map(doc => doc.data() as GlobalHistoryItem);
-  } catch (error) {
-    return [];
-  }
+  } catch (error) { return []; }
 };
-
-/**
- * Analytics & Presence Functions
- */
 
 export const logVisit = async (country: string, device: string = 'Unknown'): Promise<void> => {
   try {
     const visitsRef = collection(db, 'visits');
-    const now = new Date();
     await addDoc(visitsRef, {
       country, device, timestamp: serverTimestamp(),
-      hour: now.getHours(), platform: navigator.platform
+      hour: new Date().getHours(), platform: navigator.platform
     });
   } catch (error) {}
 };
@@ -366,42 +323,21 @@ export const logMediaInteraction = async (
 };
 
 export const updateUserPresence = async (uid: string, device?: string): Promise<void> => {
+  if (!uid) return;
   try {
     const userDocRef = doc(db, 'users', uid);
-    const now = Date.now();
-    const userDoc = await getDoc(userDocRef);
-    
-    if (userDoc.exists()) {
-      const data = userDoc.data();
-      const lastActive = data.lastActive?.toMillis?.() || data.lastActive || now;
-      let totalTime = data.totalTimeMinutes || 0;
-      
-      const diffMs = now - lastActive;
-      if (diffMs < 10 * 60 * 1000 && diffMs > 0) {
-        totalTime += Math.round(diffMs / (60 * 1000));
-      }
-
-      await updateDoc(userDocRef, { 
-        lastActive: serverTimestamp(),
-        totalTimeMinutes: totalTime,
-        lastDevice: device || data.lastDevice || 'Unknown'
-      });
-    } else {
-      await setDoc(userDocRef, {
-        lastActive: serverTimestamp(),
-        totalTimeMinutes: 0,
-        createdAt: now,
-        lastDevice: device || 'Unknown'
-      }, { merge: true });
-    }
-  } catch (error) {}
+    await updateDoc(userDocRef, { 
+      lastActive: serverTimestamp(),
+      lastDevice: device || 'Unknown'
+    });
+  } catch (error) {
+    try { await setDoc(userDocRef, { lastActive: serverTimestamp(), createdAt: Date.now() }, { merge: true }); }
+    catch (e) {}
+  }
 };
 
 export interface SystemStats {
-  totalUsers: number;
-  totalVisits: number;
-  onlineNow: number;
-  dailyActiveUsers: number;
+  totalUsers: number; totalVisits: number; onlineNow: number; dailyActiveUsers: number;
   topCountries: { country: string; count: number }[];
   topUsers: { email: string; name: string; visits: number; timeSpent: number; recentActivity: any[] }[];
   featureUsage: { feature: string; count: number }[];
@@ -420,22 +356,15 @@ export const getStatsSummary = async (): Promise<SystemStats> => {
     const interactionsRef = collection(db, 'interactions');
     const historyRef = collection(db, 'downloads');
     
-    // FETCH IN PARALLEL with reduced limits for speed
-    const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000);
+    // Unified 2-hour window for online users to account for all sync issues
+    const twoHoursAgo = new Date(Date.now() - 120 * 60 * 1000);
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     
-    const onlineQuery = query(usersRef, where('lastActive', '>=', Timestamp.fromDate(thirtyMinsAgo)));
-    const dailyQuery = query(usersRef, where('lastActive', '>=', Timestamp.fromDate(twentyFourHoursAgo)));
-
-    const [
-      usersCount, visitsCount, onlineSnapshot, dailySnapshot,
-      visitsSnapshot, usersSnapshot, featuresSnapshot, searchesSnapshot,
-      interactionsSnapshot, historySnapshot
-    ] = await Promise.all([
+    const [usersCount, visitsCount, onlineSnapshot, dailySnapshot, visitsSnapshot, usersSnapshot, featuresSnapshot, searchesSnapshot, interactionsSnapshot, historySnapshot] = await Promise.all([
       getCountFromServer(usersRef),
       getCountFromServer(visitsRef),
-      getDocs(onlineQuery), // Changed to getDocs for 100% reliability
-      getCountFromServer(dailyQuery),
+      getDocs(query(usersRef, where('lastActive', '>=', Timestamp.fromDate(twoHoursAgo)))),
+      getDocs(query(usersRef, where('lastActive', '>=', Timestamp.fromDate(twentyFourHoursAgo)))),
       getDocs(query(visitsRef, orderBy('timestamp', 'desc'), limit(200))),
       getDocs(query(usersRef, orderBy('totalTimeMinutes', 'desc'), limit(20))),
       getDocs(query(featuresRef, orderBy('timestamp', 'desc'), limit(200))),
@@ -444,7 +373,6 @@ export const getStatsSummary = async (): Promise<SystemStats> => {
       getDocs(query(historyRef, orderBy('downloadedAt', 'desc'), limit(200)))
     ]);
 
-    // 1. Countries & Peak Hours
     const countryMap: Record<string, number> = {};
     const hoursMap: Record<number, number> = {};
     visitsSnapshot.docs.forEach(doc => {
@@ -454,79 +382,56 @@ export const getStatsSummary = async (): Promise<SystemStats> => {
       hoursMap[hour] = (hoursMap[hour] || 0) + 1;
     });
     
-    const peakHours = Object.entries(hoursMap).map(([hour, count]) => {
-      const h = parseInt(hour);
-      const ampm = h >= 12 ? 'PM' : 'AM';
-      return { hour: h, display: `${h % 12 || 12}:00 ${ampm}`, count };
-    }).sort((a, b) => b.count - a.count).slice(0, 6);
-
-    // 2. Top Users
-    const topUsers = usersSnapshot.docs.map(doc => {
-      const data = doc.data();
-      const uid = doc.id;
-      const userInteractions = interactionsSnapshot.docs.filter(d => d.data().userId === uid).map(d => ({ title: d.data().title, action: d.data().action }));
-      const userHistory = historySnapshot.docs.filter(d => d.data().userId === uid).map(d => ({ title: d.data().title, platform: d.data().platform }));
-      return {
-        email: data.email || 'Unknown', name: data.displayName || 'Anonymous',
-        timeSpent: data.totalTimeMinutes || 0, recentActivity: [...userInteractions, ...userHistory].slice(0, 5)
-      };
-    }).filter(u => u.timeSpent > 0);
-
-    // 3. Feature Usage
-    const featureMap: Record<string, number> = {};
-    featuresSnapshot.docs.forEach(doc => {
-      const f = doc.data().feature;
-      if (f) featureMap[f] = (featureMap[f] || 0) + 1;
-    });
-
-    // 4. Searches & Media (Min 10 threshold)
-    const searchMap: Record<string, number> = {};
-    searchesSnapshot.docs.forEach(doc => {
-      const q = doc.data().query?.toLowerCase().trim();
-      if (q) searchMap[q] = (searchMap[q] || 0) + 1;
-    });
-
-    const movieMap: Record<string, { watches: number; downloads: number }> = {};
-    interactionsSnapshot.docs.forEach(doc => {
-      const data = doc.data();
-      if (data.title && (data.mediaType === 'movie' || data.mediaType === 'series')) {
-        if (!movieMap[data.title]) movieMap[data.title] = { watches: 0, downloads: 0 };
-        if (data.action === 'watch') movieMap[data.title].watches += 1;
-        if (data.action === 'download') movieMap[data.title].downloads += 1;
-      }
-    });
-
-    const platformMap: Record<string, number> = {};
-    historySnapshot.docs.forEach(doc => {
-      const p = doc.data().platform;
-      if (p && p !== 'MovieBox') platformMap[p] = (platformMap[p] || 0) + 1;
-    });
-
     return {
       totalUsers: usersCount.data().count, totalVisits: visitsCount.data().count,
-      onlineNow: onlineSnapshot.size, dailyActiveUsers: dailySnapshot.data().count,
+      onlineNow: onlineSnapshot.size, dailyActiveUsers: dailySnapshot.size,
       topCountries: Object.entries(countryMap).map(([country, count]) => ({ country, count })).sort((a, b) => b.count - a.count).slice(0, 5),
-      topUsers, featureUsage: Object.entries(featureMap).map(([feature, count]) => ({ feature, count })).sort((a, b) => b.count - a.count),
-      topSearches: Object.entries(searchMap).filter(([_, count]) => count >= 10).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 10),
-      topMovies: Object.entries(movieMap).filter(([_, s]) => (s.watches + s.downloads) >= 10).map(([title, s]) => ({ title, ...s })).sort((a, b) => (b.watches + b.downloads) - (a.watches + a.downloads)).slice(0, 10),
-      peakHours, topPlatforms: Object.entries(platformMap).map(([platform, count]) => ({ platform, count })).sort((a, b) => b.count - a.count).slice(0, 8)
+      topUsers: usersSnapshot.docs.map(doc => {
+        const data = doc.data();
+        const uid = doc.id;
+        const ui = interactionsSnapshot.docs.filter(d => d.data().userId === uid).map(d => ({ title: d.data().title, action: d.data().action }));
+        const uh = historySnapshot.docs.filter(d => d.data().userId === uid).map(d => ({ title: d.data().title, platform: d.data().platform }));
+        return { email: data.email || 'Unknown', name: data.displayName || 'Anonymous', timeSpent: data.totalTimeMinutes || 0, recentActivity: [...ui, ...uh].slice(0, 5) };
+      }).filter(u => u.timeSpent > 0),
+      featureUsage: Object.entries(filteredMap(featuresSnapshot, 'feature')).map(([feature, count]) => ({ feature, count })).sort((a, b) => b.count - a.count),
+      topSearches: Object.entries(filteredMap(searchesSnapshot, 'query')).filter(([_, count]) => count >= 10).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 10),
+      topMovies: Object.entries(interactionsSnapshot.docs.reduce((acc, d) => {
+        const data = d.data();
+        if (data.title) {
+          if (!acc[data.title]) acc[data.title] = { watches: 0, downloads: 0 };
+          if (data.action === 'watch') acc[data.title].watches += 1;
+          if (data.action === 'download') acc[data.title].downloads += 1;
+        }
+        return acc;
+      }, {} as any)).filter(([_, s]: any) => (s.watches + s.downloads) >= 10).map(([title, s]: any) => ({ title, ...s })).sort((a, b) => (b.watches + b.downloads) - (a.watches + a.downloads)).slice(0, 10),
+      peakHours: Object.entries(hoursMap).map(([hour, count]) => {
+        const h = parseInt(hour);
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        return { hour: h, display: `${h % 12 || 12}:00 ${ampm}`, count };
+      }).sort((a, b) => b.count - a.count).slice(0, 6),
+      topPlatforms: Object.entries(filteredMap(historySnapshot, 'platform')).filter(([p]) => p !== 'MovieBox').map(([platform, count]) => ({ platform, count })).sort((a, b) => b.count - a.count).slice(0, 8)
     };
-  } catch (error) {
-    throw new Error('Failed to fetch system statistics');
-  }
+  } catch (error) { throw new Error('Failed to fetch system statistics'); }
 };
 
+function filteredMap(snap: any, key: string) {
+  const m: Record<string, number> = {};
+  snap.docs.forEach((d: any) => {
+    const val = d.data()[key];
+    if (val) m[val] = (m[val] || 0) + 1;
+  });
+  return m;
+}
+
 export const clearUserHistory = async (userId: string): Promise<void> => {
-  const historyRef = collection(db, 'downloads');
-  const snapshot = await getDocs(query(historyRef, where('userId', '==', userId)));
+  const snapshot = await getDocs(query(collection(db, 'downloads'), where('userId', '==', userId)));
   const batch = writeBatch(db);
   snapshot.docs.forEach((doc) => batch.delete(doc.ref));
   await batch.commit();
 };
 
 export const clearAllHistory = async (): Promise<void> => {
-  const historyRef = collection(db, 'downloads');
-  const snapshot = await getDocs(query(historyRef, limit(500)));
+  const snapshot = await getDocs(query(collection(db, 'downloads'), limit(500)));
   const batch = writeBatch(db);
   snapshot.docs.forEach((doc) => batch.delete(doc.ref));
   await batch.commit();

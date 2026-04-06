@@ -1,9 +1,3 @@
-/**
- * Main App Component
- * 
- * Root component that wraps the app with all necessary providers.
- */
-
 import React from 'react';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -11,10 +5,7 @@ import { ToastProvider } from './contexts/ToastContext';
 import { DownloadProvider } from './contexts/DownloadContext';
 import { AppContent } from './AppContent';
 
-/**
- * Root App Component
- */
-function App() {
+export default function App() {
   return (
     <AuthProvider>
       <ThemeProvider defaultTheme="dark">
@@ -27,5 +18,3 @@ function App() {
     </AuthProvider>
   );
 }
-
-export default App;

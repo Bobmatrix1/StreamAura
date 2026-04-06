@@ -91,11 +91,6 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
     isDark: theme === 'dark'
   };
 
-  // Prevent flash of wrong theme
-  if (!mounted) {
-    return <>{children}</>;
-  }
-
   return (
     <ThemeContext.Provider value={value}>
       {children}

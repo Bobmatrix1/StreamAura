@@ -1,10 +1,8 @@
 /**
- * Service Worker for StreamAura PWA
- * 
- * Provides offline support, caching, and background push notifications.
+ * StreamAura Service Worker - High Stability v2
  */
 
-const CACHE_NAME = 'media-downloader-v1';
+const CACHE_NAME = 'streamaura-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -13,100 +11,106 @@ const STATIC_ASSETS = [
   '/favicon.svg'
 ];
 
-// Install event - cache static assets
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
   );
 });
 
-// Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name))
-      );
+    caches.keys().then((keys) => {
+      return Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)));
     }).then(() => self.clients.claim())
   );
 });
 
-// Fetch event - serve from cache or network
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
-  
+  const url = new URL(event.request.url);
+
+  // 1. STRICT BYPASS: Let the browser handle these directly
+  if (
+    event.request.method !== 'GET' ||
+    !event.request.url.startsWith('http') ||
+    url.hostname.includes('firestore') ||
+    url.hostname.includes('firebase') ||
+    url.hostname.includes('google') ||
+    url.hostname.includes('googleapis') ||
+    url.pathname.startsWith('/api') ||
+    url.port === '1578' ||
+    url.href.includes('hot-update')
+  ) {
+    return; // SW ignores this event completely
+  }
+
+  // 2. Handle App Assets
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).then((response) => {
-        if (response.status === 200) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+    (async () => {
+      const cachedResponse = await caches.match(event.request);
+      if (cachedResponse) return cachedResponse;
+
+      try {
+        const networkResponse = await fetch(event.request);
+        
+        // Cache valid local assets
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          const cache = await caches.open(CACHE_NAME);
+          cache.put(event.request, networkResponse.clone());
         }
-        return response;
-      }).catch(() => {
-        if (event.request.mode === 'navigate') return caches.match('/offline.html');
-      });
-    })
+        
+        return networkResponse;
+      } catch (error) {
+        // Only show offline page for actual website page loads
+        if (event.request.mode === 'navigate') {
+          const offlinePage = await caches.match('/offline.html');
+          if (offlinePage) return offlinePage;
+        }
+        // Let the browser handle the network error for images/scripts
+        throw error;
+      }
+    })()
   );
 });
 
 // --- PUSH NOTIFICATIONS ---
 
 self.addEventListener('push', (event) => {
-  if (event.data) {
-    const data = event.data.json();
-    
-    // Handle App Icon Badge
-    if (data.unreadCount !== undefined) {
-      if ('setAppBadge' in navigator) {
-        if (data.unreadCount > 0) {
-          (navigator as any).setAppBadge(data.unreadCount);
-        } else {
-          (navigator as any).clearAppBadge();
-        }
-      }
-    }
+  let data = { title: 'StreamAura', message: 'New update available' };
+  try {
+    data = event.data ? event.data.json() : data;
+  } catch (e) {
+    data.message = event.data ? event.data.text() : data.message;
+  }
 
-    const options = {
-      body: data.message || 'New update from StreamAura',
+  if (data.unreadCount !== undefined && 'setAppBadge' in navigator) {
+    const count = parseInt(data.unreadCount);
+    if (count > 0) navigator.setAppBadge(count);
+    else navigator.clearAppBadge();
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.message,
       icon: '/icons/icon-192x192.png',
       badge: '/icons/icon-72x72.png',
       tag: 'broadcast',
-      vibrate: [200, 100, 200],
-      data: {
-        url: data.url || '/notifications'
-      },
-      actions: [
-        { action: 'open', title: 'Read Now' },
-        { action: 'close', title: 'Dismiss' }
-      ]
-    };
-
-    event.waitUntil(
-      self.registration.showNotification(data.title || 'StreamAura', options)
-    );
-  }
+      data: { url: data.url || '/notifications' }
+    })
+  );
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const targetUrl = event.notification.data.url || '/notifications';
   
-  if (event.action !== 'close') {
-    event.waitUntil(
-      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-        if (clientList.length > 0) {
-          let client = clientList[0];
-          for (let i = 0; i < clientList.length; i++) {
-            if (clientList[i].focused) {
-              client = clientList[i];
-              break;
-            }
-          }
-          return client.focus().then(c => c.navigate(event.notification.data.url));
-        }
-        return self.clients.openWindow(event.notification.data.url);
-      })
-    );
-  }
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        const clientUrl = new URL(client.url);
+        if (clientUrl.pathname === targetUrl && 'focus' in client) return client.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
+    })
+  );
 });

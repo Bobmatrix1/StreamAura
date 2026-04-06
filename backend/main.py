@@ -350,17 +350,40 @@ async def start_movie_download(request: Request, background_tasks: BackgroundTas
                     download_tasks[task_id]["status"] = "downloading"
             downloader = Downloader()
             downloaded_file = None
+            
+            # STAGE 1: Direct ID Search (Most Accurate)
             search_query = subject_id if subject_id else title
-            try:
-                if media_type == "series" and season and episode:
-                    results = await downloader.download_tv_series(title, season=int(season), episode=int(episode), limit=1, yes=True, quality=target_q, dir=DOWNLOAD_DIR, progress_hook=progress_hook)
-                    for s_val in results.values():
-                        for e_val in s_val.values():
-                            if isinstance(e_val, dict) and 'video' in e_val:
-                                downloaded_file = e_val['video']
-                                break
-                else: downloaded_file, _ = await downloader.download_movie(search_query, yes=True, quality=target_q, dir=DOWNLOAD_DIR, progress_hook=progress_hook)
-            except Exception: pass
+            
+            async def perform_download(query_text):
+                try:
+                    if media_type == "series" and season and episode:
+                        results = await downloader.download_tv_series(
+                            query_text, season=int(season), episode=int(episode), 
+                            limit=1, yes=True, quality=target_q, 
+                            dir=DOWNLOAD_DIR, progress_hook=progress_hook
+                        )
+                        for s_val in results.values():
+                            for e_val in s_val.values():
+                                if isinstance(e_val, dict) and 'video' in e_val:
+                                    return e_val['video']
+                    else:
+                        file_obj, _ = await downloader.download_movie(
+                            query_text, yes=True, quality=target_q, 
+                            dir=DOWNLOAD_DIR, progress_hook=progress_hook
+                        )
+                        return file_obj
+                except Exception as e:
+                    print(f"Download attempt for '{query_text}' failed: {e}")
+                    return None
+
+            # Execute Stage 1
+            downloaded_file = await perform_download(search_query)
+            
+            # STAGE 2: Fallback to Clean Title (If ID search failed)
+            if not downloaded_file and subject_id:
+                print(f"Stage 1 failed for {subject_id}, attempting Stage 2 with title: {title}")
+                downloaded_file = await perform_download(title)
+
             if downloaded_file and hasattr(downloaded_file, 'saved_to'):
                 download_tasks[task_id]["status"], download_tasks[task_id]["progress"], download_tasks[task_id]["path"] = "completed", 100, str(downloaded_file.saved_to)
             else: raise Exception("Download failed.")
