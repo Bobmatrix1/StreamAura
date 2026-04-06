@@ -545,12 +545,18 @@ async def get_movie_details(subject_id: str, media_type: str = Query("movie", al
         print(f"--- Fetching details for {media_type}: {title} (ID: {subject_id}) ---")
         client_session = MovieSession()
         
-        # Patch the internal client to look like a real browser
+        # Patch the internal client to look like a real mobile browser (more likely to be accepted by H5 sites)
         if hasattr(client_session, '_client') and hasattr(client_session._client, 'headers'):
             client_session._client.headers.update({
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-                "Referer": "https://h5.aoneroom.com/",
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+                "Accept": "application/json, text/plain, */*",
                 "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://h5.aoneroom.com/",
+                "Origin": "https://h5.aoneroom.com",
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-origin",
+                "X-Requested-With": "com.moviebox.h5"
             })
 
         subject_type = SubjectType.TV_SERIES if media_type == "series" else SubjectType.MOVIES
