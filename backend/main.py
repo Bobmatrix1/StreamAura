@@ -62,43 +62,29 @@ async def add_no_cache_header(request: Request, call_next):
     response.headers["Expires"] = "0"
     return response
 
-# Download folder
-DOWNLOAD_DIR = "downloads"
+# Download folder - Use /tmp for Vercel compatibility
+DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Background Cleanup Task
+# Background Cleanup Task - Simplified for Serverless
 async def cleanup_old_files():
-    """Periodically clean up files older than 6 hours from the downloads folder."""
-    while True:
-        try:
-            now = time.time()
-            max_age = 6 * 3600 # 6 hours
-            
-            if os.path.exists(DOWNLOAD_DIR):
-                for f in os.listdir(DOWNLOAD_DIR):
-                    f_path = os.path.join(DOWNLOAD_DIR, f)
-                    if os.path.isfile(f_path):
-                        f_age = now - os.path.getmtime(f_path)
-                        if f_age > max_age:
-                            print(f"--- Cleanup: Deleting old file: {f} ---")
-                            os.remove(f_path)
-                            
-            # Also clean up the global task dictionary for stale tasks
-            stale_tasks = [tid for tid, task in download_tasks.items() 
-                           if task.get("status") in ["completed", "error", "cancelled"] 
-                           and (now - task.get("completed_at", now)) > max_age]
-            for tid in stale_tasks:
-                del download_tasks[tid]
-                
-        except Exception as e:
-            print(f"--- Cleanup Error: {e} ---")
-            
-        await asyncio.sleep(3600) # Run every hour
+    """Clean up files older than 2 hours. In Vercel, /tmp is cleared anyway, but this is a safety measure."""
+    try:
+        now = time.time()
+        max_age = 2 * 3600 
+        
+        if os.path.exists(DOWNLOAD_DIR):
+            for f in os.listdir(DOWNLOAD_DIR):
+                f_path = os.path.join(DOWNLOAD_DIR, f)
+                if os.path.isfile(f_path):
+                    if (now - os.path.getmtime(f_path)) > max_age:
+                        os.remove(f_path)
+    except: pass
 
 @app.on_event("startup")
 async def startup_event():
-    # Start the background cleanup task
-    asyncio.create_task(cleanup_old_files())
+    # In Vercel, we don't start a persistent loop, just a one-time check
+    await cleanup_old_files()
 
 # Initialize Spotify API
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
