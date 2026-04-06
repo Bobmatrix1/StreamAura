@@ -552,7 +552,6 @@ async def get_movie_details(subject_id: str, media_type: str = Query("movie", al
             client_session._client.headers.update({
                 "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
                 "Accept": "application/json, text/plain, */*",
-                "Accept-Encoding": "gzip, deflate, br",
                 "Accept-Language": "en-US,en;q=0.9",
                 "Referer": "https://h5.aoneroom.com/",
                 "X-Requested-With": "com.moviebox.h5",
