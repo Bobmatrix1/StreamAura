@@ -544,12 +544,32 @@ async def get_movie_details(subject_id: str, media_type: str = Query("movie", al
     try:
         print(f"--- Fetching details for {media_type}: {title} (ID: {subject_id}) ---")
         client_session = MovieSession()
+        
+        # Patch the internal client to look like a real browser
+        if hasattr(client_session, '_client') and hasattr(client_session._client, 'headers'):
+            client_session._client.headers.update({
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                "Referer": "https://h5.aoneroom.com/",
+                "Accept-Language": "en-US,en;q=0.9",
+            })
+
         subject_type = SubjectType.TV_SERIES if media_type == "series" else SubjectType.MOVIES
         
         # Search by title to get the correct model item
         search_query = title if title else subject_id
-        search_model = await MovieSearch(client_session, search_query, subject_type=subject_type).get_content_model()
-        items = getattr(search_model, 'items', getattr(search_model, 'list', []))
+        
+        # Retry logic for network flakiness
+        max_retries = 2
+        items = []
+        for attempt in range(max_retries):
+            try:
+                search_model = await MovieSearch(client_session, search_query, subject_type=subject_type).get_content_model()
+                items = getattr(search_model, 'items', getattr(search_model, 'list', []))
+                if items: break
+                await asyncio.sleep(1)
+            except Exception as e:
+                if attempt == max_retries - 1: raise e
+                await asyncio.sleep(1)
         
         # Find exact item by ID or fall back to first result
         target_item = next((m for m in items if str(getattr(m, 'subjectId', '')) == subject_id), items[0] if items else None)
@@ -561,22 +581,34 @@ async def get_movie_details(subject_id: str, media_type: str = Query("movie", al
         if media_type == "series":
             from moviebox_api.v1 import TVSeriesDetails, DownloadableTVSeriesFilesDetail
             ts_instance = TVSeriesDetails(target_item, client_session)
+            
+            # Fetch details with browser headers
             details_raw = await ts_instance.get_content()
             res_data = details_raw.get('resData', {})
             resource = get_val(res_data, 'resource', {})
             if isinstance(resource, list) and len(resource) > 0: resource = resource[0]
+            
             seasons_info, total_episodes = [], 0
             for s in get_val(resource, 'seasons', []):
                 ep_str = str(get_val(s, 'allEp', ''))
                 valid_eps = [int(ep) for ep in ep_str.split(',') if ep.strip()] if ep_str.strip() else list(range(1, int(get_val(s, 'maxEp', 0)) + 1))
                 total_episodes += len(valid_eps)
                 seasons_info.append({"season": int(get_val(s, 'se', 0)), "episodes": valid_eps})
+            
             f_q = []
             if season and episode:
                 ts_model = await ts_instance.get_content_model()
                 downloader = DownloadableTVSeriesFilesDetail(client_session, ts_model)
                 files = await downloader.get_content(episode=episode, season=season)
-                for d in files.get('downloads', []): f_q.append({"quality": f"{d.get('resolution')}p", "resolution": f"{d.get('resolution')}p", "format": "MP4", "size": format_size(d.get('size', 0)), "url": d.get('url')})
+                for d in files.get('downloads', []): 
+                    f_q.append({
+                        "quality": f"{d.get('resolution')}p", 
+                        "resolution": f"{d.get('resolution')}p", 
+                        "format": "MP4", 
+                        "size": format_size(d.get('size', 0)), 
+                        "url": d.get('url')
+                    })
+            
             dur = get_duration_str(target_item)
             if dur in ["Series", "N/A", "0m"]: dur = f"{total_episodes} Episodes"
             return {"success": True, "data": {"id": subject_id, "title": get_val(res_data.get('metadata', {}), 'title', get_val(target_item, 'title')), "description": get_val(res_data.get('metadata', {}), 'description', ''), "thumbnail": get_val(res_data.get('metadata', {}), 'image', get_cover_url(target_item)), "year": get_release_year(target_item), "rating": get_val(target_item, 'imdbRatingValue', 'N/A'), "duration": dur, "genres": get_genres_list(target_item), "qualities": f_q, "seasons": seasons_info, "mediaType": "series", "platform": "MovieBox", "referer": res_data.get('referer', 'https://fmoviesunblocked.net/')}}
@@ -587,13 +619,24 @@ async def get_movie_details(subject_id: str, media_type: str = Query("movie", al
             metadata = res_data.get('metadata', {})
             md_model = await md_instance.get_content_model()
             df = DownloadableMovieFilesDetail(client_session, md_model)
+            
+            # Fetch download links
             files = await df.get_content()
             f_q = []
-            for d in files.get('downloads', []): f_q.append({"quality": f"{d.get('resolution')}p", "resolution": f"{d.get('resolution')}p", "format": "MP4", "size": format_size(d.get('size', 0)), "url": d.get('url')})
+            for d in files.get('downloads', []): 
+                f_q.append({
+                    "quality": f"{d.get('resolution')}p", 
+                    "resolution": f"{d.get('resolution')}p", 
+                    "format": "MP4", 
+                    "size": format_size(d.get('size', 0)), 
+                    "url": d.get('url')
+                })
+            
             return {"success": True, "data": {"id": subject_id, "title": get_val(metadata, 'title', get_val(target_item, 'title')), "description": get_val(metadata, 'description', ''), "thumbnail": get_val(metadata, 'image', get_cover_url(target_item)), "year": get_release_year(target_item), "rating": get_val(target_item, 'imdbRatingValue', 'N/A'), "duration": get_duration_str(target_item), "genres": get_genres_list(target_item), "qualities": f_q, "mediaType": "movie", "platform": "MovieBox", "referer": res_data.get('referer', 'https://fmoviesunblocked.net/')}}
     except Exception as e:
         print(f"--- Details Error for ID {subject_id}: {str(e)} ---")
-        traceback.print_exc()
+        if "403" in str(e):
+            return JSONResponse(status_code=403, content={"success": False, "error": "Provider blocked the request. Please try again in a moment."})
         return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
 
 @app.get("/api/analytics/country")
