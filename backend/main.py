@@ -515,21 +515,43 @@ async def cancel_movie_download(task_id: str):
         return {"success": True, "data": {}}
     return JSONResponse(status_code=404, content={"success": False, "error": "Not found"})
 
+@app.get("/")
+async def root_health_check():
+    return {"status": "online", "service": "StreamAura Backend", "timestamp": time.time()}
+
 @app.get("/api/movies/search")
 async def search_movies(query: str, media_type: str = Query("movie", alias="type")):
     try:
+        print(f"--- Searching for {media_type}: {query} ---")
         client_session = MovieSession()
         subject_type = SubjectType.TV_SERIES if media_type == "series" else SubjectType.MOVIES
-        try: results = await MovieSearch(client_session, query, subject_type=subject_type).get_content()
+        try: 
+            results = await MovieSearch(client_session, query, subject_type=subject_type).get_content()
         except Exception as e:
+            print(f"--- MovieBox Search Error: {str(e)} ---")
             if "Search yielded empty results" in str(e): return {"success": True, "data": []}
             raise e
+            
         formatted = []
-        for item in results.get('items', []):
-            rd = get_val(item, 'releaseDate')
-            formatted.append({"id": str(get_val(item, 'subjectId')), "title": get_val(item, 'title'), "thumbnail": get_cover_url(item), "year": rd.split('-')[0] if isinstance(rd, str) else str(getattr(rd, 'year', 'N/A')) if rd else 'N/A', "rating": get_val(item, 'imdbRatingValue', 'N/A'), "duration": get_duration_str(item), "genres": get_genres_list(item), "mediaType": media_type, "platform": "MovieBox"})
+        if results and isinstance(results, dict) and 'items' in results:
+            for item in results.get('items', []):
+                rd = get_val(item, 'releaseDate')
+                formatted.append({
+                    "id": str(get_val(item, 'subjectId')), 
+                    "title": get_val(item, 'title'), 
+                    "thumbnail": get_cover_url(item), 
+                    "year": rd.split('-')[0] if isinstance(rd, str) else str(getattr(rd, 'year', 'N/A')) if rd else 'N/A', 
+                    "rating": get_val(item, 'imdbRatingValue', 'N/A'), 
+                    "duration": get_duration_str(item), 
+                    "genres": get_genres_list(item), 
+                    "mediaType": media_type, 
+                    "platform": "MovieBox"
+                })
         return {"success": True, "data": formatted}
-    except Exception as e: return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
+    except Exception as e: 
+        print(f"--- Global Search Exception: {str(e)} ---")
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.get("/api/movies/details")
 async def get_movie_details(subject_id: str, media_type: str = Query("movie", alias="type"), title: Optional[str] = None, season: Optional[int] = None, episode: Optional[int] = None):
