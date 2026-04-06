@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Zap, Shield, Smartphone, Globe, Heart, Star, Code, Coffee } from 'lucide-react';
+import { Zap, Shield, Smartphone, Globe, Heart, Code, Coffee } from 'lucide-react';
 
 const About: React.FC = () => {
   const stats = [

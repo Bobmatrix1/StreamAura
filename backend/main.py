@@ -287,7 +287,7 @@ async def broadcast_notification(request: Request):
                 )
                 messaging.send_each_for_multicast(message_obj)
 
-        return {"success": True, "delivered_to": len(user_ids)}
+        return {"success": True, "data": {"delivered_to": len(user_ids)}}
     except Exception as e:
         print(f"Broadcast Error: {e}")
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
@@ -319,7 +319,7 @@ async def clear_all_notifications():
                     count = 0
             batch.commit()
             
-        return {"success": True, "total_cleared": cleared_count}
+        return {"success": True, "data": {"total_cleared": cleared_count}}
     except Exception as e:
         print(f"Clear All Error: {e}")
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
@@ -362,16 +362,20 @@ async def start_movie_download(request: Request, background_tasks: BackgroundTas
                             limit=1, yes=True, quality=target_q, 
                             dir=DOWNLOAD_DIR, progress_hook=progress_hook
                         )
-                        for s_val in results.values():
-                            for e_val in s_val.values():
-                                if isinstance(e_val, dict) and 'video' in e_val:
-                                    return e_val['video']
+                        if results:
+                            for s_val in results.values():
+                                for e_val in s_val.values():
+                                    if isinstance(e_val, dict) and 'video' in e_val:
+                                        return e_val['video']
+                        return None
                     else:
-                        file_obj, _ = await downloader.download_movie(
+                        res = await downloader.download_movie(
                             query_text, yes=True, quality=target_q, 
                             dir=DOWNLOAD_DIR, progress_hook=progress_hook
                         )
-                        return file_obj
+                        if res and isinstance(res, tuple) and len(res) > 0:
+                            return res[0]
+                        return None
                 except Exception as e:
                     print(f"Download attempt for '{query_text}' failed: {e}")
                     return None
@@ -391,7 +395,7 @@ async def start_movie_download(request: Request, background_tasks: BackgroundTas
         finally:
             if task_id in download_events: del download_events[task_id]
     background_tasks.add_task(run_download)
-    return {"success": True, "task_id": task_id}
+    return {"success": True, "data": {"task_id": task_id}}
 
 @app.post("/api/movies/download/pause/{task_id}")
 async def pause_movie_download(task_id: str):
@@ -400,11 +404,11 @@ async def pause_movie_download(task_id: str):
         if event.is_set():
             event.clear()
             download_tasks[task_id]["paused"] = True
-            return {"success": True, "paused": True}
+            return {"success": True, "data": {"paused": True}}
         else:
             event.set()
             download_tasks[task_id]["paused"] = False
-            return {"success": True, "paused": False}
+            return {"success": True, "data": {"paused": False}}
     return JSONResponse(status_code=404, content={"success": False, "error": "Not found"})
 
 @app.get("/api/movies/download/status/{task_id}")
@@ -429,7 +433,7 @@ async def cancel_movie_download(task_id: str):
     if task_id in download_tasks:
         download_tasks[task_id]["status"] = "cancelled"
         if task_id in download_events: download_events[task_id].set()
-        return {"success": True}
+        return {"success": True, "data": {}}
     return JSONResponse(status_code=404, content={"success": False, "error": "Not found"})
 
 @app.get("/api/movies/search")

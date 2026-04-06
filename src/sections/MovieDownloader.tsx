@@ -13,10 +13,7 @@ import {
   X, 
   Play, 
   ChevronDown, 
-  Check,
-  Info,
-  ChevronRight,
-  Maximize
+  Check
 } from 'lucide-react';
 import { useDownload } from '../contexts/DownloadContext';
 import { useToast } from '../contexts/ToastContext';
@@ -50,7 +47,7 @@ const MovieDownloader: React.FC = () => {
     isPaused,
     activeStage
   } = useDownload();
-  const { showSuccess, showError } = useToast();
+  const { showError } = useToast();
 
   // Refs for outside click detection
   const seasonRef = React.useRef<HTMLDivElement>(null);
@@ -86,9 +83,9 @@ const MovieDownloader: React.FC = () => {
     if (!query.trim()) return;
     setIsSearching(true);
     setSelectedMovie(null);
-    logSearch(query, searchType, user?.uid);
+    logSearch(query, searchType as any, user?.uid);
     try {
-      const result = await mediaApi.searchMovies(query, searchType);
+      const result = await mediaApi.searchMovies(query, searchType as 'movie' | 'series');
       if (result.success && result.data) {
         setSearchResults(result.data);
         if (result.data.length === 0) {
@@ -116,7 +113,7 @@ const MovieDownloader: React.FC = () => {
     setIsSeasonOpen(false);
     setIsEpisodeOpen(false);
     try {
-      const result = await mediaApi.getMovieDetails(movie.id, searchType, movie.title);
+      const result = await mediaApi.getMovieDetails(movie.id, searchType as 'movie' | 'series', movie.title);
       if (result.success && result.data) {
         setSelectedMovie(result.data);
         
@@ -154,7 +151,7 @@ const MovieDownloader: React.FC = () => {
         setSelectedMovie(prev => prev ? {
           ...prev,
           qualities: result.data?.qualities || []
-        } : result.data);
+        } : (result.data || null));
       } else {
         showError(result.error || 'Failed to get episode details');
       }
@@ -537,7 +534,7 @@ const MovieDownloader: React.FC = () => {
                             <div className="p-1.5 glass-card bg-background/95 border-border backdrop-blur-2xl rounded-xl max-h-60 overflow-y-auto custom-scrollbar">
                               {selectedMovie.qualities?.map((quality) => (
                                 <button
-                                  key={quality.id || quality.quality}
+                                  key={quality.quality}
                                   onClick={() => {
                                     setSelectedQuality(quality);
                                     setIsQualityDropdownOpen(false);

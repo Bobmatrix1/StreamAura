@@ -9,9 +9,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, 
-  Trash2, 
   Play, 
-  Pause, 
   X,
   Link2,
   List,
@@ -25,9 +23,10 @@ import { useToast } from '../contexts/ToastContext';
 import { useIsMobile } from '../hooks/use-mobile';
 const BulkDownloader: React.FC = () => {
   const [inputUrls, setInputUrls] = useState('');
-  const { queue, addToQueue, startDownload, removeFromQueue, clearQueue, isProcessing } = useDownload();
-  const { showSuccess, showError } = useToast();
+  const { queue, addToQueue, startDownload, removeFromQueue, clearQueue } = useDownload();
+  const { showError } = useToast();
   const isMobile = useIsMobile();
+  const isProcessing = queue.some(item => item.status === 'downloading' || item.status === 'processing');
 
   const handleAddUrls = async () => {
     if (!inputUrls.trim()) {
@@ -59,7 +58,7 @@ const BulkDownloader: React.FC = () => {
 
     for (const item of waitingItems) {
       try {
-        await startDownload(item.id);
+        await startDownload(item.id, { quality: 'best', format: 'mp4', resolution: 'best', size: '', sizeBytes: 0, url: '' });
       } catch (err) {
         console.error(`Failed to download ${item.url}`, err);
       }
@@ -203,7 +202,7 @@ const BulkDownloader: React.FC = () => {
                   <div className="flex items-center gap-2">
                     {item.status === 'waiting' && (
                       <button
-                        onClick={() => startDownload(item.id)}
+                        onClick={() => startDownload(item.id, { quality: 'best', format: 'mp4', resolution: 'best', size: '', sizeBytes: 0, url: '' })}
                         className="p-2 rounded-lg hover:bg-white/5 text-muted-foreground hover:text-white transition-all"
                       >
                         <ArrowRight className="w-4 h-4" />

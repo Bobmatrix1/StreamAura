@@ -21,15 +21,10 @@ import {
   Settings,
   LineChart,
   Clock,
-  Film,
   TrendingUp,
-  Box,
   Eye,
   Download,
-  ChevronRight,
   History as HistoryIcon,
-  Link2,
-  MoreHorizontal,
   Send,
   MessageSquare,
   Info
@@ -45,7 +40,6 @@ import {
   clearUserHistory,
   clearAllHistory,
   clearAllTraffic,
-  sendGlobalNotification,
   type SystemStats
 } from '../lib/firebase';
 import type { User, GlobalHistoryItem } from '../types';

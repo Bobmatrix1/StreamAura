@@ -15,7 +15,6 @@ import {
   Pause,
   User,
   Music,
-  Disc,
   Check,
   Loader2,
   Volume2,

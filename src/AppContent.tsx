@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, Download, Zap } from 'lucide-react';
+import { Zap } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
-import { useToast } from './contexts/ToastContext';
-import { useDownload } from './contexts/DownloadContext';
 import Layout from '@/sections/Layout';
 import Login from '@/sections/Login';
 import Signup from '@/sections/Signup';
@@ -27,8 +25,6 @@ import type { ViewType } from '@/types';
  */
 export const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading, isAdmin, user } = useAuth();
-  const { showToast } = useToast();
-  const { activeDownloads } = useDownload();
   
   const [showLogin, setShowLogin] = useState(true);
   const [activeView, setActiveView] = useState<ViewType>('video');

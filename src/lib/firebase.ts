@@ -15,16 +15,13 @@ import {
   signInWithPopup
 } from 'firebase/auth';
 import { 
-  getFirestore, 
   doc, 
   setDoc, 
   getDoc,
-  getDocFromServer,
   collection,
   query,
   where,
   getDocs,
-  getDocsFromServer,
   serverTimestamp,
   deleteDoc,
   updateDoc,
@@ -37,7 +34,7 @@ import {
   onSnapshot,
   initializeFirestore
 } from 'firebase/firestore';
-import { getMessaging, getToken, onMessage } from 'firebase/messaging';
+import { getMessaging, getToken } from 'firebase/messaging';
 import type { User, GlobalHistoryItem } from '@/types';
 
 const firebaseConfig = {
@@ -236,7 +233,7 @@ export const getUserData = async (uid: string, createIfMissing = false): Promise
   const userDocRef = doc(db, 'users', uid);
   try {
     let userDoc = await getDoc(userDocRef);
-    if (!userDoc.exists() && !createIfMissing) userDoc = await getDocFromServer(userDocRef);
+    if (!userDoc.exists() && !createIfMissing) userDoc = await getDoc(userDocRef);
     if (userDoc.exists()) return userDoc.data() as User;
     return null;
   } catch (err) { return null; }
@@ -331,6 +328,7 @@ export const updateUserPresence = async (uid: string, device?: string): Promise<
       lastDevice: device || 'Unknown'
     });
   } catch (error) {
+    const userDocRef = doc(db, 'users', uid);
     try { await setDoc(userDocRef, { lastActive: serverTimestamp(), createdAt: Date.now() }, { merge: true }); }
     catch (e) {}
   }
@@ -391,8 +389,14 @@ export const getStatsSummary = async (): Promise<SystemStats> => {
         const uid = doc.id;
         const ui = interactionsSnapshot.docs.filter(d => d.data().userId === uid).map(d => ({ title: d.data().title, action: d.data().action }));
         const uh = historySnapshot.docs.filter(d => d.data().userId === uid).map(d => ({ title: d.data().title, platform: d.data().platform }));
-        return { email: data.email || 'Unknown', name: data.displayName || 'Anonymous', timeSpent: data.totalTimeMinutes || 0, recentActivity: [...ui, ...uh].slice(0, 5) };
-      }).filter(u => u.timeSpent > 0),
+        return { 
+          email: data.email || 'Unknown', 
+          name: data.displayName || 'Anonymous', 
+          visits: data.visitCount || 0,
+          timeSpent: data.totalTimeMinutes || 0, 
+          recentActivity: [...ui, ...uh].slice(0, 5) 
+        };
+      }).filter(u => u.timeSpent > 0 || u.visits > 0),
       featureUsage: Object.entries(filteredMap(featuresSnapshot, 'feature')).map(([feature, count]) => ({ feature, count })).sort((a, b) => b.count - a.count),
       topSearches: Object.entries(filteredMap(searchesSnapshot, 'query')).filter(([_, count]) => count >= 10).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 10),
       topMovies: Object.entries(interactionsSnapshot.docs.reduce((acc, d) => {

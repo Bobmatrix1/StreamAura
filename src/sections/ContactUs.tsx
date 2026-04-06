@@ -1,5 +1,5 @@
 import React from 'react';
-import { Mail, MessageCircle, Send, Twitter, LifeBuoy, ExternalLink } from 'lucide-react';
+import { Mail, MessageCircle, Send, LifeBuoy, ExternalLink } from 'lucide-react';
 
 const WhatsAppIcon = ({ className }: { className?: string }) => (
   <svg viewBox="0 0 448 512" fill="currentColor" className={className}>

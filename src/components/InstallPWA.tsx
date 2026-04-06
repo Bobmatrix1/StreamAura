@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, X, Share, PlusSquare, Smartphone, Info } from 'lucide-react';
+import { Download, X, Share, PlusSquare, Smartphone } from 'lucide-react';
 
 const InstallPWA: React.FC = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);

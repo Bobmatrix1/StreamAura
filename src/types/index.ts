@@ -9,7 +9,7 @@ export interface User {
 }
 
 // Media download types
-export type MediaType = 'video' | 'music' | 'movie';
+export type MediaType = 'video' | 'music' | 'movie' | 'series';
 
 export interface MediaInfo {
   id: string;
@@ -73,7 +73,7 @@ export interface MovieInfo extends MediaInfo {
 }
 
 // Download queue types
-export type DownloadStatus = 'waiting' | 'processing' | 'ready' | 'error' | 'downloading';
+export type DownloadStatus = 'waiting' | 'processing' | 'ready' | 'error' | 'downloading' | 'completed';
 
 export interface DownloadItem {
   id: string;

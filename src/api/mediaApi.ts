@@ -83,7 +83,7 @@ export const extractMusicInfo = async (url: string): Promise<ApiResponse<MusicIn
       data: result.data as unknown as MusicInfo
     };
   }
-  return result as ApiResponse<MusicInfo>;
+  return result as unknown as ApiResponse<MusicInfo>;
 };
 
 /**

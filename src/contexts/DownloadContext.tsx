@@ -139,12 +139,7 @@ export const DownloadProvider: React.FC<DownloadProviderProps> = ({ children }) 
     });
 
     if (user) {
-      saveDownloadHistory({
-        ...item,
-        userId: user.uid,
-        userEmail: user.email,
-        userDisplayName: user.displayName
-      });
+      saveDownloadHistory(user.uid, user.email, user.displayName, item);
     }
   }, [user]);
 
@@ -219,11 +214,11 @@ export const DownloadProvider: React.FC<DownloadProviderProps> = ({ children }) 
           season,
           episode
         );
-        if (!startResult.success || !startResult.task_id) {
+        if (!startResult.success || !startResult.data?.task_id) {
           throw new Error(startResult.error || 'Failed to start server-side download');
         }
 
-        const taskId = startResult.task_id;
+        const taskId = startResult.data.task_id;
         setActiveTaskId(taskId);
 
         // Poll for progress
@@ -441,9 +436,9 @@ export const DownloadProvider: React.FC<DownloadProviderProps> = ({ children }) 
   const pauseDownload = useCallback(async () => {
     if (activeTaskId) {
       const result = await mediaApi.pauseMovieDownloadTask(activeTaskId);
-      if (result.success) {
-        setIsPaused(result.paused);
-        showSuccess(result.paused ? 'Download paused' : 'Download resumed');
+      if (result.success && result.data) {
+        setIsPaused(result.data.paused);
+        showSuccess(result.data.paused ? 'Download paused' : 'Download resumed');
       } else {
         showError('Failed to toggle pause');
       }
@@ -513,7 +508,7 @@ export const DownloadProvider: React.FC<DownloadProviderProps> = ({ children }) 
 
     setQueue(prev => prev.map(item => 
       item.id === id 
-        ? { ...item, status: 'downloading', selectedQuality: finalQuality, progress: 0 }
+        ? { ...item, status: 'downloading', selectedQuality: finalQuality as any, progress: 0 }
         : item
     ));
 
@@ -567,7 +562,7 @@ export const DownloadProvider: React.FC<DownloadProviderProps> = ({ children }) 
       window.URL.revokeObjectURL(blobUrl);
 
       setQueue(prev => prev.map(item => 
-        item.id === id ? { ...item, status: 'completed', progress: 100 } : item
+        item.id === id ? { ...item, status: 'completed' as DownloadStatus, progress: 100 } : item
       ));
 
       if (targetItem.mediaInfo) {

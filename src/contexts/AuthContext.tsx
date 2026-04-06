@@ -7,7 +7,6 @@ import {
   logOut, 
   onAuthChange,
   resetPassword as firebaseResetPassword,
-  getUserData,
   db
 } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';

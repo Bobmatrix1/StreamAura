@@ -8,10 +8,8 @@ import {
   Info, 
   AlertTriangle, 
   Zap,
-  ChevronRight,
   Inbox,
   CheckCheck,
-  X,
   RefreshCcw
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -28,14 +26,12 @@ const Notifications: React.FC = () => {
   const { user } = useAuth();
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
   const loadNotifications = () => {
     if (!user?.uid) return () => {};
     
     setIsLoading(true);
-    setError(null);
 
     // Safety timeout: stop spinner after 5 seconds no matter what
     const timer = setTimeout(() => setIsLoading(false), 5000);
@@ -44,13 +40,12 @@ const Notifications: React.FC = () => {
       user.uid, 
       (notifs) => {
         clearTimeout(timer);
-        setNotifications(notifs);
+        setNotifications(notifs as AppNotification[]);
         setIsLoading(false);
       },
       (err) => {
         clearTimeout(timer);
         console.error('Notification error:', err);
-        setError('Failed to load notifications.');
         setIsLoading(false);
       }
     );
