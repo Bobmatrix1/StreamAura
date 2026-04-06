@@ -42,6 +42,7 @@ import {
   clearAllTraffic,
   type SystemStats
 } from '../lib/firebase';
+import { API_BASE_URL } from '../api/mediaApi';
 import type { User, GlobalHistoryItem } from '../types';
 import {
   Table,
@@ -131,7 +132,7 @@ const AdminDashboard: React.FC = () => {
     
     setIsSending(true);
     try {
-      const response = await fetch('/api/admin/broadcast', {
+      const response = await fetch(`${API_BASE_URL}/api/admin/broadcast`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -164,7 +165,7 @@ const AdminDashboard: React.FC = () => {
       onConfirm: async () => {
         setIsSending(true);
         try {
-          const resp = await fetch('/api/admin/notifications/clear', { method: 'DELETE' });
+          const resp = await fetch(`${API_BASE_URL}/api/admin/notifications/clear`, { method: 'DELETE' });
           const res = await resp.json();
           if (res.success) {
             showSuccess(`Cleared ${res.total_cleared} notifications system-wide.`);

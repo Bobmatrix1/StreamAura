@@ -13,8 +13,8 @@ import type {
   Platform 
 } from '@/types';
 
-// API Base URL for Vercel multi-service deployment
-export const API_BASE_URL = '/_/backend';
+// API Base URL - use env var for Render/Production, or local proxy
+export const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 /**
  * Detect platform from URL

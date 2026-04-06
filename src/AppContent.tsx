@@ -17,6 +17,7 @@ import PrivacyPolicy from '@/sections/PrivacyPolicy';
 import ContactUs from '@/sections/ContactUs';
 import InstallPWA from '@/components/InstallPWA';
 import { logVisit, updateUserPresence, logFeatureUsage, requestNotificationPermission } from '@/lib/firebase';
+import { API_BASE_URL } from '@/api/mediaApi';
 import type { ViewType } from '@/types';
 
 /**
@@ -37,7 +38,7 @@ export const AppContent: React.FC = () => {
         let device = 'Desktop';
         
         try {
-          const response = await fetch('/api/analytics/country');
+          const response = await fetch(`${API_BASE_URL}/api/analytics/country`);
           if (response.ok) {
             const data = await response.json();
             country = data.country || 'Unknown';
@@ -59,7 +60,7 @@ export const AppContent: React.FC = () => {
     if (isAuthenticated && user?.uid) {
       const syncPresence = async () => {
         try {
-          const resp = await fetch('/api/analytics/country');
+          const resp = await fetch(`${API_BASE_URL}/api/analytics/country`);
           const data = await resp.json();
           updateUserPresence(user.uid, data.device || 'Desktop');
         } catch (e) {
