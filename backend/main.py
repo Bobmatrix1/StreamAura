@@ -545,18 +545,19 @@ async def get_movie_details(subject_id: str, media_type: str = Query("movie", al
         print(f"--- Fetching details for {media_type}: {title} (ID: {subject_id}) ---")
         client_session = MovieSession()
         
-        # Patch the internal client to look like a real mobile browser (more likely to be accepted by H5 sites)
+        # Patch the internal client with 'Trusted Android' headers
         if hasattr(client_session, '_client') and hasattr(client_session._client, 'headers'):
+            # Clear default headers to remove any 'python-httpx' traces
+            client_session._client.headers.clear()
             client_session._client.headers.update({
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+                "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
                 "Accept": "application/json, text/plain, */*",
+                "Accept-Encoding": "gzip, deflate, br",
                 "Accept-Language": "en-US,en;q=0.9",
                 "Referer": "https://h5.aoneroom.com/",
-                "Origin": "https://h5.aoneroom.com",
-                "Sec-Fetch-Dest": "empty",
-                "Sec-Fetch-Mode": "cors",
-                "Sec-Fetch-Site": "same-origin",
-                "X-Requested-With": "com.moviebox.h5"
+                "X-Requested-With": "com.moviebox.h5",
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache"
             })
 
         subject_type = SubjectType.TV_SERIES if media_type == "series" else SubjectType.MOVIES
