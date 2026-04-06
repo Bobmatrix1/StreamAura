@@ -13,8 +13,8 @@ import type {
   Platform 
 } from '@/types';
 
-// API Base URL - empty when using Vite proxy in development
-export const API_BASE_URL = '';
+// API Base URL for Vercel multi-service deployment
+export const API_BASE_URL = '/_/backend';
 
 /**
  * Detect platform from URL
