@@ -66,6 +66,40 @@ async def add_no_cache_header(request: Request, call_next):
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+# Background Cleanup Task
+async def cleanup_old_files():
+    """Periodically clean up files older than 6 hours from the downloads folder."""
+    while True:
+        try:
+            now = time.time()
+            max_age = 6 * 3600 # 6 hours
+            
+            if os.path.exists(DOWNLOAD_DIR):
+                for f in os.listdir(DOWNLOAD_DIR):
+                    f_path = os.path.join(DOWNLOAD_DIR, f)
+                    if os.path.isfile(f_path):
+                        f_age = now - os.path.getmtime(f_path)
+                        if f_age > max_age:
+                            print(f"--- Cleanup: Deleting old file: {f} ---")
+                            os.remove(f_path)
+                            
+            # Also clean up the global task dictionary for stale tasks
+            stale_tasks = [tid for tid, task in download_tasks.items() 
+                           if task.get("status") in ["completed", "error", "cancelled"] 
+                           and (now - task.get("completed_at", now)) > max_age]
+            for tid in stale_tasks:
+                del download_tasks[tid]
+                
+        except Exception as e:
+            print(f"--- Cleanup Error: {e} ---")
+            
+        await asyncio.sleep(3600) # Run every hour
+
+@app.on_event("startup")
+async def startup_event():
+    # Start the background cleanup task
+    asyncio.create_task(cleanup_old_files())
+
 # Initialize Spotify API
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
@@ -337,10 +371,58 @@ async def start_movie_download(request: Request, background_tasks: BackgroundTas
     download_tasks[task_id] = {"progress": 0, "status": "preparing", "stage": "Downloading...", "filename": f"{title}.mp4", "path": None, "error": None, "paused": False}
     async def run_download():
         try:
+            # PRIORITIZE DIRECT URL (If provided by frontend)
+            if url and (url.startswith('http') or url.startswith('https')):
+                print(f"--- Starting Direct Download for: {title} ---")
+                download_tasks[task_id]["status"] = "downloading"
+                
+                file_path = os.path.join(DOWNLOAD_DIR, f"{title}_{task_id[:8]}.mp4")
+                download_tasks[task_id]["path"] = file_path
+                
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                    "Referer": referer if referer else "https://fmoviesunblocked.net/",
+                    "Accept": "*/*"
+                }
+
+                async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
+                    async with client.stream("GET", url, headers=headers) as response:
+                        if response.status_code >= 400:
+                            raise Exception(f"Server returned error {response.status_code}")
+                            
+                        total_size = int(response.headers.get("Content-Length", 0))
+                        downloaded = 0
+                        
+                        with open(file_path, "wb") as f:
+                            async for chunk in response.aiter_bytes(chunk_size=128 * 1024):
+                                # Check for pause/cancel
+                                if not download_events[task_id].is_set():
+                                    download_tasks[task_id]["status"] = "paused"
+                                    await download_events[task_id].wait()
+                                    download_tasks[task_id]["status"] = "downloading"
+                                
+                                if download_tasks[task_id]["status"] == "cancelled":
+                                    f.close()
+                                    if os.path.exists(file_path): os.remove(file_path)
+                                    return
+
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                
+                                if total_size > 0:
+                                    p = round((downloaded / total_size) * 100, 1)
+                                    if p > download_tasks[task_id]["progress"]:
+                                        download_tasks[task_id]["progress"] = p
+                        
+                download_tasks[task_id]["status"], download_tasks[task_id]["progress"], download_tasks[task_id]["completed_at"] = "completed", 100, time.time()
+                return
+
+            # FALLBACK TO SEARCH (If no direct URL)
             from moviebox_api.v1.cli import Downloader
             from moviebox_api.v1 import DownloadTracker
             q_map = {'1080p': '1080P', '720p': '720P', '480p': '480P', '360p': '360P'}
             target_q = q_map.get(quality.lower(), 'BEST')
+            
             async def progress_hook(tracker: DownloadTracker):
                 if not download_events[task_id].is_set():
                     await download_events[task_id].wait()
@@ -348,10 +430,9 @@ async def start_movie_download(request: Request, background_tasks: BackgroundTas
                     p = round((tracker.downloaded_size / tracker.expected_size) * 100, 1)
                     if p > download_tasks[task_id]["progress"]: download_tasks[task_id]["progress"] = p
                     download_tasks[task_id]["status"] = "downloading"
+            
             downloader = Downloader()
             downloaded_file = None
-            
-            # STAGE 1: Direct ID Search (Most Accurate)
             search_query = subject_id if subject_id else title
             
             async def perform_download(query_text):
@@ -362,7 +443,7 @@ async def start_movie_download(request: Request, background_tasks: BackgroundTas
                             limit=1, yes=True, quality=target_q, 
                             dir=DOWNLOAD_DIR, progress_hook=progress_hook
                         )
-                        if results:
+                        if results and isinstance(results, dict):
                             for s_val in results.values():
                                 for e_val in s_val.values():
                                     if isinstance(e_val, dict) and 'video' in e_val:
@@ -380,18 +461,16 @@ async def start_movie_download(request: Request, background_tasks: BackgroundTas
                     print(f"Download attempt for '{query_text}' failed: {e}")
                     return None
 
-            # Execute Stage 1
             downloaded_file = await perform_download(search_query)
-            
-            # STAGE 2: Fallback to Clean Title (If ID search failed)
             if not downloaded_file and subject_id:
-                print(f"Stage 1 failed for {subject_id}, attempting Stage 2 with title: {title}")
                 downloaded_file = await perform_download(title)
 
             if downloaded_file and hasattr(downloaded_file, 'saved_to'):
-                download_tasks[task_id]["status"], download_tasks[task_id]["progress"], download_tasks[task_id]["path"] = "completed", 100, str(downloaded_file.saved_to)
+                download_tasks[task_id]["status"], download_tasks[task_id]["progress"], download_tasks[task_id]["path"], download_tasks[task_id]["completed_at"] = "completed", 100, str(downloaded_file.saved_to), time.time()
             else: raise Exception("Download failed.")
-        except Exception as e: download_tasks[task_id]["status"], download_tasks[task_id]["error"] = "error", str(e)
+        except Exception as e: 
+            print(f"--- Download Task Error: {str(e)} ---")
+            download_tasks[task_id]["status"], download_tasks[task_id]["error"], download_tasks[task_id]["completed_at"] = "error", str(e), time.time()
         finally:
             if task_id in download_events: del download_events[task_id]
     background_tasks.add_task(run_download)
@@ -455,12 +534,22 @@ async def search_movies(query: str, media_type: str = Query("movie", alias="type
 @app.get("/api/movies/details")
 async def get_movie_details(subject_id: str, media_type: str = Query("movie", alias="type"), title: Optional[str] = None, season: Optional[int] = None, episode: Optional[int] = None):
     try:
+        print(f"--- Fetching details for {media_type}: {title} (ID: {subject_id}) ---")
         client_session = MovieSession()
         subject_type = SubjectType.TV_SERIES if media_type == "series" else SubjectType.MOVIES
-        search_model = await MovieSearch(client_session, title if title else subject_id, subject_type=subject_type).get_content_model()
+        
+        # Search by title to get the correct model item
+        search_query = title if title else subject_id
+        search_model = await MovieSearch(client_session, search_query, subject_type=subject_type).get_content_model()
         items = getattr(search_model, 'items', getattr(search_model, 'list', []))
+        
+        # Find exact item by ID or fall back to first result
         target_item = next((m for m in items if str(getattr(m, 'subjectId', '')) == subject_id), items[0] if items else None)
-        if not target_item: raise Exception("Not found")
+        
+        if not target_item:
+            print(f"--- MovieBox error: Item {subject_id} not found in search results for '{search_query}' ---")
+            raise Exception("Content not found in provider database")
+
         if media_type == "series":
             from moviebox_api.v1 import TVSeriesDetails, DownloadableTVSeriesFilesDetail
             ts_instance = TVSeriesDetails(target_item, client_session)
@@ -494,7 +583,10 @@ async def get_movie_details(subject_id: str, media_type: str = Query("movie", al
             f_q = []
             for d in files.get('downloads', []): f_q.append({"quality": f"{d.get('resolution')}p", "resolution": f"{d.get('resolution')}p", "format": "MP4", "size": format_size(d.get('size', 0)), "url": d.get('url')})
             return {"success": True, "data": {"id": subject_id, "title": get_val(metadata, 'title', get_val(target_item, 'title')), "description": get_val(metadata, 'description', ''), "thumbnail": get_val(metadata, 'image', get_cover_url(target_item)), "year": get_release_year(target_item), "rating": get_val(target_item, 'imdbRatingValue', 'N/A'), "duration": get_duration_str(target_item), "genres": get_genres_list(target_item), "qualities": f_q, "mediaType": "movie", "platform": "MovieBox", "referer": res_data.get('referer', 'https://fmoviesunblocked.net/')}}
-    except Exception as e: return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
+    except Exception as e:
+        print(f"--- Details Error for ID {subject_id}: {str(e)} ---")
+        traceback.print_exc()
+        return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
 
 @app.get("/api/analytics/country")
 async def get_visitor_country(request: Request): return {"country": "Unknown", "device": "Desktop"}
