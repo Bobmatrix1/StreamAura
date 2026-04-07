@@ -37,9 +37,7 @@ class ResilientEngine:
 
     def clean_query(self, title: str):
         """Removes years, brackets, and special characters."""
-        # Remove year (e.g., 2008)
         title = re.sub(r'\(\d{4}\)|\d{4}', '', title)
-        # Remove special chars
         title = re.sub(r'[^a-zA-Z0-9\s]', '', title)
         return title.strip().lower()
 
@@ -48,10 +46,8 @@ class ResilientEngine:
         async with httpx.AsyncClient(headers={"User-Agent": self.ua}, follow_redirects=True, timeout=15.0) as client:
             try:
                 clean_q = self.clean_query(title)
-                # Strategy: Try 1. Full Clean Title, 2. First 2 Words
-                words = clean_q.split()
-                search_attempts = [clean_q]
-                if len(words) > 1: search_attempts.append(" ".join(words[:2]))
+                # For very short titles (like 'Us'), search exactly
+                search_attempts = [clean_q] if len(clean_q) <= 3 else [clean_q, " ".join(clean_q.split()[:2])]
                 
                 movie_url = None
                 for q in search_attempts:
@@ -62,8 +58,8 @@ class ResilientEngine:
                     
                     for a in soup.find_all('a', href=True):
                         if 'movie-' in a['href']:
-                            # Check if at least the first word matches to avoid wrong movies
-                            if words[0] in a.text.lower():
+                            # Case-insensitive loose match
+                            if clean_q in a.text.lower() or a.text.lower() in clean_q:
                                 movie_url = f"{self.fz_base}/{a['href']}" if not a['href'].startswith('http') else a['href']
                                 break
                     if movie_url: break
@@ -96,26 +92,24 @@ class ResilientEngine:
         try:
             clean_q = self.clean_query(title)
             async with httpx.AsyncClient(timeout=10.0) as client:
-                # Try multiple searches for YTS
-                words = clean_q.split()
-                queries = [clean_q]
-                if len(words) > 1: queries.append(words[0]) # Try just the first word (e.g., "Kung")
-                
-                for q in queries:
-                    if not q: continue
-                    resp = await client.get(f"{self.yts_api}?query_term={urllib.parse.quote(q)}&sort_by=seeds")
-                    data = resp.json()
-                    if data.get('status') == 'ok' and data.get('data', {}).get('movie_count', 0) > 0:
-                        links = []
-                        for m in data['data']['movies'][:3]:
-                            for t in m.get('torrents', []):
-                                links.append({
-                                    "quality": f"YTS {t.get('quality')} - {m.get('title')[:20]}",
-                                    "resolution": t.get('quality'),
-                                    "format": "MAGNET", "size": t.get('size'),
-                                    "url": f"magnet:?xt=urn:btih:{t.get('hash')}&dn={urllib.parse.quote(m.get('title'))}"
-                                })
-                        return links
+                # For YTS, use exact title if short, otherwise try fuzzy
+                q = clean_q
+                resp = await client.get(f"{self.yts_api}?query_term={urllib.parse.quote(q)}&sort_by=seeds")
+                data = resp.json()
+                if data.get('status') == 'ok' and data.get('data', {}).get('movie_count', 0) > 0:
+                    links = []
+                    for m in data['data']['movies'][:3]:
+                        # Strict title check for short names
+                        if len(clean_q) < 3 and m.get('title').lower() != clean_q: continue
+                        
+                        for t in m.get('torrents', []):
+                            links.append({
+                                "quality": f"YTS {t.get('quality')} - {m.get('title')[:20]}",
+                                "resolution": t.get('quality'),
+                                "format": "MAGNET", "size": t.get('size'),
+                                "url": f"magnet:?xt=urn:btih:{t.get('hash')}&dn={urllib.parse.quote(m.get('title'))}"
+                            })
+                    return links
         except: pass
         return []
 
