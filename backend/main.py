@@ -1,4 +1,12 @@
 import os
+import sys
+
+# STARTUP LOGGING FOR RENDER
+print("--- STREAMAURA BACKEND STARTING ---")
+print(f"Working Directory: {os.getcwd()}")
+print(f"Directory Contents: {os.listdir('.')}")
+print(f"Python Path: {sys.path}")
+
 import asyncio
 import time
 import re
