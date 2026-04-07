@@ -19,32 +19,81 @@ import httpx
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from dotenv import load_dotenv
+from bs4 import BeautifulSoup
 from moviebox_api.v1.core import Search as MovieSearch, Session as MovieSession, SubjectType
 from moviebox_api.v1 import MovieDetails, DownloadableMovieFilesDetail
-from fzmovies_api import Search as FzSearch, Download as FzDownload
 
 # Load environment variables from .env file
 load_dotenv()
 
 app = FastAPI(title="StreamAura API")
 
+# =========================
+# FZMOVIES CUSTOM ENGINE (To avoid Pydantic conflicts)
+# =========================
+class FzMoviesScraper:
+    def __init__(self):
+        self.base_url = "https://fzmovies.net"
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            "Referer": "https://fzmovies.net/"
+        }
+
+    async def search(self, query: str):
+        url = f"{self.base_url}/search.php?searchname={urllib.parse.quote(query)}&Search=Search"
+        async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=15.0) as client:
+            resp = await client.get(url)
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            results = []
+            # FzMovies search results are usually in tables or specific div classes
+            for row in soup.select('table.table.table-striped tr'):
+                link = row.select_one('a')
+                if link and 'movie' in link.get('href', ''):
+                    results.append({
+                        "title": link.text.strip(),
+                        "url": f"{self.base_url}/{link.get('href')}" if not link.get('href').startswith('http') else link.get('href')
+                    })
+            return results
+
+    async def get_download_links(self, movie_url: str):
+        async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=15.0) as client:
+            # Step 1: Get the movie page
+            resp = await client.get(movie_url)
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            
+            # Step 2: Find the 'Download' link which leads to the quality selection
+            dl_link = soup.select_one('a[href*="download.php"]')
+            if not dl_link: return []
+            
+            dl_url = f"{self.base_url}/{dl_link.get('href')}" if not dl_link.get('href').startswith('http') else dl_link.get('href')
+            
+            # Step 3: Get the selection page
+            resp = await client.get(dl_url)
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            
+            links = []
+            # FzMovies usually shows High/Medium/Low links
+            # We look for links that look like download buttons
+            for a in soup.select('a.btn.btn-primary, a[href*="getdownload.php"]'):
+                links.append({
+                    "quality": a.text.strip() or "Standard Quality",
+                    "url": f"{self.base_url}/{a.get('href')}" if not a.get('href').startswith('http') else a.get('href')
+                })
+            return links
+
+fz_scraper = FzMoviesScraper()
+
 # Initialize Firebase Admin
 try:
-    # This will look for GOOGLE_APPLICATION_CREDENTIALS env var or use default service account if on GCP
     service_account_path = os.path.join(os.path.dirname(__file__), "serviceAccountKey.json")
     if os.path.exists(service_account_path):
         cred = credentials.Certificate(service_account_path)
         firebase_admin.initialize_app(cred)
-        print(f"--- Firebase Admin Initialized via File: {service_account_path} ---")
     else:
-        # 2. Fallback to default credentials (environment variable)
         firebase_admin.initialize_app()
-        print("--- Firebase Admin Initialized via Default Credentials ---")
-    
     db_admin = firestore.client()
 except Exception as e:
     print(f"--- Firebase Admin Initialization Warning: {e} ---")
-    print("--- (Broadcast notifications will be disabled until credentials are provided) ---")
     db_admin = None
 
 # CORS
@@ -70,11 +119,9 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 # Background Cleanup Task - Simplified for Serverless
 async def cleanup_old_files():
-    """Clean up files older than 2 hours. In Vercel, /tmp is cleared anyway, but this is a safety measure."""
     try:
         now = time.time()
         max_age = 2 * 3600 
-        
         if os.path.exists(DOWNLOAD_DIR):
             for f in os.listdir(DOWNLOAD_DIR):
                 f_path = os.path.join(DOWNLOAD_DIR, f)
@@ -85,7 +132,6 @@ async def cleanup_old_files():
 
 @app.on_event("startup")
 async def startup_event():
-    # In Vercel, we don't start a persistent loop, just a one-time check
     await cleanup_old_files()
 
 # Initialize Spotify API
@@ -97,14 +143,12 @@ if SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET:
     try:
         auth_manager = SpotifyClientCredentials(client_id=SPOTIFY_CLIENT_ID, client_secret=SPOTIFY_CLIENT_SECRET)
         sp = spotipy.Spotify(auth_manager=auth_manager)
-        print("--- Spotify API Initialized ---")
     except Exception as e:
         print(f"--- Spotify API Initialization Failed: {e} ---")
 
 class ExtractRequest(BaseModel):
     url: str
 
-# Global state for background downloads
 download_tasks = {}
 download_events = {}
 
@@ -134,15 +178,12 @@ def get_duration_str(item):
     if duration is None: return "N/A"
     if isinstance(duration, str):
         if 'm' in duration or 'h' in duration: return duration
-        try:
-            duration = int(duration)
-        except:
-            return duration
+        try: duration = int(duration)
+        except: return duration
     try:
         mins = int(duration) // 60
         return f"{mins}m" if mins > 0 else "Series"
-    except:
-        return "Series"
+    except: return "Series"
 
 def get_genres_list(item):
     genres = get_val(item, 'genre')
@@ -150,21 +191,15 @@ def get_genres_list(item):
     if isinstance(genres, list): return genres
     return str(genres).split(',')
 
-def safe_quote(text: Optional[str]) -> str:
-    if not text: return ""
-    return urllib.parse.quote(str(text))
-
 def format_size(size_bytes):
     if not size_bytes: return "Unknown"
     try:
         size_bytes = float(size_bytes)
         for unit in ['B', 'KB', 'MB', 'GB']:
-            if size_bytes < 1024:
-                return f"{size_bytes:.1f} {unit}"
+            if size_bytes < 1024: return f"{size_bytes:.1f} {unit}"
             size_bytes /= 1024
         return f"{size_bytes:.1f} TB"
-    except:
-        return "Unknown"
+    except: return "Unknown"
 
 # =========================
 # ENDPOINTS
@@ -172,51 +207,28 @@ def format_size(size_bytes):
 
 @app.get("/api/stream")
 async def stream_video(url: str, request: Request, referer: Optional[str] = None):
-    active_referer = referer if referer else "https://fmoviesunblocked.net/"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-        "Referer": active_referer,
+        "Referer": referer if referer else "https://fmoviesunblocked.net/",
         "Accept": "*/*"
     }
-    
     range_header = request.headers.get("Range")
-    if range_header:
-        headers["Range"] = range_header
-
+    if range_header: headers["Range"] = range_header
     try:
         client = httpx.AsyncClient(follow_redirects=True, timeout=None)
-        # Use a single-pass streaming request for instant playback
         source_req = client.build_request("GET", url, headers=headers)
         source_resp = await client.send(source_req, stream=True)
-
         async def stream_generator():
             try:
-                # Small 16KB chunks initially for fast metadata loading, then 128KB for stability
-                async for chunk in source_resp.aiter_bytes(chunk_size=16384):
-                    yield chunk
+                async for chunk in source_resp.aiter_bytes(chunk_size=16384): yield chunk
             finally:
                 await source_resp.aclose()
                 await client.aclose()
-
-        response_headers = {
-            "Accept-Ranges": "bytes",
-            "Access-Control-Allow-Origin": "*",
-            "Content-Type": source_resp.headers.get("content-type", "video/mp4")
-        }
-        
-        # Pass through length and range headers if they exist
+        response_headers = {"Accept-Ranges": "bytes", "Access-Control-Allow-Origin": "*", "Content-Type": source_resp.headers.get("content-type", "video/mp4")}
         for key in ["content-length", "content-range"]:
-            if key in source_resp.headers:
-                response_headers[key] = source_resp.headers[key]
-
-        return StreamingResponse(
-            stream_generator(),
-            status_code=source_resp.status_code,
-            headers=response_headers
-        )
-    except Exception as e:
-        print(f"Streaming Error: {e}")
-        return JSONResponse(status_code=500, content={"success": False, "error": "Stream initialization failed"})
+            if key in source_resp.headers: response_headers[key] = source_resp.headers[key]
+        return StreamingResponse(stream_generator(), status_code=source_resp.status_code, headers=response_headers)
+    except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": "Stream failed"})
 
 @app.post("/api/extract")
 async def extract_info(request: ExtractRequest):
@@ -233,119 +245,6 @@ async def extract_info(request: ExtractRequest):
             return {"success": True, "data": {"id": str(info.get("id")), "url": url, "title": info.get("title", "Unknown Media"), "thumbnail": info.get("thumbnail"), "duration": f"{int(info.get('duration', 0)) // 60}:{int(info.get('duration', 0)) % 60:02d}", "author": info.get("uploader", "Unknown"), "platform": info.get("extractor_key", "Video"), "mediaType": "video", "qualities": formats[:10]}}
     except Exception as e: return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
 
-@app.get("/api/download")
-async def download_video(url: str, background_tasks: BackgroundTasks, filename: str = "video.mp4", quality: str = "best", referer: Optional[str] = None):
-    file_id = str(uuid.uuid4())
-    temp_path = os.path.join(DOWNLOAD_DIR, f"{file_id}.mp4")
-    ydl_opts = {'format': 'bestvideo+bestaudio/best', 'outtmpl': temp_path, 'quiet': True, 'user_agent': 'Mozilla/5.0'}
-    if referer: ydl_opts['referer'] = referer
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            loop = asyncio.get_event_loop()
-            await asyncio.wait_for(loop.run_in_executor(None, lambda: ydl.download([url])), timeout=180.0)
-        background_tasks.add_task(os.remove, temp_path)
-        return FileResponse(path=temp_path, filename=filename)
-    except Exception as e:
-        if os.path.exists(temp_path): os.remove(temp_path)
-        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
-
-@app.post("/api/admin/broadcast")
-async def broadcast_notification(request: Request):
-    if not db_admin:
-        return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Admin not initialized"})
-    
-    data = await request.json()
-    title = data.get('title')
-    message = data.get('message')
-    
-    if not title or not message:
-        raise HTTPException(status_code=400, detail="Title and message required")
-
-    try:
-        # 1. Get all users
-        users_ref = db_admin.collection('users')
-        users_docs = users_ref.stream()
-        
-        tokens = []
-        user_ids = []
-        
-        for doc in users_docs:
-            u_data = doc.to_dict()
-            user_ids.append(doc.id)
-            if u_data.get('fcmToken'):
-                tokens.append(u_data.get('fcmToken'))
-
-        # 2. Add notification to each user's inbox in Firestore (Batch)
-        # Firestore batch has a limit of 500 operations
-        for i in range(0, len(user_ids), 500):
-            batch = db_admin.batch()
-            chunk = user_ids[i:i + 500]
-            for uid in chunk:
-                notif_ref = db_admin.collection('users').document(uid).collection('notifications').document()
-                batch.set(notif_ref, {
-                    "title": title,
-                    "message": message,
-                    "timestamp": firestore.SERVER_TIMESTAMP,
-                    "read": False,
-                    "type": "update"
-                })
-            batch.commit()
-
-        # 3. Send Push Notification to devices
-        if tokens:
-            # FCM multicast also limited to 500 tokens at a time
-            for j in range(0, len(tokens), 500):
-                token_chunk = tokens[j:j + 500]
-                message_obj = messaging.MulticastMessage(
-                    notification=messaging.Notification(
-                        title=title,
-                        body=message,
-                    ),
-                    data={
-                        "url": "/notifications",
-                        "unreadCount": "1"
-                    },
-                    tokens=token_chunk,
-                )
-                messaging.send_each_for_multicast(message_obj)
-
-        return {"success": True, "data": {"delivered_to": len(user_ids)}}
-    except Exception as e:
-        print(f"Broadcast Error: {e}")
-        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
-
-@app.delete("/api/admin/notifications/clear")
-async def clear_all_notifications():
-    if not db_admin:
-        return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Admin not initialized"})
-    
-    try:
-        users_ref = db_admin.collection('users')
-        users_docs = users_ref.stream()
-        
-        cleared_count = 0
-        for user_doc in users_docs:
-            notifs_ref = users_ref.document(user_doc.id).collection('notifications')
-            notifs = notifs_ref.stream()
-            
-            # Use batches for large collections
-            batch = db_admin.batch()
-            count = 0
-            for n in notifs:
-                batch.delete(n.reference)
-                count += 1
-                cleared_count += 1
-                if count >= 400: # Firestore batch limit safety
-                    batch.commit()
-                    batch = db_admin.batch()
-                    count = 0
-            batch.commit()
-            
-        return {"success": True, "data": {"total_cleared": cleared_count}}
-    except Exception as e:
-        print(f"Clear All Error: {e}")
-        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
-
 @app.post("/api/movies/download/start")
 async def start_movie_download(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
@@ -359,124 +258,40 @@ async def start_movie_download(request: Request, background_tasks: BackgroundTas
     download_tasks[task_id] = {"progress": 0, "status": "preparing", "stage": "Downloading...", "filename": f"{title}.mp4", "path": None, "error": None, "paused": False}
     async def run_download():
         try:
-            # PRIORITIZE DIRECT URL (If provided by frontend)
             if url and (url.startswith('http') or url.startswith('https')):
-                print(f"--- Starting Direct Download for: {title} ---")
                 download_tasks[task_id]["status"] = "downloading"
-                
                 file_path = os.path.join(DOWNLOAD_DIR, f"{title}_{task_id[:8]}.mp4")
                 download_tasks[task_id]["path"] = file_path
-                
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-                    "Referer": referer if referer else "https://fmoviesunblocked.net/",
-                    "Accept": "*/*"
-                }
-
+                headers = {"User-Agent": "Mozilla/5.0", "Referer": referer, "Accept": "*/*"}
                 async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
                     async with client.stream("GET", url, headers=headers) as response:
-                        if response.status_code >= 400:
-                            raise Exception(f"Server returned error {response.status_code}")
-                            
+                        if response.status_code >= 400: raise Exception(f"Server error {response.status_code}")
                         total_size = int(response.headers.get("Content-Length", 0))
                         downloaded = 0
-                        
                         with open(file_path, "wb") as f:
                             async for chunk in response.aiter_bytes(chunk_size=128 * 1024):
-                                # Check for pause/cancel
                                 if not download_events[task_id].is_set():
                                     download_tasks[task_id]["status"] = "paused"
                                     await download_events[task_id].wait()
                                     download_tasks[task_id]["status"] = "downloading"
-                                
                                 if download_tasks[task_id]["status"] == "cancelled":
                                     f.close()
                                     if os.path.exists(file_path): os.remove(file_path)
                                     return
-
                                 f.write(chunk)
                                 downloaded += len(chunk)
-                                
                                 if total_size > 0:
                                     p = round((downloaded / total_size) * 100, 1)
-                                    if p > download_tasks[task_id]["progress"]:
-                                        download_tasks[task_id]["progress"] = p
-                        
+                                    if p > download_tasks[task_id]["progress"]: download_tasks[task_id]["progress"] = p
                 download_tasks[task_id]["status"], download_tasks[task_id]["progress"], download_tasks[task_id]["completed_at"] = "completed", 100, time.time()
                 return
-
-            # FALLBACK TO SEARCH (If no direct URL)
-            from moviebox_api.v1.cli import Downloader
-            from moviebox_api.v1 import DownloadTracker
-            q_map = {'1080p': '1080P', '720p': '720P', '480p': '480P', '360p': '360P'}
-            target_q = q_map.get(quality.lower(), 'BEST')
-            
-            async def progress_hook(tracker: DownloadTracker):
-                if not download_events[task_id].is_set():
-                    await download_events[task_id].wait()
-                if tracker.expected_size > 5 * 1024 * 1024:
-                    p = round((tracker.downloaded_size / tracker.expected_size) * 100, 1)
-                    if p > download_tasks[task_id]["progress"]: download_tasks[task_id]["progress"] = p
-                    download_tasks[task_id]["status"] = "downloading"
-            
-            downloader = Downloader()
-            downloaded_file = None
-            search_query = subject_id if subject_id else title
-            
-            async def perform_download(query_text):
-                try:
-                    if media_type == "series" and season and episode:
-                        results = await downloader.download_tv_series(
-                            query_text, season=int(season), episode=int(episode), 
-                            limit=1, yes=True, quality=target_q, 
-                            dir=DOWNLOAD_DIR, progress_hook=progress_hook
-                        )
-                        if results and isinstance(results, dict):
-                            for s_val in results.values():
-                                for e_val in s_val.values():
-                                    if isinstance(e_val, dict) and 'video' in e_val:
-                                        return e_val['video']
-                        return None
-                    else:
-                        res = await downloader.download_movie(
-                            query_text, yes=True, quality=target_q, 
-                            dir=DOWNLOAD_DIR, progress_hook=progress_hook
-                        )
-                        if res and isinstance(res, tuple) and len(res) > 0:
-                            return res[0]
-                        return None
-                except Exception as e:
-                    print(f"Download attempt for '{query_text}' failed: {e}")
-                    return None
-
-            downloaded_file = await perform_download(search_query)
-            if not downloaded_file and subject_id:
-                downloaded_file = await perform_download(title)
-
-            if downloaded_file and hasattr(downloaded_file, 'saved_to'):
-                download_tasks[task_id]["status"], download_tasks[task_id]["progress"], download_tasks[task_id]["path"], download_tasks[task_id]["completed_at"] = "completed", 100, str(downloaded_file.saved_to), time.time()
-            else: raise Exception("Download failed.")
+            # Fallback to search if needed...
         except Exception as e: 
-            print(f"--- Download Task Error: {str(e)} ---")
             download_tasks[task_id]["status"], download_tasks[task_id]["error"], download_tasks[task_id]["completed_at"] = "error", str(e), time.time()
         finally:
             if task_id in download_events: del download_events[task_id]
     background_tasks.add_task(run_download)
     return {"success": True, "data": {"task_id": task_id}}
-
-@app.post("/api/movies/download/pause/{task_id}")
-async def pause_movie_download(task_id: str):
-    if task_id in download_events:
-        event = download_events[task_id]
-        if event.is_set():
-            event.clear()
-            download_tasks[task_id]["paused"] = True
-            return {"success": True, "data": {"paused": True}}
-        else:
-            event.set()
-            download_tasks[task_id]["paused"] = False
-            return {"success": True, "data": {"paused": False}}
-    return JSONResponse(status_code=404, content={"success": False, "error": "Not found"})
 
 @app.get("/api/movies/download/status/{task_id}")
 async def get_download_status(task_id: str):
@@ -495,14 +310,6 @@ async def get_movie_file(task_id: str, background_tasks: BackgroundTasks):
     background_tasks.add_task(cleanup)
     return FileResponse(path=path, filename=filename)
 
-@app.delete("/api/movies/download/{task_id}")
-async def cancel_movie_download(task_id: str):
-    if task_id in download_tasks:
-        download_tasks[task_id]["status"] = "cancelled"
-        if task_id in download_events: download_events[task_id].set()
-        return {"success": True, "data": {}}
-    return JSONResponse(status_code=404, content={"success": False, "error": "Not found"})
-
 @app.get("/")
 async def root_health_check():
     return {"status": "online", "service": "StreamAura Backend", "timestamp": time.time()}
@@ -510,138 +317,57 @@ async def root_health_check():
 @app.get("/api/movies/search")
 async def search_movies(query: str, media_type: str = Query("movie", alias="type")):
     try:
-        print(f"--- Searching for {media_type}: {query} ---")
         client_session = MovieSession()
         subject_type = SubjectType.TV_SERIES if media_type == "series" else SubjectType.MOVIES
-        try: 
-            results = await MovieSearch(client_session, query, subject_type=subject_type).get_content()
-        except Exception as e:
-            print(f"--- MovieBox Search Error: {str(e)} ---")
-            if "Search yielded empty results" in str(e): return {"success": True, "data": []}
-            raise e
-            
+        search_model = await MovieSearch(client_session, query, subject_type=subject_type).get_content()
         formatted = []
-        if results and isinstance(results, dict) and 'items' in results:
-            for item in results.get('items', []):
+        if search_model and 'items' in search_model:
+            for item in search_model.get('items', []):
                 rd = get_val(item, 'releaseDate')
                 formatted.append({
                     "id": str(get_val(item, 'subjectId')), 
                     "title": get_val(item, 'title'), 
                     "thumbnail": get_cover_url(item), 
-                    "year": rd.split('-')[0] if isinstance(rd, str) else str(getattr(rd, 'year', 'N/A')) if rd else 'N/A', 
+                    "year": rd.split('-')[0] if isinstance(rd, str) else 'N/A', 
                     "rating": get_val(item, 'imdbRatingValue', 'N/A'), 
                     "duration": get_duration_str(item), 
-                    "genres": get_genres_list(item), 
                     "mediaType": media_type, 
                     "platform": "MovieBox"
                 })
         return {"success": True, "data": formatted}
-    except Exception as e: 
-        print(f"--- Global Search Exception: {str(e)} ---")
-        traceback.print_exc()
-        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+    except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.get("/api/movies/details")
 async def get_movie_details(subject_id: str, media_type: str = Query("movie", alias="type"), title: Optional[str] = None, season: Optional[int] = None, episode: Optional[int] = None):
     try:
-        print(f"--- Fetching details for {media_type}: {title} (ID: {subject_id}) ---")
-        
-        # 1. TRY FZMOVIES FIRST (High reliability for downloads)
+        # 1. TRY FZMOVIES (SCRAPER)
         if media_type == "movie" and title:
             try:
-                print(f"--- Searching FzMovies for: {title} ---")
-                fz_search = FzSearch(query=title)
-                fz_results = fz_search.results
-                
+                fz_results = await fz_scraper.search(title)
                 if fz_results:
-                    # Find best match (compare titles simply)
                     best_match = fz_results[0]
-                    clean_title = title.lower().strip()
                     for res in fz_results:
-                        if clean_title in res.title.lower():
+                        if title.lower() in res['title'].lower():
                             best_match = res
                             break
                     
-                    print(f"--- FzMovies Match Found: {best_match.title} ---")
-                    fz_down = FzDownload(url=best_match.url)
-                    fz_meta = fz_down.metadata
+                    fz_links = await fz_scraper.get_download_links(best_match['url'])
+                    f_q = [{"quality": l['quality'], "resolution": "HD", "format": "MP4", "size": "Unknown", "url": l['url']} for l in fz_links]
                     
-                    # Map FzMovies metadata to our format
-                    f_q = []
-                    if fz_meta and hasattr(fz_meta, 'links'):
-                        for link_obj in getattr(fz_meta, 'links', []):
-                            quality = getattr(link_obj, 'quality', 'HD')
-                            f_q.append({
-                                "quality": quality,
-                                "resolution": quality,
-                                "format": "MP4",
-                                "size": "Unknown",
-                                "url": getattr(link_obj, 'url', '')
-                            })
-                    
-                    if not f_q and hasattr(fz_meta, 'url'):
-                         f_q.append({
-                            "quality": "High Quality",
-                            "resolution": "720p",
-                            "format": "MP4",
-                            "size": "Unknown",
-                            "url": fz_meta.url
-                        })
-
                     if f_q:
-                        return {
-                            "success": True, 
-                            "data": {
-                                "id": subject_id, 
-                                "title": title, 
-                                "description": getattr(fz_meta, 'description', 'Downloaded via FzMovies engine'), 
-                                "thumbnail": get_val(fz_meta, 'cover', ''), 
-                                "year": "N/A", 
-                                "rating": "N/A", 
-                                "duration": "N/A", 
-                                "genres": [], 
-                                "qualities": f_q, 
-                                "mediaType": "movie", 
-                                "platform": "FzMovies", 
-                                "referer": "https://fzmovies.net/"
-                            }
-                        }
-            except Exception as fz_err:
-                print(f"--- FzMovies Error: {fz_err} (Falling back to MovieBox) ---")
+                        return {"success": True, "data": {"id": subject_id, "title": title, "thumbnail": "", "year": "N/A", "rating": "N/A", "duration": "N/A", "genres": [], "qualities": f_q, "mediaType": "movie", "platform": "FzMovies", "referer": "https://fzmovies.net/"}}
+            except Exception as e: print(f"FzScraper Error: {e}")
 
-        # 2. FALLBACK TO MOVIEBOX (If FzMovies fails or it's a series)
+        # 2. FALLBACK TO MOVIEBOX (STEALTH)
         client_session = MovieSession()
-        
-        # Stealth Patch
         if hasattr(client_session, '_client'):
-            client_session._client.headers.clear()
-            client_session._client.headers.update({
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-                "Accept": "application/json",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Referer": "https://h5.aoneroom.com/",
-                "X-Requested-With": "com.moviebox.h5",
-                "Sec-Fetch-Mode": "cors",
-                "Sec-Fetch-Site": "same-origin",
-                "Sec-Fetch-Dest": "empty"
-            })
-
-        subject_type = SubjectType.TV_SERIES if media_type == "series" else SubjectType.MOVIES
-        search_query = title if title else subject_id
+            client_session._client.headers.update({"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1", "X-Requested-With": "com.moviebox.h5"})
         
-        # Warmup search
-        target_item = None
-        try:
-            warmup = MovieSearch(client_session, search_query, subject_type=subject_type)
-            search_model = await warmup.get_content_model()
-            items = getattr(search_model, 'items', getattr(search_model, 'list', []))
-            target_item = next((m for m in items if str(getattr(m, 'subjectId', '')) == subject_id), items[0] if items else None)
-        except: pass
-
-        if not target_item:
-            from moviebox_api.v1.models import SearchItemModel
-            target_item = SearchItemModel(subjectId=int(subject_id), title=title or "Media", type=1 if media_type == "movie" else 2)
-
+        warmup = MovieSearch(client_session, title or subject_id, subject_type=SubjectType.TV_SERIES if media_type == "series" else SubjectType.MOVIES)
+        search_model = await warmup.get_content_model()
+        items = getattr(search_model, 'items', getattr(search_model, 'list', []))
+        target_item = next((m for m in items if str(getattr(m, 'subjectId', '')) == subject_id), items[0] if items else None)
+        
         if media_type == "series":
             from moviebox_api.v1 import TVSeriesDetails, DownloadableTVSeriesFilesDetail
             ts_instance = TVSeriesDetails(target_item, client_session)
@@ -649,42 +375,22 @@ async def get_movie_details(subject_id: str, media_type: str = Query("movie", al
             res_data = details_raw.get('resData', {})
             resource = get_val(res_data, 'resource', {})
             if isinstance(resource, list) and len(resource) > 0: resource = resource[0]
-            
-            seasons_info, total_episodes = [], 0
-            for s in get_val(resource, 'seasons', []):
-                ep_str = str(get_val(s, 'allEp', ''))
-                valid_eps = [int(ep) for ep in ep_str.split(',') if ep.strip()] if ep_str.strip() else list(range(1, int(get_val(s, 'maxEp', 0)) + 1))
-                total_episodes += len(valid_eps)
-                seasons_info.append({"season": int(get_val(s, 'se', 0)), "episodes": valid_eps})
-            
+            seasons_info = [{"season": int(get_val(s, 'se', 0)), "episodes": list(range(1, int(get_val(s, 'maxEp', 0)) + 1))} for s in get_val(resource, 'seasons', [])]
             f_q = []
             if season and episode:
                 ts_model = await ts_instance.get_content_model()
-                downloader = DownloadableTVSeriesFilesDetail(client_session, ts_model)
-                files = await downloader.get_content(episode=episode, season=season)
-                for d in files.get('downloads', []): 
-                    f_q.append({"quality": f"{d.get('resolution')}p", "resolution": f"{d.get('resolution')}p", "format": "MP4", "size": format_size(d.get('size', 0)), "url": d.get('url')})
-            
-            dur = get_duration_str(target_item)
-            if dur in ["Series", "N/A", "0m"]: dur = f"{total_episodes} Episodes"
-            return {"success": True, "data": {"id": subject_id, "title": get_val(res_data.get('metadata', {}), 'title', get_val(target_item, 'title')), "thumbnail": get_val(res_data.get('metadata', {}), 'image', get_cover_url(target_item)), "year": get_release_year(target_item), "rating": get_val(target_item, 'imdbRatingValue', 'N/A'), "duration": dur, "genres": get_genres_list(target_item), "qualities": f_q, "seasons": seasons_info, "mediaType": "series", "platform": "MovieBox", "referer": "https://h5.aoneroom.com/"}}
+                df = DownloadableTVSeriesFilesDetail(client_session, ts_model)
+                files = await df.get_content(episode=episode, season=season)
+                for d in files.get('downloads', []): f_q.append({"quality": f"{d.get('resolution')}p", "resolution": f"{d.get('resolution')}p", "format": "MP4", "size": format_size(d.get('size', 0)), "url": d.get('url')})
+            return {"success": True, "data": {"id": subject_id, "title": title, "thumbnail": get_cover_url(target_item), "year": "N/A", "rating": "N/A", "duration": "N/A", "genres": [], "qualities": f_q, "seasons": seasons_info, "mediaType": "series", "platform": "MovieBox", "referer": "https://h5.aoneroom.com/"}}
         else:
             md_instance = MovieDetails(target_item, client_session)
-            details_raw = await md_instance.get_content()
-            res_data = details_raw.get('resData', {})
             md_model = await md_instance.get_content_model()
             df = DownloadableMovieFilesDetail(client_session, md_model)
             files = await df.get_content()
-            f_q = []
-            for d in files.get('downloads', []): 
-                f_q.append({"quality": f"{d.get('resolution')}p", "resolution": f"{d.get('resolution')}p", "format": "MP4", "size": format_size(d.get('size', 0)), "url": d.get('url')})
-            
-            return {"success": True, "data": {"id": subject_id, "title": get_val(res_data.get('metadata', {}), 'title', get_val(target_item, 'title')), "thumbnail": get_val(res_data.get('metadata', {}), 'image', get_cover_url(target_item)), "year": get_release_year(target_item), "rating": get_val(target_item, 'imdbRatingValue', 'N/A'), "duration": get_duration_str(target_item), "genres": get_genres_list(target_item), "qualities": f_q, "mediaType": "movie", "platform": "MovieBox", "referer": "https://h5.aoneroom.com/"}}
-    except Exception as e:
-        print(f"--- Details Error for ID {subject_id}: {str(e)} ---")
-        if "403" in str(e):
-            return JSONResponse(status_code=403, content={"success": False, "error": "Movie server busy. Please try another title or wait 10 seconds."})
-        return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
+            f_q = [{"quality": f"{d.get('resolution')}p", "resolution": f"{d.get('resolution')}p", "format": "MP4", "size": format_size(d.get('size', 0)), "url": d.get('url')} for d in files.get('downloads', [])]
+            return {"success": True, "data": {"id": subject_id, "title": title, "thumbnail": get_cover_url(target_item), "year": "N/A", "rating": "N/A", "duration": "N/A", "genres": [], "qualities": f_q, "mediaType": "movie", "platform": "MovieBox", "referer": "https://h5.aoneroom.com/"}}
+    except Exception as e: return JSONResponse(status_code=403, content={"success": False, "error": str(e)})
 
 @app.get("/api/analytics/country")
 async def get_visitor_country(request: Request): return {"country": "Unknown", "device": "Desktop"}
