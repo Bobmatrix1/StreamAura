@@ -27,116 +27,88 @@ load_dotenv()
 app = FastAPI(title="StreamAura API")
 
 # =========================
-# ADVANCED VIDEO ENGINE (Direct Extraction + No-Proxy Streaming)
+# ULTIMATE MOVIE ENGINE (FzMovies + YTS HD) - NO YOUTUBE
 # =========================
-class AdvancedVideoEngine:
+class UltimateMovieEngine:
     def __init__(self):
         self.fz_base = "https://fzmovies.net"
+        self.yts_api = "https://yts.mx/api/v2/list_movies.json"
         self.ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 
     async def get_fz_mirrors(self, title: str):
-        print(f"--- AdvEngine: Scoping FzMovies for '{title}' ---")
+        """Scrapes FzMovies for direct MP4 mirrors."""
+        print(f"--- Engine: Scoping FzMovies for '{title}' ---")
         async with httpx.AsyncClient(headers={"User-Agent": self.ua}, follow_redirects=True, timeout=15.0) as client:
             try:
-                # 1. Broad Search
-                clean_title = " ".join(title.split()[:2])
-                url = f"{self.fz_base}/search.php?searchname={urllib.parse.quote(clean_title)}&Search=Search"
-                resp = await client.get(url)
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                
+                # Try multiple variations of the title
+                queries = [title, " ".join(title.split()[:2])]
                 movie_url = None
-                for a in soup.find_all('a', href=True):
-                    if 'movie-' in a['href'] and title.lower()[:3] in a.text.lower():
-                        movie_url = f"{self.fz_base}/{a['href']}" if not a['href'].startswith('http') else a['href']
-                        break
+                
+                for q in queries:
+                    search_url = f"{self.fz_base}/search.php?searchname={urllib.parse.quote(q)}&Search=Search"
+                    resp = await client.get(search_url)
+                    soup = BeautifulSoup(resp.text, 'html.parser')
+                    for a in soup.find_all('a', href=True):
+                        if 'movie-' in a['href'] and title.lower()[:3] in a.text.lower():
+                            movie_url = f"{self.fz_base}/{a['href']}" if not a['href'].startswith('http') else a['href']
+                            break
+                    if movie_url: break
                 
                 if not movie_url: return []
 
-                # 2. Get download link selection
                 resp = await client.get(movie_url)
                 dl_link = BeautifulSoup(resp.text, 'html.parser').select_one('a[href*="download.php"]')
                 if not dl_link: return []
                 
-                # 3. Fetch mirror links
-                sel_url = f"{self.fz_base}/{dl_link['href']}" if not dl_link['href'].startswith('http') else dl_link['href']
-                resp = await client.get(sel_url)
+                resp = await client.get(f"{self.fz_base}/{dl_link['href']}" if not dl_link['href'].startswith('http') else dl_link['href'])
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 
                 links = []
                 for a in soup.select('a[href*="getdownload.php"]'):
-                    quality = a.text.strip() or "Standard"
-                    raw_url = f"{self.fz_base}/{a['href']}" if not a['href'].startswith('http') else a['href']
+                    q_text = a.text.strip() or "Direct"
                     links.append({
-                        "quality": f"Mirror: {quality}",
-                        "resolution": "HD" if "High" in quality else "720p",
+                        "quality": f"Fz Mirror: {q_text}",
+                        "resolution": "HD" if "High" in q_text else "720p",
                         "format": "MP4",
                         "size": "Fast",
-                        "url": raw_url
+                        "url": f"{self.fz_base}/{a['href']}" if not a['href'].startswith('http') else a['href']
                     })
                 return links
             except: return []
 
-    async def resolve_raw_url(self, final_fz_url: str):
-        """Recursively follows FzMovies redirects to find the ACTUAL .mp4 or .mkv file URL."""
+    async def get_yts_links(self, title: str):
+        """Fetches high-quality full movies via YTS Torrent API."""
+        print(f"--- Engine: Scoping YTS for '{title}' ---")
+        try:
+            # Use first 3 words for YTS search to be accurate
+            q = " ".join(title.split()[:3])
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{self.yts_api}?query_term={urllib.parse.quote(q)}&sort_by=seeds")
+                data = resp.json()
+                if data.get('status') == 'ok' and data.get('data', {}).get('movie_count', 0) > 0:
+                    movie = data['data']['movies'][0]
+                    links = []
+                    for t in movie.get('torrents', []):
+                        links.append({
+                            "quality": f"YTS {t.get('quality')} (Full Movie)",
+                            "resolution": t.get('quality'),
+                            "format": "MAGNET",
+                            "size": t.get('size'),
+                            "url": f"magnet:?xt=urn:btih:{t.get('hash')}&dn={urllib.parse.quote(movie.get('title'))}"
+                        })
+                    return links
+        except: pass
+        return []
+
+    async def resolve_fz_raw(self, fz_url: str):
         async with httpx.AsyncClient(headers={"User-Agent": self.ua}, follow_redirects=True, timeout=15.0) as client:
             try:
-                resp = await client.get(final_fz_url)
-                # Look for the final redirect or a link ending in .mp4/.mkv
+                resp = await client.get(fz_url)
                 match = re.search(r'href=["\'](http[^"\']+\.(?:mp4|mkv|mov)[^"\']*)["\']', resp.text, re.I)
-                if match: return match.group(1)
-                return final_fz_url # Fallback to original
-            except: return final_fz_url
+                return match.group(1) if match else fz_url
+            except: return fz_url
 
-    async def get_yt_links(self, title: str):
-        print(f"--- DeepEngine: Scoping YouTube for '{title}' ---")
-        try:
-            # Enhanced yt-dlp options to bypass bot detection
-            ydl_opts = {
-                'quiet': True, 
-                'extract_flat': True, 
-                'num_answers': 2,
-                'nocheckcertificate': True,
-                'no_warnings': True,
-                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                # Add extra headers to look less like a bot
-                'http_headers': {
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-                    'Sec-Ch-Ua-Mobile': '?0',
-                    'Sec-Ch-Ua-Platform': '"Windows"',
-                }
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                loop = asyncio.get_event_loop()
-                # Try searching for movie specifically to find better sources
-                res = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch2:{title} movie", download=False))
-                return [{"quality": f"Source: {e.get('title')[:25]}...", "resolution": "HD", "format": "STREAM", "size": "Direct", "url": e.get('url')} for e in res.get('entries', []) if e]
-        except Exception as e:
-            print(f"YouTube Scoping Error: {e}")
-            return []
-
-engine = AdvancedVideoEngine()
-
-# Global state for background downloads
-download_tasks = {}
-
-# =========================
-# HELPERS
-# =========================
-def get_val(obj, key, default=None):
-    if obj is None: return default
-    if isinstance(obj, dict): return obj.get(key, default)
-    return getattr(obj, key, default)
-
-def get_cover_url(item):
-    cover = get_val(item, 'cover')
-    return get_val(cover, 'url', '') if isinstance(cover, dict) else getattr(cover, 'url', '') if hasattr(cover, 'url') else ""
-
-def get_duration_str(item):
-    duration = get_val(item, 'duration')
-    try: return f"{int(duration) // 60}m"
-    except: return "Series"
+engine = UltimateMovieEngine()
 
 # Initialize Firebase
 try:
@@ -151,60 +123,60 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, 
 DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+download_tasks = {}
+
+def get_val(obj, key, default=None):
+    if obj is None: return default
+    if isinstance(obj, dict): return obj.get(key, default)
+    return getattr(obj, key, default)
+
+def get_cover_url(item):
+    cover = get_val(item, 'cover')
+    return get_val(cover, 'url', '') if isinstance(cover, dict) else getattr(cover, 'url', '') if hasattr(cover, 'url') else ""
+
 # =========================
 # ENDPOINTS
 # =========================
 
 @app.get("/api/stream")
-async def stream_video(url: str, request: Request, referer: Optional[str] = None):
-    """Bypasses 429 errors by redirecting to the direct video source when possible."""
-    if "youtube.com" in url or "youtu.be" in url:
-        # For YouTube, we MUST use yt-dlp to get the direct stream URL
-        try:
-            with yt_dlp.YoutubeDL({'format': 'best', 'quiet': True}) as ydl:
-                info = ydl.extract_info(url, download=False)
-                direct_url = info.get('url')
-                if direct_url: return RedirectResponse(url=direct_url)
-        except: pass
+async def stream_video(url: str, request: Request):
+    if "magnet:" in url:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Magnets must be opened in a Torrent client."})
     
-    # For FzMovies mirrors, find the raw file and redirect
     if "fzmovies.net" in url:
-        raw_url = await engine.resolve_raw_url(url)
-        return RedirectResponse(url=raw_url)
-
-    # Absolute Fallback: Proxy (only for small/unsupported links)
+        url = await engine.resolve_fz_raw(url)
+    
     return RedirectResponse(url=url)
 
 @app.post("/api/movies/download/start")
 async def start_movie_download(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
     url, title, task_id = data.get('url'), data.get('title', 'media'), str(uuid.uuid4())
+    
+    if "magnet:" in url:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Torrents cannot be downloaded directly to server. Please use 'Watch' to open magnet."})
+
     download_tasks[task_id] = {"progress": 0, "status": "preparing", "filename": f"{title}.mp4", "path": None}
     
     async def run_dl():
         try:
-            # Resolve the raw video file first
             raw_url = url
-            if "fzmovies.net" in url: raw_url = await engine.resolve_raw_url(url)
-            elif "youtube.com" in url:
-                with yt_dlp.YoutubeDL({'format': 'best', 'quiet': True}) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    raw_url = info.get('url')
+            if "fzmovies.net" in url: raw_url = await engine.resolve_fz_raw(url)
 
             file_path = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
             download_tasks[task_id]["status"] = "downloading"
             
             async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
                 async with client.stream("GET", raw_url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
-                    total = int(resp.headers.get("Content-Length", 0))
-                    if total < 1000000: # Less than 1MB is likely a placeholder/error page
-                         raise Exception("Mirror returned invalid file. Try another mirror.")
+                    if int(resp.headers.get("Content-Length", 0)) < 1000000:
+                         raise Exception("Mirror invalid. Try another.")
                     
                     dl_size = 0
                     with open(file_path, "wb") as f:
                         async for chunk in resp.aiter_bytes():
                             f.write(chunk)
                             dl_size += len(chunk)
+                            total = int(resp.headers.get("Content-Length", 0))
                             if total > 0: download_tasks[task_id]["progress"] = round((dl_size/total)*100, 1)
             
             download_tasks[task_id]["status"], download_tasks[task_id]["path"], download_tasks[task_id]["completed_at"] = "completed", file_path, time.time()
@@ -243,12 +215,17 @@ async def search_movies(query: str, media_type: str = Query("movie", alias="type
 @app.get("/api/movies/details")
 async def get_movie_details(subject_id: str, media_type: str = Query("movie", alias="type"), title: Optional[str] = None):
     try:
-        fz_links = await engine.get_fz_mirrors(title or "")
-        yt_links = await engine.get_yt_links(title or "")
-        final = fz_links + yt_links
+        # PURE MOVIE ENGINES - NO YOUTUBE
+        fz_task = engine.get_fz_mirrors(title or "")
+        yts_task = engine.get_yts_links(title or "")
+        
+        fz_links, yts_links = await asyncio.gather(fz_task, yts_task)
+        final = fz_links + yts_links
+        
         if final:
-            return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": final, "mediaType": media_type, "platform": "StreamAura Engine"}}
-        raise Exception("Title not found on mirrors.")
+            return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": final, "mediaType": media_type, "platform": "StreamAura HD Engine"}}
+        
+        raise Exception("Movie not found on HD mirrors. Try a different title.")
     except Exception as e:
         return JSONResponse(status_code=404, content={"success": False, "error": str(e)})
 
