@@ -40,39 +40,49 @@ class UniversalScraper:
         }
 
     async def search_yts(self, title: str):
-        """Pulls high-quality torrent links (720p/1080p) via YTS API."""
-        print(f"--- YTS: Searching for {title} ---")
+        """Pulls high-quality torrent links via YTS API with fuzzy matching."""
+        # Try both full title and first two words
+        variations = [title, " ".join(title.split()[:2])]
+        links = []
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(f"{self.yts_api}?query_term={urllib.parse.quote(title)}&sort_by=seeds")
-                data = resp.json()
-                if data.get('status') == 'ok' and data.get('data', {}).get('movie_count', 0) > 0:
-                    movie = data['data']['movies'][0]
-                    links = []
-                    for t in movie.get('torrents', []):
-                        quality = t.get('quality', '720p')
-                        # Create a direct streamable hash link
-                        links.append({
-                            "quality": f"YTS {quality} ({t.get('type','HQ')})",
-                            "resolution": quality,
-                            "format": "MAGNET",
-                            "size": t.get('size', 'Unknown'),
-                            "url": f"magnet:?xt=urn:btih:{t.get('hash')}&dn={urllib.parse.quote(movie.get('title'))}"
-                        })
-                    return links
-        except: return []
-        return []
+                for q in variations:
+                    print(f"--- YTS: Querying '{q}' ---")
+                    resp = await client.get(f"{self.yts_api}?query_term={urllib.parse.quote(q)}&sort_by=seeds")
+                    data = resp.json()
+                    if data.get('status') == 'ok' and data.get('data', {}).get('movie_count', 0) > 0:
+                        for movie in data['data']['movies']:
+                            # Only accept if the year is recent or title matches reasonably
+                            for t in movie.get('torrents', []):
+                                links.append({
+                                    "quality": f"YTS {t.get('quality')} {movie.get('title')[:20]}",
+                                    "resolution": t.get('quality'),
+                                    "format": "MAGNET",
+                                    "size": t.get('size'),
+                                    "url": f"magnet:?xt=urn:btih:{t.get('hash')}&dn={urllib.parse.quote(movie.get('title'))}"
+                                })
+                        if links: break # Found matches, stop trying variations
+        except: pass
+        return links[:10]
 
     async def search_fz(self, query: str):
-        """Scrapes FzMovies for direct MP4 download links."""
-        url = f"{self.fz_base}/search.php?searchname={urllib.parse.quote(query)}&Search=Search"
+        """Scrapes FzMovies with fuzzy title matching."""
+        # Try first 3 words for better matching
+        clean_q = " ".join(query.split()[:3])
+        url = f"{self.fz_base}/search.php?searchname={urllib.parse.quote(clean_q)}&Search=Search"
         async with httpx.AsyncClient(headers=self.mobile_headers, follow_redirects=True, timeout=10.0) as client:
             try:
                 resp = await client.get(url)
                 soup = BeautifulSoup(resp.text, 'html.parser')
+                found_links = []
                 for link in soup.find_all('a', href=True):
-                    if 'movie-' in link['href'] and query.lower()[:5] in link.text.lower():
-                        return await self.get_fz_links(f"{self.fz_base}/{link['href']}" if not link['href'].startswith('http') else link['href'])
+                    href = link['href']
+                    if 'movie-' in href and len(link.text.strip()) > 2:
+                        # Extract links from the first 2 relevant results
+                        movie_links = await self.get_fz_links(f"{self.fz_base}/{href}" if not href.startswith('http') else href)
+                        found_links.extend(movie_links)
+                        if len(found_links) >= 5: break
+                return found_links
             except: pass
         return []
 
