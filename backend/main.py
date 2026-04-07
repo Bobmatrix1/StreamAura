@@ -21,6 +21,7 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from dotenv import load_dotenv
 from moviebox_api.v1.core import Search as MovieSearch, Session as MovieSession, SubjectType
 from moviebox_api.v1 import MovieDetails, DownloadableMovieFilesDetail
+from fzmovies_api import Search as FzSearch, Download as FzDownload
 
 # Load environment variables from .env file
 load_dotenv()
@@ -544,24 +545,81 @@ async def search_movies(query: str, media_type: str = Query("movie", alias="type
 async def get_movie_details(subject_id: str, media_type: str = Query("movie", alias="type"), title: Optional[str] = None, season: Optional[int] = None, episode: Optional[int] = None):
     try:
         print(f"--- Fetching details for {media_type}: {title} (ID: {subject_id}) ---")
+        
+        # 1. TRY FZMOVIES FIRST (High reliability for downloads)
+        if media_type == "movie" and title:
+            try:
+                print(f"--- Searching FzMovies for: {title} ---")
+                fz_search = FzSearch(query=title)
+                fz_results = fz_search.results
+                
+                if fz_results:
+                    # Find best match (compare titles simply)
+                    best_match = fz_results[0]
+                    clean_title = title.lower().strip()
+                    for res in fz_results:
+                        if clean_title in res.title.lower():
+                            best_match = res
+                            break
+                    
+                    print(f"--- FzMovies Match Found: {best_match.title} ---")
+                    fz_down = FzDownload(url=best_match.url)
+                    fz_meta = fz_down.metadata
+                    
+                    # Map FzMovies metadata to our format
+                    f_q = []
+                    if fz_meta and hasattr(fz_meta, 'links'):
+                        for link_obj in getattr(fz_meta, 'links', []):
+                            quality = getattr(link_obj, 'quality', 'HD')
+                            f_q.append({
+                                "quality": quality,
+                                "resolution": quality,
+                                "format": "MP4",
+                                "size": "Unknown",
+                                "url": getattr(link_obj, 'url', '')
+                            })
+                    
+                    if not f_q and hasattr(fz_meta, 'url'):
+                         f_q.append({
+                            "quality": "High Quality",
+                            "resolution": "720p",
+                            "format": "MP4",
+                            "size": "Unknown",
+                            "url": fz_meta.url
+                        })
+
+                    if f_q:
+                        return {
+                            "success": True, 
+                            "data": {
+                                "id": subject_id, 
+                                "title": title, 
+                                "description": getattr(fz_meta, 'description', 'Downloaded via FzMovies engine'), 
+                                "thumbnail": get_val(fz_meta, 'cover', ''), 
+                                "year": "N/A", 
+                                "rating": "N/A", 
+                                "duration": "N/A", 
+                                "genres": [], 
+                                "qualities": f_q, 
+                                "mediaType": "movie", 
+                                "platform": "FzMovies", 
+                                "referer": "https://fzmovies.net/"
+                            }
+                        }
+            except Exception as fz_err:
+                print(f"--- FzMovies Error: {fz_err} (Falling back to MovieBox) ---")
+
+        # 2. FALLBACK TO MOVIEBOX (If FzMovies fails or it's a series)
         client_session = MovieSession()
         
-        # 1. Advanced Stealth: Randomize between top-tier mobile devices
-        import random
-        user_agents = [
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
-            "Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.64 Mobile Safari/537.36",
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
-        ]
-        
+        # Stealth Patch
         if hasattr(client_session, '_client'):
             client_session._client.headers.clear()
             client_session._client.headers.update({
-                "User-Agent": random.choice(user_agents),
-                "Accept": "application/json, text/plain, */*",
-                "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+                "Accept": "application/json",
+                "Accept-Language": "en-US,en;q=0.9",
                 "Referer": "https://h5.aoneroom.com/",
-                "Origin": "https://h5.aoneroom.com",
                 "X-Requested-With": "com.moviebox.h5",
                 "Sec-Fetch-Mode": "cors",
                 "Sec-Fetch-Site": "same-origin",
@@ -571,7 +629,7 @@ async def get_movie_details(subject_id: str, media_type: str = Query("movie", al
         subject_type = SubjectType.TV_SERIES if media_type == "series" else SubjectType.MOVIES
         search_query = title if title else subject_id
         
-        # 2. PROACTIVE WARMUP: Execute a search to establish a 'Real User' session state
+        # Warmup search
         target_item = None
         try:
             warmup = MovieSearch(client_session, search_query, subject_type=subject_type)
@@ -580,12 +638,10 @@ async def get_movie_details(subject_id: str, media_type: str = Query("movie", al
             target_item = next((m for m in items if str(getattr(m, 'subjectId', '')) == subject_id), items[0] if items else None)
         except: pass
 
-        # 3. CRITICAL BYPASS: If search-based item failed, create a synthetic model
         if not target_item:
             from moviebox_api.v1.models import SearchItemModel
             target_item = SearchItemModel(subjectId=int(subject_id), title=title or "Media", type=1 if media_type == "movie" else 2)
 
-        # 4. Fetch Details using randomized session
         if media_type == "series":
             from moviebox_api.v1 import TVSeriesDetails, DownloadableTVSeriesFilesDetail
             ts_instance = TVSeriesDetails(target_item, client_session)
@@ -623,7 +679,7 @@ async def get_movie_details(subject_id: str, media_type: str = Query("movie", al
             for d in files.get('downloads', []): 
                 f_q.append({"quality": f"{d.get('resolution')}p", "resolution": f"{d.get('resolution')}p", "format": "MP4", "size": format_size(d.get('size', 0)), "url": d.get('url')})
             
-            return {"success": True, "data": {"id": subject_id, "title": get_val(metadata, 'title', get_val(target_item, 'title')), "description": get_val(metadata, 'description', ''), "thumbnail": get_val(metadata, 'image', get_cover_url(target_item)), "year": get_release_year(target_item), "rating": get_val(target_item, 'imdbRatingValue', 'N/A'), "duration": get_duration_str(target_item), "genres": get_genres_list(target_item), "qualities": f_q, "mediaType": "movie", "platform": "MovieBox", "referer": "https://h5.aoneroom.com/"}}
+            return {"success": True, "data": {"id": subject_id, "title": get_val(res_data.get('metadata', {}), 'title', get_val(target_item, 'title')), "thumbnail": get_val(res_data.get('metadata', {}), 'image', get_cover_url(target_item)), "year": get_release_year(target_item), "rating": get_val(target_item, 'imdbRatingValue', 'N/A'), "duration": get_duration_str(target_item), "genres": get_genres_list(target_item), "qualities": f_q, "mediaType": "movie", "platform": "MovieBox", "referer": "https://h5.aoneroom.com/"}}
     except Exception as e:
         print(f"--- Details Error for ID {subject_id}: {str(e)} ---")
         if "403" in str(e):
