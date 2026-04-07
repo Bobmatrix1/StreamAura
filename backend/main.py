@@ -20,21 +20,66 @@ import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
-from fzmovies_api import Search as FzSearch, Download as FzDownload
+from moviebox_api.v1.core import Search as MovieSearch, Session as MovieSession, SubjectType
+from moviebox_api.v1 import MovieDetails, DownloadableMovieFilesDetail
 
 # Load environment variables from .env file
 load_dotenv()
 
 app = FastAPI(title="StreamAura API")
 
+# =========================
+# PURE PYTHON FZMOVIES ENGINE
+# =========================
+class FzMoviesEngine:
+    def __init__(self):
+        self.base = "https://fzmovies.net"
+        self.headers = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"}
+
+    async def search_and_get_links(self, title: str):
+        print(f"--- FzEngine: Searching '{title}' ---")
+        async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=15.0) as client:
+            try:
+                # 1. Search
+                search_url = f"{self.base}/search.php?searchname={urllib.parse.quote(title)}&Search=Search"
+                resp = await client.get(search_url)
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                
+                # 2. Find first relevant movie link
+                movie_link = None
+                for a in soup.find_all('a', href=True):
+                    if 'movie-' in a['href'] and title.lower()[:5] in a.text.lower():
+                        movie_link = f"{self.base}/{a['href']}" if not a['href'].startswith('http') else a['href']
+                        break
+                
+                if not movie_link: return []
+
+                # 3. Get quality selection page
+                resp = await client.get(movie_link)
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                dl_btn = soup.select_one('a[href*="download.php"]')
+                if not dl_btn: return []
+                
+                # 4. Get final download links
+                dl_sel_url = f"{self.base}/{dl_btn['href']}" if not dl_btn['href'].startswith('http') else dl_btn['href']
+                resp = await client.get(dl_sel_url)
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                
+                links = []
+                for a in soup.select('a[href*="getdownload.php"]'):
+                    links.append({
+                        "quality": f"FzMovies: {a.text.strip() or 'Direct'}",
+                        "resolution": "HD", "format": "MP4", "size": "Fast",
+                        "url": f"{self.base}/{a['href']}" if not a['href'].startswith('http') else a['href']
+                    })
+                return links
+            except: return []
+
+fz_engine = FzMoviesEngine()
+
 # Initialize Firebase Admin
 try:
-    service_account_path = os.path.join(os.path.dirname(__file__), "serviceAccountKey.json")
-    if os.path.exists(service_account_path):
-        cred = credentials.Certificate(service_account_path)
-        firebase_admin.initialize_app(cred)
-    else:
-        firebase_admin.initialize_app()
+    firebase_admin.initialize_app()
     db_admin = firestore.client()
 except:
     db_admin = None
@@ -45,32 +90,19 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, 
 DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Middlewares
-@app.middleware("http")
-async def add_no_cache_header(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
-
 class ExtractRequest(BaseModel):
     url: str
 
 download_tasks = {}
 
-# =========================
-# HELPERS
-# =========================
-def format_size(size_bytes):
-    if not size_bytes: return "Unknown"
-    try:
-        size_bytes = float(size_bytes)
-        for unit in ['B', 'KB', 'MB', 'GB']:
-            if size_bytes < 1024: return f"{size_bytes:.1f} {unit}"
-            size_bytes /= 1024
-        return f"{size_bytes:.1f} TB"
-    except: return "Unknown"
+def get_val(obj, key, default=None):
+    if obj is None: return default
+    if isinstance(obj, dict): return obj.get(key, default)
+    return getattr(obj, key, default)
+
+def get_cover_url(item):
+    cover = get_val(item, 'cover')
+    return get_val(cover, 'url', '') if isinstance(cover, dict) else getattr(cover, 'url', '') if hasattr(cover, 'url') else ""
 
 # =========================
 # ENDPOINTS
@@ -78,11 +110,7 @@ def format_size(size_bytes):
 
 @app.get("/api/stream")
 async def stream_video(url: str, request: Request, referer: Optional[str] = None):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-        "Referer": referer or "https://fzmovies.net/",
-        "Accept": "*/*"
-    }
+    headers = {"User-Agent": "Mozilla/5.0", "Referer": referer or "https://fzmovies.net/", "Accept": "*/*"}
     range_header = request.headers.get("Range")
     if range_header: headers["Range"] = range_header
     try:
@@ -101,10 +129,8 @@ async def stream_video(url: str, request: Request, referer: Optional[str] = None
 @app.post("/api/movies/download/start")
 async def start_movie_download(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
-    url, title = data.get('url'), data.get('title', 'media')
-    task_id = str(uuid.uuid4())
+    url, title, task_id = data.get('url'), data.get('title', 'media'), str(uuid.uuid4())
     download_tasks[task_id] = {"progress": 0, "status": "preparing", "filename": f"{title}.mp4", "path": None}
-    
     async def run_dl():
         try:
             file_path = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
@@ -112,7 +138,6 @@ async def start_movie_download(request: Request, background_tasks: BackgroundTas
             headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://fzmovies.net/"}
             async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
                 async with client.stream("GET", url, headers=headers) as resp:
-                    if resp.status_code >= 400: raise Exception(f"HTTP {resp.status_code}")
                     total = int(resp.headers.get("Content-Length", 0))
                     dl_size = 0
                     with open(file_path, "wb") as f:
@@ -121,16 +146,13 @@ async def start_movie_download(request: Request, background_tasks: BackgroundTas
                             dl_size += len(chunk)
                             if total > 0: download_tasks[task_id]["progress"] = round((dl_size/total)*100, 1)
             download_tasks[task_id]["status"], download_tasks[task_id]["path"], download_tasks[task_id]["completed_at"] = "completed", file_path, time.time()
-        except Exception as e: 
-            download_tasks[task_id]["status"], download_tasks[task_id]["error"] = "error", str(e)
-            
+        except Exception as e: download_tasks[task_id]["status"], download_tasks[task_id]["error"] = "error", str(e)
     background_tasks.add_task(run_dl)
     return {"success": True, "data": {"task_id": task_id}}
 
 @app.get("/api/movies/download/status/{task_id}")
 async def get_download_status(task_id: str):
-    if task_id not in download_tasks: return {"success": False, "error": "Not found"}
-    return {"success": True, "data": download_tasks[task_id]}
+    return {"success": True, "data": download_tasks.get(task_id, {"status": "error"})}
 
 @app.get("/api/movies/download/file/{task_id}")
 async def get_movie_file(task_id: str, background_tasks: BackgroundTasks):
@@ -142,77 +164,40 @@ async def get_movie_file(task_id: str, background_tasks: BackgroundTasks):
 @app.get("/api/movies/search")
 async def search_movies(query: str, media_type: str = Query("movie", alias="type")):
     try:
-        # Map frontend 'movie'/'series' to FzMovies categories if possible
-        # Library usually handles general search
-        search_engine = FzSearch(query=query)
-        results = search_engine.results
-        
+        session = MovieSession()
+        search = await MovieSearch(session, query, subject_type=SubjectType.TV_SERIES if media_type == "series" else SubjectType.MOVIES).get_content()
         formatted = []
-        for res in results:
-            # Use URL as ID for FzMovies since it's unique
+        for item in search.get('items', []):
             formatted.append({
-                "id": urllib.parse.quote_plus(res.url),
-                "title": res.title,
-                "thumbnail": "", # FzMovies search doesn't always provide thumbnails
-                "year": "N/A",
-                "rating": "N/A",
-                "mediaType": "movie", # FzMovies is mostly movies
-                "platform": "FzMovies"
+                "id": str(get_val(item, 'subjectId')), "title": get_val(item, 'title'),
+                "thumbnail": get_cover_url(item), "year": get_val(item, 'releaseDate', 'N/A').split('-')[0],
+                "rating": get_val(item, 'imdbRatingValue', 'N/A'), "mediaType": media_type, "platform": "MovieBox"
             })
         return {"success": True, "data": formatted}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+    except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.get("/api/movies/details")
 async def get_movie_details(subject_id: str, media_type: str = Query("movie", alias="type"), title: Optional[str] = None):
     try:
-        movie_url = urllib.parse.unquote_plus(subject_id)
-        downloader = FzDownload(url=movie_url)
-        metadata = downloader.metadata
+        # 1. SCRAPE FZMOVIES (DIRECT MP4)
+        final_qualities = await fz_engine.search_and_get_links(title or "")
         
-        # Extract quality links from the library's metadata structure
-        # The library maps download links to its internal model
-        final_qualities = []
-        
-        # Try to find download links in metadata
-        # Based on fzmovies-api structure
-        if hasattr(metadata, 'links') and metadata.links:
-            for link in metadata.links:
-                final_qualities.append({
-                    "quality": getattr(link, 'quality', 'HD'),
-                    "resolution": getattr(link, 'quality', '720p'),
-                    "format": "MP4",
-                    "size": "Fast",
-                    "url": getattr(link, 'url', '')
-                })
-        
-        # Fallback if links list is empty but main url exists
-        if not final_qualities and hasattr(metadata, 'url'):
-            final_qualities.append({
-                "quality": "Direct Link",
-                "resolution": "HD",
-                "format": "MP4",
-                "size": "Fast",
-                "url": metadata.url
-            })
+        # 2. FALLBACK: YOUTUBE
+        if not final_qualities and title:
+            try:
+                with yt_dlp.YoutubeDL({'quiet': True, 'extract_flat': True}) as ydl:
+                    loop = asyncio.get_event_loop()
+                    res = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch2:{title} Full Movie", download=False))
+                    final_qualities.extend([{"quality": f"YouTube: {e.get('title')[:30]}...", "resolution": "HD", "format": "STREAM", "size": "Direct", "url": e.get('url')} for e in res.get('entries', []) if e])
+            except: pass
 
-        return {
-            "success": True,
-            "data": {
-                "id": subject_id,
-                "title": getattr(metadata, 'title', title or "Media"),
-                "thumbnail": getattr(metadata, 'cover', ""),
-                "description": getattr(metadata, 'description', ""),
-                "qualities": final_qualities,
-                "mediaType": "movie",
-                "platform": "FzMovies",
-                "referer": "https://fzmovies.net/"
-            }
-        }
+        if final_qualities:
+            return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": final_qualities, "mediaType": media_type, "platform": "StreamAura Engine", "referer": "https://fzmovies.net/"}}
+        
+        raise Exception("No available servers found.")
     except Exception as e:
-        return JSONResponse(status_code=400, content={"success": False, "error": f"FzMovies Error: {str(e)}"})
+        return JSONResponse(status_code=403, content={"success": False, "error": f"Error: {str(e)}"})
 
-# Other app logic...
 @app.get("/")
 async def root(): return {"status": "online"}
 
