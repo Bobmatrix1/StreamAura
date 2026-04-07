@@ -88,12 +88,33 @@ class AdvancedVideoEngine:
             except: return final_fz_url
 
     async def get_yt_links(self, title: str):
+        print(f"--- DeepEngine: Scoping YouTube for '{title}' ---")
         try:
-            with yt_dlp.YoutubeDL({'quiet': True, 'extract_flat': True}) as ydl:
+            # Enhanced yt-dlp options to bypass bot detection
+            ydl_opts = {
+                'quiet': True, 
+                'extract_flat': True, 
+                'num_answers': 2,
+                'nocheckcertificate': True,
+                'no_warnings': True,
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                # Add extra headers to look less like a bot
+                'http_headers': {
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                    'Sec-Ch-Ua-Mobile': '?0',
+                    'Sec-Ch-Ua-Platform': '"Windows"',
+                }
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 loop = asyncio.get_event_loop()
-                res = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch2:{title} Full Movie", download=False))
+                # Try searching for movie specifically to find better sources
+                res = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch2:{title} movie", download=False))
                 return [{"quality": f"Source: {e.get('title')[:25]}...", "resolution": "HD", "format": "STREAM", "size": "Direct", "url": e.get('url')} for e in res.get('entries', []) if e]
-        except: return []
+        except Exception as e:
+            print(f"YouTube Scoping Error: {e}")
+            return []
 
 engine = AdvancedVideoEngine()
 
