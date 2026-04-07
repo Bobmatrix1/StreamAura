@@ -97,6 +97,26 @@ class AdvancedVideoEngine:
 
 engine = AdvancedVideoEngine()
 
+# Global state for background downloads
+download_tasks = {}
+
+# =========================
+# HELPERS
+# =========================
+def get_val(obj, key, default=None):
+    if obj is None: return default
+    if isinstance(obj, dict): return obj.get(key, default)
+    return getattr(obj, key, default)
+
+def get_cover_url(item):
+    cover = get_val(item, 'cover')
+    return get_val(cover, 'url', '') if isinstance(cover, dict) else getattr(cover, 'url', '') if hasattr(cover, 'url') else ""
+
+def get_duration_str(item):
+    duration = get_val(item, 'duration')
+    try: return f"{int(duration) // 60}m"
+    except: return "Series"
+
 # Initialize Firebase
 try:
     firebase_admin.initialize_app()
