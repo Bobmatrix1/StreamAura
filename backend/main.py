@@ -1,12 +1,5 @@
 import os
 import sys
-
-# STARTUP LOGGING FOR RENDER
-print("--- STREAMAURA BACKEND STARTING ---")
-print(f"Working Directory: {os.getcwd()}")
-print(f"Directory Contents: {os.listdir('.')}")
-print(f"Python Path: {sys.path}")
-
 import asyncio
 import time
 import re
@@ -37,53 +30,79 @@ load_dotenv()
 app = FastAPI(title="StreamAura API")
 
 # =========================
-# PURE PYTHON FZMOVIES ENGINE
+# AGGRESSIVE FZMOVIES MIRROR SCRAPER
 # =========================
-class FzMoviesEngine:
+class FzMirrorSniper:
     def __init__(self):
         self.base = "https://fzmovies.net"
-        self.headers = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"}
+        self.mobile_headers = [
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            "Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.64 Mobile Safari/537.36"
+        ]
 
-    async def search_and_get_links(self, title: str):
-        print(f"--- FzEngine: Searching '{title}' ---")
-        async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=15.0) as client:
+    async def get_soup(self, url, client):
+        headers = {"User-Agent": random.choice(self.mobile_headers), "Referer": self.base}
+        resp = await client.get(url, headers=headers)
+        return BeautifulSoup(resp.text, 'html.parser')
+
+    async def scrape_movie(self, title: str):
+        print(f"--- FzSniper: Sniping '{title}' ---")
+        async with httpx.AsyncClient(follow_redirects=True, timeout=20.0) as client:
             try:
-                # 1. Search
-                search_url = f"{self.base}/search.php?searchname={urllib.parse.quote(title)}&Search=Search"
-                resp = await client.get(search_url)
-                soup = BeautifulSoup(resp.text, 'html.parser')
+                # STAGE 1: Aggressive Search
+                # Try full title and then just first two words
+                search_queries = [title, " ".join(title.split()[:2])]
+                movie_url = None
                 
-                # 2. Find first relevant movie link
-                movie_link = None
-                for a in soup.find_all('a', href=True):
-                    if 'movie-' in a['href'] and title.lower()[:5] in a.text.lower():
-                        movie_link = f"{self.base}/{a['href']}" if not a['href'].startswith('http') else a['href']
-                        break
-                
-                if not movie_link: return []
+                for q in search_queries:
+                    search_url = f"{self.base}/search.php?searchname={urllib.parse.quote(q)}&Search=Search"
+                    soup = await self.get_soup(search_url, client)
+                    
+                    # Find all links and look for the closest movie match
+                    links = soup.find_all('a', href=True)
+                    for a in links:
+                        href = a['href']
+                        if 'movie-' in href and q.lower()[:4] in a.text.lower():
+                            movie_url = f"{self.base}/{href}" if not href.startswith('http') else href
+                            print(f"--- FzSniper: Found Movie Page: {movie_url} ---")
+                            break
+                    if movie_url: break
 
-                # 3. Get quality selection page
-                resp = await client.get(movie_link)
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                dl_btn = soup.select_one('a[href*="download.php"]')
-                if not dl_btn: return []
+                if not movie_url: return []
+
+                # STAGE 2: Navigate to Quality Selection
+                soup = await self.get_soup(movie_url, client)
+                dl_link = soup.select_one('a[href*="download.php"]')
+                if not dl_link: return []
                 
-                # 4. Get final download links
-                dl_sel_url = f"{self.base}/{dl_btn['href']}" if not dl_btn['href'].startswith('http') else dl_btn['href']
-                resp = await client.get(dl_sel_url)
-                soup = BeautifulSoup(resp.text, 'html.parser')
+                sel_url = f"{self.base}/{dl_link['href']}" if not dl_link['href'].startswith('http') else dl_link['href']
                 
-                links = []
-                for a in soup.select('a[href*="getdownload.php"]'):
-                    links.append({
-                        "quality": f"FzMovies: {a.text.strip() or 'Direct'}",
-                        "resolution": "HD", "format": "MP4", "size": "Fast",
-                        "url": f"{self.base}/{a['href']}" if not a['href'].startswith('http') else a['href']
+                # STAGE 3: Extract All Mirror Links
+                soup = await self.get_soup(sel_url, client)
+                mirrors = []
+                
+                # FzMovies often lists High, Medium, Low quality links
+                # We target all 'getdownload.php' buttons
+                links = soup.select('a[href*="getdownload.php"]')
+                for a in links:
+                    quality_text = a.text.strip() or "Direct Mirror"
+                    final_url = f"{self.base}/{a['href']}" if not a['href'].startswith('http') else a['href']
+                    
+                    # We add them as high-priority mirrors
+                    mirrors.append({
+                        "quality": f"Fz {quality_text}",
+                        "resolution": "HD" if "High" in quality_text else "720p",
+                        "format": "MP4",
+                        "size": "High Speed",
+                        "url": final_url
                     })
-                return links
-            except: return []
+                
+                return mirrors
+            except Exception as e:
+                print(f"--- FzSniper Error: {e} ---")
+                return []
 
-fz_engine = FzMoviesEngine()
+fz_sniper = FzMirrorSniper()
 
 # Initialize Firebase Admin
 try:
@@ -187,22 +206,31 @@ async def search_movies(query: str, media_type: str = Query("movie", alias="type
 @app.get("/api/movies/details")
 async def get_movie_details(subject_id: str, media_type: str = Query("movie", alias="type"), title: Optional[str] = None):
     try:
-        # 1. SCRAPE FZMOVIES (DIRECT MP4)
-        final_qualities = await fz_engine.search_and_get_links(title or "")
+        # 1. AGGRESSIVE FZMOVIES MIRROR SNIPING
+        final_qualities = await fz_sniper.scrape_movie(title or "")
         
-        # 2. FALLBACK: YOUTUBE
-        if not final_qualities and title:
-            try:
-                with yt_dlp.YoutubeDL({'quiet': True, 'extract_flat': True}) as ydl:
-                    loop = asyncio.get_event_loop()
-                    res = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch2:{title} Full Movie", download=False))
-                    final_qualities.extend([{"quality": f"YouTube: {e.get('title')[:30]}...", "resolution": "HD", "format": "STREAM", "size": "Direct", "url": e.get('url')} for e in res.get('entries', []) if e])
-            except: pass
+        # 2. FALLBACK: MOVIEBOX (Only if Scraper fails)
+        if not final_qualities:
+            print("--- FzSniper: No mirrors found, falling back to MovieBox ---")
+            session = MovieSession()
+            if hasattr(session, '_client'):
+                session._client.headers.update({"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1", "X-Requested-With": "com.moviebox.h5"})
+            
+            search_model = await MovieSearch(session, title or subject_id, subject_type=SubjectType.TV_SERIES if media_type == "series" else SubjectType.MOVIES).get_content_model()
+            items = getattr(search_model, 'items', getattr(search_model, 'list', []))
+            target = next((m for m in items if str(getattr(m, 'subjectId', '')) == subject_id), items[0] if items else None)
+            
+            if target:
+                md = MovieDetails(target, session)
+                md_m = await md.get_content_model()
+                df = DownloadableMovieFilesDetail(session, md_m)
+                files = await df.get_content()
+                final_qualities.extend([{"quality": f"Server {d.get('resolution')}p", "resolution": f"{d.get('resolution')}p", "format": "MP4", "size": "Cloud", "url": d.get('url')} for d in files.get('downloads', [])])
 
         if final_qualities:
             return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": final_qualities, "mediaType": media_type, "platform": "StreamAura Engine", "referer": "https://fzmovies.net/"}}
         
-        raise Exception("No available servers found.")
+        raise Exception("Movie currently unavailable on all mirrors.")
     except Exception as e:
         return JSONResponse(status_code=403, content={"success": False, "error": f"Error: {str(e)}"})
 
