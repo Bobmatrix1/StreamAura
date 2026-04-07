@@ -27,75 +27,92 @@ load_dotenv()
 app = FastAPI(title="StreamAura API")
 
 # =========================
-# ULTIMATE MOVIE ENGINE (FzMovies + YTS HD) - NO YOUTUBE
+# ULTRA-FUZZY MOVIE ENGINE
 # =========================
-class UltimateMovieEngine:
+class UltraFuzzyEngine:
     def __init__(self):
         self.fz_base = "https://fzmovies.net"
         self.yts_api = "https://yts.mx/api/v2/list_movies.json"
         self.ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 
+    def clean_title(self, title: str):
+        """Removes special characters and extra spaces for better matching."""
+        return re.sub(r'[^a-zA-Z0-9\s]', '', title).lower().strip()
+
     async def get_fz_mirrors(self, title: str):
-        """Scrapes FzMovies for direct MP4 mirrors."""
-        print(f"--- Engine: Scoping FzMovies for '{title}' ---")
+        """Aggressive FzMovies search with normalized title matching."""
+        print(f"--- UltraEngine: Scoping FzMovies for '{title}' ---")
         async with httpx.AsyncClient(headers={"User-Agent": self.ua}, follow_redirects=True, timeout=15.0) as client:
             try:
-                # Try multiple variations of the title
-                queries = [title, " ".join(title.split()[:2])]
+                # Try variations: Full Title, and then just the first word (if multiple)
+                words = title.split()
+                queries = [title, words[0] if words else title]
+                
+                clean_target = self.clean_title(title)
                 movie_url = None
                 
                 for q in queries:
                     search_url = f"{self.fz_base}/search.php?searchname={urllib.parse.quote(q)}&Search=Search"
                     resp = await client.get(search_url)
                     soup = BeautifulSoup(resp.text, 'html.parser')
+                    
                     for a in soup.find_all('a', href=True):
-                        if 'movie-' in a['href'] and title.lower()[:3] in a.text.lower():
-                            movie_url = f"{self.fz_base}/{a['href']}" if not a['href'].startswith('http') else a['href']
-                            break
+                        href = a['href']
+                        if 'movie-' in href:
+                            link_title = self.clean_title(a.text)
+                            # Check if target title is IN the link title or vice versa
+                            if clean_target in link_title or (len(clean_target) > 3 and clean_target[:4] in link_title):
+                                movie_url = f"{self.fz_base}/{href}" if not href.startswith('http') else href
+                                break
                     if movie_url: break
                 
                 if not movie_url: return []
 
+                # Step 2: Navigate to Selection
                 resp = await client.get(movie_url)
-                dl_link = BeautifulSoup(resp.text, 'html.parser').select_one('a[href*="download.php"]')
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                dl_link = soup.select_one('a[href*="download.php"]')
                 if not dl_link: return []
                 
-                resp = await client.get(f"{self.fz_base}/{dl_link['href']}" if not dl_link['href'].startswith('http') else dl_link['href'])
+                # Step 3: Extract Links
+                sel_url = f"{self.fz_base}/{dl_link['href']}" if not dl_link['href'].startswith('http') else dl_link['href']
+                resp = await client.get(sel_url)
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 
-                links = []
+                mirrors = []
                 for a in soup.select('a[href*="getdownload.php"]'):
-                    q_text = a.text.strip() or "Direct"
-                    links.append({
+                    q_text = a.text.strip() or "Standard"
+                    mirrors.append({
                         "quality": f"Fz Mirror: {q_text}",
                         "resolution": "HD" if "High" in q_text else "720p",
                         "format": "MP4",
                         "size": "Fast",
                         "url": f"{self.fz_base}/{a['href']}" if not a['href'].startswith('http') else a['href']
                     })
-                return links
+                return mirrors
             except: return []
 
     async def get_yts_links(self, title: str):
-        """Fetches high-quality full movies via YTS Torrent API."""
-        print(f"--- Engine: Scoping YTS for '{title}' ---")
+        """Fetches high-quality full movies via YTS Torrent API with fuzzy matching."""
+        print(f"--- UltraEngine: Scoping YTS for '{title}' ---")
         try:
-            # Use first 3 words for YTS search to be accurate
-            q = " ".join(title.split()[:3])
+            # Clean title for YTS
+            clean_q = self.clean_title(title)
             async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(f"{self.yts_api}?query_term={urllib.parse.quote(q)}&sort_by=seeds")
+                resp = await client.get(f"{self.yts_api}?query_term={urllib.parse.quote(clean_q)}&sort_by=seeds")
                 data = resp.json()
                 if data.get('status') == 'ok' and data.get('data', {}).get('movie_count', 0) > 0:
-                    movie = data['data']['movies'][0]
                     links = []
-                    for t in movie.get('torrents', []):
-                        links.append({
-                            "quality": f"YTS {t.get('quality')} (Full Movie)",
-                            "resolution": t.get('quality'),
-                            "format": "MAGNET",
-                            "size": t.get('size'),
-                            "url": f"magnet:?xt=urn:btih:{t.get('hash')}&dn={urllib.parse.quote(movie.get('title'))}"
-                        })
+                    # Get top 2 movie matches
+                    for movie in data['data']['movies'][:2]:
+                        for t in movie.get('torrents', []):
+                            links.append({
+                                "quality": f"YTS {t.get('quality')} (Full Movie)",
+                                "resolution": t.get('quality'),
+                                "format": "MAGNET",
+                                "size": t.get('size'),
+                                "url": f"magnet:?xt=urn:btih:{t.get('hash')}&dn={urllib.parse.quote(movie.get('title'))}"
+                            })
                     return links
         except: pass
         return []
@@ -108,7 +125,7 @@ class UltimateMovieEngine:
                 return match.group(1) if match else fz_url
             except: return fz_url
 
-engine = UltimateMovieEngine()
+engine = UltraFuzzyEngine()
 
 # Initialize Firebase
 try:
@@ -142,47 +159,35 @@ def get_cover_url(item):
 async def stream_video(url: str, request: Request):
     if "magnet:" in url:
         return JSONResponse(status_code=400, content={"success": False, "error": "Magnets must be opened in a Torrent client."})
-    
     if "fzmovies.net" in url:
         url = await engine.resolve_fz_raw(url)
-    
     return RedirectResponse(url=url)
 
 @app.post("/api/movies/download/start")
 async def start_movie_download(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
     url, title, task_id = data.get('url'), data.get('title', 'media'), str(uuid.uuid4())
-    
     if "magnet:" in url:
-        return JSONResponse(status_code=400, content={"success": False, "error": "Torrents cannot be downloaded directly to server. Please use 'Watch' to open magnet."})
+        return JSONResponse(status_code=400, content={"success": False, "error": "Use 'Watch' for Magnet links."})
 
     download_tasks[task_id] = {"progress": 0, "status": "preparing", "filename": f"{title}.mp4", "path": None}
-    
     async def run_dl():
         try:
             raw_url = url
             if "fzmovies.net" in url: raw_url = await engine.resolve_fz_raw(url)
-
             file_path = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
             download_tasks[task_id]["status"] = "downloading"
-            
             async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
                 async with client.stream("GET", raw_url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
-                    if int(resp.headers.get("Content-Length", 0)) < 1000000:
-                         raise Exception("Mirror invalid. Try another.")
-                    
+                    total = int(resp.headers.get("Content-Length", 0))
                     dl_size = 0
                     with open(file_path, "wb") as f:
                         async for chunk in resp.aiter_bytes():
                             f.write(chunk)
                             dl_size += len(chunk)
-                            total = int(resp.headers.get("Content-Length", 0))
                             if total > 0: download_tasks[task_id]["progress"] = round((dl_size/total)*100, 1)
-            
             download_tasks[task_id]["status"], download_tasks[task_id]["path"], download_tasks[task_id]["completed_at"] = "completed", file_path, time.time()
-        except Exception as e: 
-            download_tasks[task_id]["status"], download_tasks[task_id]["error"] = "error", str(e)
-            
+        except Exception as e: download_tasks[task_id]["status"], download_tasks[task_id]["error"] = "error", str(e)
     background_tasks.add_task(run_dl)
     return {"success": True, "data": {"task_id": task_id}}
 
@@ -206,7 +211,7 @@ async def search_movies(query: str, media_type: str = Query("movie", alias="type
         for item in search.get('items', []):
             formatted.append({
                 "id": str(get_val(item, 'subjectId')), "title": get_val(item, 'title'),
-                "thumbnail": get_val(get_val(item, 'cover'), 'url', ''), "year": get_val(item, 'releaseDate', 'N/A').split('-')[0],
+                "thumbnail": get_val(get_val(item, 'cover'), 'url', ''), "year": str(get_val(item, 'releaseDate', 'N/A')).split('-')[0],
                 "rating": get_val(item, 'imdbRatingValue', 'N/A'), "mediaType": media_type, "platform": "MovieBox"
             })
         return {"success": True, "data": formatted}
@@ -215,7 +220,7 @@ async def search_movies(query: str, media_type: str = Query("movie", alias="type
 @app.get("/api/movies/details")
 async def get_movie_details(subject_id: str, media_type: str = Query("movie", alias="type"), title: Optional[str] = None):
     try:
-        # PURE MOVIE ENGINES - NO YOUTUBE
+        # Search multiple sources in parallel
         fz_task = engine.get_fz_mirrors(title or "")
         yts_task = engine.get_yts_links(title or "")
         
@@ -223,9 +228,9 @@ async def get_movie_details(subject_id: str, media_type: str = Query("movie", al
         final = fz_links + yts_links
         
         if final:
-            return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": final, "mediaType": media_type, "platform": "StreamAura HD Engine"}}
+            return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": final, "mediaType": media_type, "platform": "StreamAura Engine"}}
         
-        raise Exception("Movie not found on HD mirrors. Try a different title.")
+        raise Exception(f"No mirrors found for '{title}'. Try a shorter search.")
     except Exception as e:
         return JSONResponse(status_code=404, content={"success": False, "error": str(e)})
 
