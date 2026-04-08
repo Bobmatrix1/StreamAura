@@ -7,6 +7,7 @@ import urllib.parse
 import uuid
 import html
 import traceback
+import random
 from typing import List, Optional, Union
 import firebase_admin
 from firebase_admin import credentials, messaging, firestore
