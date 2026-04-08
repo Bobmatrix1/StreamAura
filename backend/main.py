@@ -26,7 +26,7 @@ load_dotenv()
 app = FastAPI(title="StreamAura API")
 
 # =========================
-# UNIVERSAL WHITELIST ENGINE (FzMovies + YTS + NetNaija)
+# UNIVERSAL WHITELIST ENGINE (Improved Matching)
 # =========================
 class UniversalEngine:
     def __init__(self):
@@ -34,26 +34,30 @@ class UniversalEngine:
         self.yts_api = "https://yts.mx/api/v2/list_movies.json"
         self.ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 
+    def normalize(self, text: str):
+        return re.sub(r'[^a-z0-9]', '', text.lower())
+
     async def get_fz_links(self, title: str):
-        """Scrapes FzMovies for direct mirrors with fuzzy matching."""
+        """Scrapes FzMovies with aggressive fuzzy matching."""
         print(f"--- Engine: Scoping FzMovies for '{title}' ---")
         async with httpx.AsyncClient(headers={"User-Agent": self.ua}, follow_redirects=True, timeout=12.0) as client:
             try:
-                # For short titles like 'Us', we try searching with 'movie' suffix
-                search_q = title if len(title) > 3 else f"{title} movie"
-                url = f"{self.fz_base}/search.php?searchname={urllib.parse.quote(search_q)}&Search=Search"
-                resp = await client.get(url)
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                
+                # Try 1: Exact, Try 2: First word
+                search_queries = [title, title.split()[0]]
                 movie_url = None
-                for a in soup.find_all('a', href=True):
-                    if 'movie-' in a['href']:
-                        # Compare cleaned titles
-                        t1 = re.sub(r'[^a-z0-9]', '', title.lower())
-                        t2 = re.sub(r'[^a-z0-9]', '', a.text.lower())
-                        if t1 in t2 or t2 in t1:
-                            movie_url = f"{self.fz_base}/{a['href']}" if not a['href'].startswith('http') else a['href']
-                            break
+                
+                for q in search_queries:
+                    url = f"{self.fz_base}/search.php?searchname={urllib.parse.quote(q)}&Search=Search"
+                    resp = await client.get(url)
+                    soup = BeautifulSoup(resp.text, 'html.parser')
+                    
+                    for a in soup.find_all('a', href=True):
+                        if 'movie-' in a['href']:
+                            t1, t2 = self.normalize(title), self.normalize(a.text)
+                            if t1 in t2 or t2 in t1 or (len(t1) > 3 and t1[:4] in t2):
+                                movie_url = f"{self.fz_base}/{a['href']}" if not a['href'].startswith('http') else a['href']
+                                break
+                    if movie_url: break
                 
                 if not movie_url: return []
 
@@ -73,19 +77,17 @@ class UniversalEngine:
         return []
 
     async def get_yts_links(self, title: str):
-        """Fetches HD Full Movies via YTS API with aggressive title matching."""
+        """Fetches HD Full Movies via YTS API with relaxed matching."""
         print(f"--- Engine: Scoping YTS for '{title}' ---")
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                # For YTS, search for the title exactly
                 resp = await client.get(f"{self.yts_api}?query_term={urllib.parse.quote(title)}&sort_by=seeds")
                 data = resp.json()
                 if data.get('status') == 'ok' and data.get('data', {}).get('movie_count', 0) > 0:
                     results = []
-                    for movie in data['data']['movies'][:2]:
-                        # Only add if the title is a reasonable match
-                        t1 = re.sub(r'[^a-z0-9]', '', title.lower())
-                        t2 = re.sub(r'[^a-z0-9]', '', movie.get('title', '').lower())
+                    for movie in data['data']['movies'][:3]:
+                        # Relaxed check for new releases
+                        t1, t2 = self.normalize(title), self.normalize(movie.get('title', ''))
                         if t1 in t2 or t2 in t1:
                             for t in movie.get('torrents', []):
                                 results.append({
@@ -158,7 +160,7 @@ async def start_movie_download(request: Request, background_tasks: BackgroundTas
             download_tasks[task_id]["status"] = "downloading"
             async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
                 async with client.stream("GET", raw_url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
-                    if int(resp.headers.get("Content-Length", 0)) < 5000000: raise Exception("Link expired. Try another mirror.")
+                    if int(resp.headers.get("Content-Length", 0)) < 5000000: raise Exception("Mirror Invalid.")
                     dl_size = 0
                     with open(file_path, "wb") as f:
                         async for chunk in resp.aiter_bytes():
@@ -200,14 +202,14 @@ async def search_movies(query: str, media_type: str = Query("movie", alias="type
 @app.get("/api/movies/details")
 async def get_movie_details(subject_id: str, media_type: str = Query("movie", alias="type"), title: Optional[str] = None):
     try:
-        # PARALLEL SEARCH
+        # AGGRESSIVE PARALLEL SEARCH
         fz_task = whitelist_engine.get_fz_links(title or "")
         yts_task = whitelist_engine.get_yts_links(title or "")
         fz_links, yts_links = await asyncio.gather(fz_task, yts_task)
         
         final = fz_links + yts_links
         if final: return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": final, "mediaType": media_type, "platform": "StreamAura Engine"}}
-        raise Exception(f"No mirrors found for '{title}'. Try a longer title.")
+        raise Exception(f"Mirrors not found for '{title}'.")
     except Exception as e: return JSONResponse(status_code=404, content={"success": False, "error": str(e)})
 
 @app.get("/")
