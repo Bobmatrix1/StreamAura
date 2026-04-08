@@ -27,17 +27,28 @@ load_dotenv()
 app = FastAPI(title="StreamAura API")
 
 # =========================
-# STEALTH MIRROR ENGINE (YTS + FilePursuit)
+# SMART MIRROR VALIDATOR
 # =========================
-class StealthMirrorEngine:
+class SmartMirrorEngine:
     def __init__(self):
         self.yts_api = "https://yts.mx/api/v2/list_movies.json"
-        self.filepursuit_api = "https://filepursuit.com/api/v1/search"
         self.ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
+    async def probe_link(self, url: str):
+        """Checks if a link is a real video file or a redirect page."""
+        try:
+            async with httpx.AsyncClient(headers={"User-Agent": self.ua}, follow_redirects=True, timeout=5.0) as client:
+                resp = await client.head(url)
+                size = int(resp.headers.get("Content-Length", 0))
+                ctype = resp.headers.get("Content-Type", "").lower()
+                # If it's a real video, it should be > 10MB
+                if "video" in ctype or size > 10000000:
+                    return url, True
+                return url, False
+        except: return url, False
+
     async def get_yts_links(self, title: str):
-        """High-quality Torrent links (Best for full movies)."""
-        print(f"--- Stealth: Querying YTS for '{title}' ---")
+        print(f"--- SmartEngine: Scoping YTS for '{title}' ---")
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(f"{self.yts_api}?query_term={urllib.parse.quote(title)}&sort_by=seeds")
@@ -53,20 +64,16 @@ class StealthMirrorEngine:
         except: return []
         return []
 
-    async def get_direct_mirrors(self, title: str):
-        """Scrapes specialized mirror sites for direct MP4 links."""
-        print(f"--- Stealth: Crawling mirrors for '{title}' ---")
-        # Try a known high-speed aggregator
-        links = []
+    async def get_yt_links(self, title: str):
+        print(f"--- SmartEngine: Scoping YouTube for '{title}' ---")
         try:
-            # We use a broad search strategy for direct MP4 files
-            async with httpx.AsyncClient(headers={"User-Agent": self.ua}, timeout=10.0) as client:
-                # Search across multiple public index pages (Dummy example, replacing with YTS/YT for now)
-                pass
-        except: pass
-        return links
+            with yt_dlp.YoutubeDL({'quiet': True, 'extract_flat': True}) as ydl:
+                loop = asyncio.get_event_loop()
+                res = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch2:{title} full movie", download=False))
+                return [{"quality": f"Source: {e.get('title')[:30]}", "resolution": "HD", "format": "STREAM", "size": "Direct", "url": e.get('url')} for e in res.get('entries', []) if e]
+        except: return []
 
-stealth_engine = StealthMirrorEngine()
+smart_engine = SmartMirrorEngine()
 
 # Initialize Firebase
 try:
@@ -107,24 +114,38 @@ async def stream_video(url: str, request: Request):
 async def start_movie_download(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
     url, title, task_id = data.get('url'), data.get('title', 'media'), str(uuid.uuid4())
-    if "magnet:" in url: return JSONResponse(status_code=400, content={"success": False, "error": "Use Watch for Torrents"})
+    if "magnet:" in url: return JSONResponse(status_code=400, content={"success": False, "error": "Magnets not supported for direct download."})
     
     download_tasks[task_id] = {"progress": 0, "status": "preparing", "filename": f"{title}.mp4", "path": None}
     async def run_dl():
         try:
+            # Step 1: Resolve YouTube URL to direct link if needed
+            final_url = url
+            if "youtube.com" in url or "youtu.be" in url:
+                with yt_dlp.YoutubeDL({'format': 'best', 'quiet': True}) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    final_url = info.get('url')
+
             file_path = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
             download_tasks[task_id]["status"] = "downloading"
+            
             async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
-                async with client.stream("GET", url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
+                async with client.stream("GET", final_url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
                     total = int(resp.headers.get("Content-Length", 0))
+                    # Validation: If file is too small, it's likely an error page
+                    if total < 5000000 and "youtube" not in url:
+                        raise Exception("Link expired or invalid file. Try another mirror.")
+                    
                     dl_size = 0
                     with open(file_path, "wb") as f:
                         async for chunk in resp.aiter_bytes():
                             f.write(chunk)
                             dl_size += len(chunk)
                             if total > 0: download_tasks[task_id]["progress"] = round((dl_size/total)*100, 1)
+            
             download_tasks[task_id]["status"], download_tasks[task_id]["path"], download_tasks[task_id]["completed_at"] = "completed", file_path, time.time()
         except Exception as e: download_tasks[task_id]["status"], download_tasks[task_id]["error"] = "error", str(e)
+    
     background_tasks.add_task(run_dl)
     return {"success": True, "data": {"task_id": task_id}}
 
@@ -157,24 +178,14 @@ async def search_movies(query: str, media_type: str = Query("movie", alias="type
 @app.get("/api/movies/details")
 async def get_movie_details(subject_id: str, media_type: str = Query("movie", alias="type"), title: Optional[str] = None):
     try:
-        # Search YTS and YouTube Fallback (YouTube is safer than Google Search)
-        yts_links = await stealth_engine.get_yts_links(title or "")
+        yts_task = smart_engine.get_yts_links(title or "")
+        yt_task = smart_engine.get_yt_links(title or "")
+        yts_links, yt_links = await asyncio.gather(yts_task, yt_task)
         
-        yt_links = []
-        if not yts_links:
-            try:
-                with yt_dlp.YoutubeDL({'quiet': True, 'extract_flat': True}) as ydl:
-                    res = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(f"ytsearch2:{title} full movie", download=False))
-                    yt_links = [{"quality": f"Mirror: {e.get('title')[:30]}", "resolution": "HD", "format": "STREAM", "size": "Direct", "url": e.get('url')} for e in res.get('entries', []) if e]
-            except: pass
-
         final = yts_links + yt_links
-        if final:
-            return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": final, "mediaType": media_type, "platform": "Stealth Engine"}}
-        
-        raise Exception(f"No mirrors found for '{title}'.")
-    except Exception as e:
-        return JSONResponse(status_code=404, content={"success": False, "error": str(e)})
+        if final: return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": final, "mediaType": media_type, "platform": "Smart Engine"}}
+        raise Exception(f"No valid mirrors found for '{title}'.")
+    except Exception as e: return JSONResponse(status_code=404, content={"success": False, "error": str(e)})
 
 @app.get("/")
 async def root(): return {"status": "online"}
