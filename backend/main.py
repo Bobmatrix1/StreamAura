@@ -27,55 +27,46 @@ load_dotenv()
 app = FastAPI(title="StreamAura API")
 
 # =========================
-# MOVIEBOX SEARCH + GOOGLE SNIPER
+# STEALTH MIRROR ENGINE (YTS + FilePursuit)
 # =========================
-class SniperSearchEngine:
+class StealthMirrorEngine:
     def __init__(self):
+        self.yts_api = "https://yts.mx/api/v2/list_movies.json"
+        self.filepursuit_api = "https://filepursuit.com/api/v1/search"
         self.ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-    async def get_google_mirrors(self, title: str):
-        """Searches the open web for direct MP4/MKV download links."""
-        print(f"--- Sniper: Crawling for '{title}' ---")
-        
-        queries = [
-            f'"{title}" index of mp4',
-            f'"{title}" direct download mp4',
-            f'"{title}" direct link mkv'
-        ]
-        
-        found_links = []
-        async with httpx.AsyncClient(headers={"User-Agent": self.ua}, follow_redirects=True, timeout=15.0) as client:
-            for q in queries:
-                try:
-                    search_url = f"https://www.google.com/search?q={urllib.parse.quote(q)}"
-                    resp = await client.get(search_url)
-                    soup = BeautifulSoup(resp.text, 'html.parser')
-                    
-                    for link in soup.select('div.g a'):
-                        url = link.get('href', '')
-                        if not url.startswith('http') or "google.com" in url: continue
-                        
-                        try:
-                            page_resp = await client.get(url, timeout=5.0)
-                            raw_links = re.findall(r'href=["\'](http[^"\']+\.(?:mp4|mkv|mov|avi)[^"\']*)["\']', page_resp.text, re.I)
-                            for raw in raw_links:
-                                if title.split()[0].lower() in raw.lower():
-                                    domain = urllib.parse.urlparse(raw).netloc
-                                    found_links.append({
-                                        "quality": f"Web Mirror: {domain}",
-                                        "resolution": "HD",
-                                        "format": "MP4",
-                                        "size": "Direct",
-                                        "url": raw
-                                    })
-                        except: continue
-                        if len(found_links) >= 10: break
-                except: continue
-                if found_links: break
-        
-        return found_links
+    async def get_yts_links(self, title: str):
+        """High-quality Torrent links (Best for full movies)."""
+        print(f"--- Stealth: Querying YTS for '{title}' ---")
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{self.yts_api}?query_term={urllib.parse.quote(title)}&sort_by=seeds")
+                data = resp.json()
+                if data.get('status') == 'ok' and data.get('data', {}).get('movie_count', 0) > 0:
+                    movie = data['data']['movies'][0]
+                    return [{
+                        "quality": f"HD {t.get('quality')} - Full Movie",
+                        "resolution": t.get('quality'),
+                        "format": "MAGNET", "size": t.get('size'),
+                        "url": f"magnet:?xt=urn:btih:{t.get('hash')}&dn={urllib.parse.quote(movie.get('title'))}"
+                    } for t in movie.get('torrents', [])]
+        except: return []
+        return []
 
-sniper_engine = SniperSearchEngine()
+    async def get_direct_mirrors(self, title: str):
+        """Scrapes specialized mirror sites for direct MP4 links."""
+        print(f"--- Stealth: Crawling mirrors for '{title}' ---")
+        # Try a known high-speed aggregator
+        links = []
+        try:
+            # We use a broad search strategy for direct MP4 files
+            async with httpx.AsyncClient(headers={"User-Agent": self.ua}, timeout=10.0) as client:
+                # Search across multiple public index pages (Dummy example, replacing with YTS/YT for now)
+                pass
+        except: pass
+        return links
+
+stealth_engine = StealthMirrorEngine()
 
 # Initialize Firebase
 try:
@@ -106,8 +97,7 @@ def get_cover_url(item):
 # =========================
 
 @app.get("/api/analytics/country")
-async def get_visitor_country(request: Request): 
-    return {"country": "Unknown", "device": "Desktop"}
+async def get_visitor_country(request: Request): return {"country": "Unknown", "device": "Desktop"}
 
 @app.get("/api/stream")
 async def stream_video(url: str, request: Request):
@@ -117,8 +107,9 @@ async def stream_video(url: str, request: Request):
 async def start_movie_download(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
     url, title, task_id = data.get('url'), data.get('title', 'media'), str(uuid.uuid4())
-    download_tasks[task_id] = {"progress": 0, "status": "preparing", "filename": f"{title}.mp4", "path": None}
+    if "magnet:" in url: return JSONResponse(status_code=400, content={"success": False, "error": "Use Watch for Torrents"})
     
+    download_tasks[task_id] = {"progress": 0, "status": "preparing", "filename": f"{title}.mp4", "path": None}
     async def run_dl():
         try:
             file_path = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
@@ -134,7 +125,6 @@ async def start_movie_download(request: Request, background_tasks: BackgroundTas
                             if total > 0: download_tasks[task_id]["progress"] = round((dl_size/total)*100, 1)
             download_tasks[task_id]["status"], download_tasks[task_id]["path"], download_tasks[task_id]["completed_at"] = "completed", file_path, time.time()
         except Exception as e: download_tasks[task_id]["status"], download_tasks[task_id]["error"] = "error", str(e)
-            
     background_tasks.add_task(run_dl)
     return {"success": True, "data": {"task_id": task_id}}
 
@@ -167,13 +157,22 @@ async def search_movies(query: str, media_type: str = Query("movie", alias="type
 @app.get("/api/movies/details")
 async def get_movie_details(subject_id: str, media_type: str = Query("movie", alias="type"), title: Optional[str] = None):
     try:
-        # SNIPER: Search the open web for direct mirrors
-        links = await sniper_engine.get_google_mirrors(title or "")
+        # Search YTS and YouTube Fallback (YouTube is safer than Google Search)
+        yts_links = await stealth_engine.get_yts_links(title or "")
         
-        if links:
-            return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": links, "mediaType": media_type, "platform": "Sniper Engine"}}
+        yt_links = []
+        if not yts_links:
+            try:
+                with yt_dlp.YoutubeDL({'quiet': True, 'extract_flat': True}) as ydl:
+                    res = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(f"ytsearch2:{title} full movie", download=False))
+                    yt_links = [{"quality": f"Mirror: {e.get('title')[:30]}", "resolution": "HD", "format": "STREAM", "size": "Direct", "url": e.get('url')} for e in res.get('entries', []) if e]
+            except: pass
+
+        final = yts_links + yt_links
+        if final:
+            return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": final, "mediaType": media_type, "platform": "Stealth Engine"}}
         
-        raise Exception(f"No direct web mirrors found for '{title}'.")
+        raise Exception(f"No mirrors found for '{title}'.")
     except Exception as e:
         return JSONResponse(status_code=404, content={"success": False, "error": str(e)})
 
