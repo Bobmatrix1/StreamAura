@@ -117,9 +117,23 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 download_tasks = {}
 
+def format_size(size_bytes):
+    if not size_bytes: return "Unknown"
+    try:
+        size_bytes = float(size_bytes)
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size_bytes < 1024: return f"{size_bytes:.1f} {unit}"
+            size_bytes /= 1024
+        return f"{size_bytes:.1f} TB"
+    except: return "Unknown"
+
 # =========================
 # ENDPOINTS
 # =========================
+
+@app.get("/api/analytics/country")
+async def get_visitor_country(request: Request): 
+    return {"country": "Unknown", "device": "Desktop"}
 
 @app.get("/api/stream")
 async def stream_video(url: str, request: Request):
