@@ -26,81 +26,106 @@ load_dotenv()
 app = FastAPI(title="StreamAura API")
 
 # =========================
-# GOOGLE SNIPER META-ENGINE
+# UNIVERSAL SEARCH & SNIPER ENGINE
 # =========================
-class GoogleSniperEngine:
+class UniversalEngine:
     def __init__(self):
         self.ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        self.fz_base = "https://fzmovies.net"
+        self.yts_api = "https://yts.mx/api/v2/list_movies.json"
 
-    async def get_google_links(self, title: str):
-        """Searches the open web for direct MP4/MKV download links."""
-        print(f"--- Sniper: Launching Meta-Search for '{title}' ---")
+    async def search_movies(self, query: str):
+        """Searches across multiple providers to ensure results always appear."""
+        print(f"--- Universal: Searching '{query}' ---")
         
-        # Power Queries
-        queries = [
-            f'"{title}" index of mp4',
-            f'"{title}" direct download link mp4',
-            f'"{title}" fzmovies download'
-        ]
-        
-        found_links = []
-        async with httpx.AsyncClient(headers={"User-Agent": self.ua}, follow_redirects=True, timeout=15.0) as client:
-            for q in queries:
-                try:
-                    # 1. Search Google
-                    search_url = f"https://www.google.com/search?q={urllib.parse.quote(q)}"
-                    resp = await client.get(search_url)
-                    soup = BeautifulSoup(resp.text, 'html.parser')
-                    
-                    # 2. Extract results
-                    for link in soup.select('div.g a'):
-                        url = link.get('href', '')
-                        if not url.startswith('http') or "google.com" in url: continue
-                        
-                        # 3. Simple crawl of result page to find .mp4 files
-                        try:
-                            page_resp = await client.get(url, timeout=5.0)
-                            # Look for raw video extensions
-                            raw_links = re.findall(r'href=["\'](http[^"\']+\.(?:mp4|mkv|mov|avi)[^"\']*)["\']', page_resp.text, re.I)
-                            for raw in raw_links:
-                                if title.split()[0].lower() in raw.lower():
-                                    found_links.append({
-                                        "quality": f"Web Mirror: {urllib.parse.urlparse(raw).netloc}",
-                                        "resolution": "HD",
-                                        "format": "MP4",
-                                        "size": "Direct",
-                                        "url": raw
-                                    })
-                        except: continue
-                        if len(found_links) >= 8: break
-                except: continue
-                if found_links: break
-        
-        return found_links
+        # 1. TRY YTS API (Best for posters and years)
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{self.yts_api}?query_term={urllib.parse.quote(query)}&limit=15")
+                data = resp.json()
+                if data.get('status') == 'ok' and data.get('data', {}).get('movie_count', 0) > 0:
+                    results = []
+                    for m in data['data']['movies']:
+                        results.append({
+                            "id": f"yts_{m['id']}",
+                            "title": m['title'],
+                            "thumbnail": m.get('medium_cover_image', ''),
+                            "year": str(m.get('year', 'N/A')),
+                            "rating": str(m.get('rating', 'N/A')),
+                            "mediaType": "movie",
+                            "platform": "YTS"
+                        })
+                    return results
+        except: pass
 
-    async def get_fz_meta(self, title: str):
-        """Still uses FzMovies for the search results/metadata."""
-        base = "https://fzmovies.net"
+        # 2. FALLBACK TO FZMOVIES (SCRAPER)
         try:
             async with httpx.AsyncClient(headers={"User-Agent": self.ua}, follow_redirects=True, timeout=10.0) as client:
-                search_url = f"{base}/search.php?searchname={urllib.parse.quote(title)}&Search=Search"
-                resp = await client.get(search_url)
+                # FzMovies often uses a specific search URL
+                url = f"{self.fz_base}/search.php?searchname={urllib.parse.quote(query)}&Search=Search"
+                resp = await client.get(url)
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 results = []
                 for a in soup.find_all('a', href=True):
-                    if 'movie-' in a['href']:
+                    if 'movie-' in a['href'] and len(a.text.strip()) > 2:
                         results.append({
-                            "id": urllib.parse.quote_plus(f"{base}/{a['href']}"),
+                            "id": urllib.parse.quote_plus(f"{self.fz_base}/{a['href']}"),
                             "title": a.text.strip(),
                             "thumbnail": "",
                             "year": "N/A",
                             "mediaType": "movie",
                             "platform": "FzMovies"
                         })
-                return results
-        except: return []
+                if results: return results[:15]
+        except: pass
 
-sniper = GoogleSniperEngine()
+        return []
+
+    async def get_google_mirrors(self, title: str):
+        """Searches the open web for direct MP4/MKV download links."""
+        print(f"--- Sniper: Crawling for '{title}' ---")
+        
+        queries = [
+            f'"{title}" index of mp4',
+            f'"{title}" direct download mp4',
+            f'"{title}" direct link mkv'
+        ]
+        
+        found_links = []
+        async with httpx.AsyncClient(headers={"User-Agent": self.ua}, follow_redirects=True, timeout=15.0) as client:
+            for q in queries:
+                try:
+                    search_url = f"https://www.google.com/search?q={urllib.parse.quote(q)}"
+                    resp = await client.get(search_url)
+                    soup = BeautifulSoup(resp.text, 'html.parser')
+                    
+                    for link in soup.select('div.g a'):
+                        url = link.get('href', '')
+                        if not url.startswith('http') or "google.com" in url: continue
+                        
+                        try:
+                            # Quick scan of the result page for raw links
+                            page_resp = await client.get(url, timeout=5.0)
+                            raw_links = re.findall(r'href=["\'](http[^"\']+\.(?:mp4|mkv|mov|avi)[^"\']*)["\']', page_resp.text, re.I)
+                            for raw in raw_links:
+                                # Simple relevance check
+                                if title.split()[0].lower() in raw.lower():
+                                    domain = urllib.parse.urlparse(raw).netloc
+                                    found_links.append({
+                                        "quality": f"Web Mirror: {domain}",
+                                        "resolution": "HD",
+                                        "format": "MP4",
+                                        "size": "Direct",
+                                        "url": raw
+                                    })
+                        except: continue
+                        if len(found_links) >= 10: break
+                except: continue
+                if found_links: break
+        
+        return found_links
+
+universal_engine = UniversalEngine()
 
 # Initialize Firebase
 try:
@@ -116,16 +141,6 @@ DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 download_tasks = {}
-
-def format_size(size_bytes):
-    if not size_bytes: return "Unknown"
-    try:
-        size_bytes = float(size_bytes)
-        for unit in ['B', 'KB', 'MB', 'GB']:
-            if size_bytes < 1024: return f"{size_bytes:.1f} {unit}"
-            size_bytes /= 1024
-        return f"{size_bytes:.1f} TB"
-    except: return "Unknown"
 
 # =========================
 # ENDPOINTS
@@ -178,20 +193,20 @@ async def get_movie_file(task_id: str, background_tasks: BackgroundTasks):
 @app.get("/api/movies/search")
 async def search_movies(query: str, media_type: str = Query("movie", alias="type")):
     try:
-        results = await sniper.get_fz_meta(query)
+        results = await universal_engine.search_movies(query)
         return {"success": True, "data": results}
-    except: return JSONResponse(status_code=500, content={"success": False, "error": "Search failed"})
+    except: return JSONResponse(status_code=500, content={"success": False, "error": "Search engine error"})
 
 @app.get("/api/movies/details")
 async def get_movie_details(subject_id: str, media_type: str = Query("movie", alias="type"), title: Optional[str] = None):
     try:
-        # SNIPER META-SEARCH: Search the whole internet for this title
-        links = await sniper.get_google_links(title or "")
+        # SNIPER: Search the open web for direct mirrors
+        links = await universal_engine.get_google_mirrors(title or "")
         
         if links:
-            return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": links, "mediaType": media_type, "platform": "Sniper Engine"}}
+            return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": links, "mediaType": media_type, "platform": "Universal Engine"}}
         
-        raise Exception(f"Sniper could not find working web mirrors for '{title}'.")
+        raise Exception(f"No direct web mirrors found for '{title}'.")
     except Exception as e:
         return JSONResponse(status_code=404, content={"success": False, "error": str(e)})
 
