@@ -18,6 +18,7 @@ from pydantic import BaseModel
 import yt_dlp
 import httpx
 from bs4 import BeautifulSoup
+from moviebox_api.v1.core import Search as MovieSearch, Session as MovieSession, SubjectType
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -26,60 +27,11 @@ load_dotenv()
 app = FastAPI(title="StreamAura API")
 
 # =========================
-# UNIVERSAL SEARCH & SNIPER ENGINE
+# MOVIEBOX SEARCH + GOOGLE SNIPER
 # =========================
-class UniversalEngine:
+class SniperSearchEngine:
     def __init__(self):
         self.ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        self.fz_base = "https://fzmovies.net"
-        self.yts_api = "https://yts.mx/api/v2/list_movies.json"
-
-    async def search_movies(self, query: str):
-        """Searches across multiple providers to ensure results always appear."""
-        print(f"--- Universal: Searching '{query}' ---")
-        
-        # 1. TRY YTS API (Best for posters and years)
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(f"{self.yts_api}?query_term={urllib.parse.quote(query)}&limit=15")
-                data = resp.json()
-                if data.get('status') == 'ok' and data.get('data', {}).get('movie_count', 0) > 0:
-                    results = []
-                    for m in data['data']['movies']:
-                        results.append({
-                            "id": f"yts_{m['id']}",
-                            "title": m['title'],
-                            "thumbnail": m.get('medium_cover_image', ''),
-                            "year": str(m.get('year', 'N/A')),
-                            "rating": str(m.get('rating', 'N/A')),
-                            "mediaType": "movie",
-                            "platform": "YTS"
-                        })
-                    return results
-        except: pass
-
-        # 2. FALLBACK TO FZMOVIES (SCRAPER)
-        try:
-            async with httpx.AsyncClient(headers={"User-Agent": self.ua}, follow_redirects=True, timeout=10.0) as client:
-                # FzMovies often uses a specific search URL
-                url = f"{self.fz_base}/search.php?searchname={urllib.parse.quote(query)}&Search=Search"
-                resp = await client.get(url)
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                results = []
-                for a in soup.find_all('a', href=True):
-                    if 'movie-' in a['href'] and len(a.text.strip()) > 2:
-                        results.append({
-                            "id": urllib.parse.quote_plus(f"{self.fz_base}/{a['href']}"),
-                            "title": a.text.strip(),
-                            "thumbnail": "",
-                            "year": "N/A",
-                            "mediaType": "movie",
-                            "platform": "FzMovies"
-                        })
-                if results: return results[:15]
-        except: pass
-
-        return []
 
     async def get_google_mirrors(self, title: str):
         """Searches the open web for direct MP4/MKV download links."""
@@ -104,11 +56,9 @@ class UniversalEngine:
                         if not url.startswith('http') or "google.com" in url: continue
                         
                         try:
-                            # Quick scan of the result page for raw links
                             page_resp = await client.get(url, timeout=5.0)
                             raw_links = re.findall(r'href=["\'](http[^"\']+\.(?:mp4|mkv|mov|avi)[^"\']*)["\']', page_resp.text, re.I)
                             for raw in raw_links:
-                                # Simple relevance check
                                 if title.split()[0].lower() in raw.lower():
                                     domain = urllib.parse.urlparse(raw).netloc
                                     found_links.append({
@@ -125,7 +75,7 @@ class UniversalEngine:
         
         return found_links
 
-universal_engine = UniversalEngine()
+sniper_engine = SniperSearchEngine()
 
 # Initialize Firebase
 try:
@@ -141,6 +91,15 @@ DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 download_tasks = {}
+
+def get_val(obj, key, default=None):
+    if obj is None: return default
+    if isinstance(obj, dict): return obj.get(key, default)
+    return getattr(obj, key, default)
+
+def get_cover_url(item):
+    cover = get_val(item, 'cover')
+    return get_val(cover, 'url', '') if isinstance(cover, dict) else getattr(cover, 'url', '') if hasattr(cover, 'url') else ""
 
 # =========================
 # ENDPOINTS
@@ -193,18 +152,26 @@ async def get_movie_file(task_id: str, background_tasks: BackgroundTasks):
 @app.get("/api/movies/search")
 async def search_movies(query: str, media_type: str = Query("movie", alias="type")):
     try:
-        results = await universal_engine.search_movies(query)
-        return {"success": True, "data": results}
-    except: return JSONResponse(status_code=500, content={"success": False, "error": "Search engine error"})
+        session = MovieSession()
+        search = await MovieSearch(session, query, subject_type=SubjectType.TV_SERIES if media_type == "series" else SubjectType.MOVIES).get_content()
+        formatted = []
+        for item in search.get('items', []):
+            formatted.append({
+                "id": str(get_val(item, 'subjectId')), "title": get_val(item, 'title'),
+                "thumbnail": get_cover_url(item), "year": str(get_val(item, 'releaseDate', 'N/A')).split('-')[0],
+                "rating": get_val(item, 'imdbRatingValue', 'N/A'), "mediaType": media_type, "platform": "MovieBox"
+            })
+        return {"success": True, "data": formatted}
+    except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.get("/api/movies/details")
 async def get_movie_details(subject_id: str, media_type: str = Query("movie", alias="type"), title: Optional[str] = None):
     try:
         # SNIPER: Search the open web for direct mirrors
-        links = await universal_engine.get_google_mirrors(title or "")
+        links = await sniper_engine.get_google_mirrors(title or "")
         
         if links:
-            return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": links, "mediaType": media_type, "platform": "Universal Engine"}}
+            return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": links, "mediaType": media_type, "platform": "Sniper Engine"}}
         
         raise Exception(f"No direct web mirrors found for '{title}'.")
     except Exception as e:
