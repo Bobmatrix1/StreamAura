@@ -16,7 +16,7 @@ import About from '@/sections/About';
 import PrivacyPolicy from '@/sections/PrivacyPolicy';
 import ContactUs from '@/sections/ContactUs';
 import InstallPWA from '@/components/InstallPWA';
-import { logVisit, updateUserPresence, logFeatureUsage, requestNotificationPermission } from '@/lib/firebase';
+import { logVisit, updateUserPresence, logFeatureUsage, requestNotificationPermission, listenToNotifications } from '@/lib/firebase';
 import { API_BASE_URL } from '@/api/mediaApi';
 import type { ViewType } from '@/types';
 
@@ -30,7 +30,7 @@ export const AppContent: React.FC = () => {
   const [showLogin, setShowLogin] = useState(true);
   const [activeView, setActiveView] = useState<ViewType>('video');
 
-  // Track visits and presence
+  // 1. Track Initial Visit
   useEffect(() => {
     const trackVisit = async () => {
       try {
@@ -55,23 +55,23 @@ export const AppContent: React.FC = () => {
     };
     
     trackVisit();
+  }, []);
 
+  // 2. Real-time Presence, Badges, and Notifications
   useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    
     if (isAuthenticated && user?.uid) {
-      // Sync unread count for badge
-      const unsubscribe = listenToNotifications(user.uid, (notifs) => {
+      // Sync unread count for browser/mobile icon badge
+      const unsubscribeBadge = listenToNotifications(user.uid, (notifs) => {
         const count = notifs.filter(n => !n.read).length;
-        
-        // Update browser/mobile icon badge
         if ('setAppBadge' in navigator) {
           if (count > 0) (navigator as any).setAppBadge(count);
           else (navigator as any).clearAppBadge();
         }
       });
 
-      // Auto-request notification permission
-      requestNotificationPermission(user.uid).catch(console.error);
-
+      // Presence Sync
       const syncPresence = async () => {
         try {
           const resp = await fetch(`${API_BASE_URL}/api/analytics/country`);
@@ -85,13 +85,14 @@ export const AppContent: React.FC = () => {
       syncPresence();
       interval = setInterval(syncPresence, 2 * 60 * 1000);
       
-      // Request notification permission
-      requestNotificationPermission(user.uid);
-    }
+      // Auto-request notification permission
+      requestNotificationPermission(user.uid).catch(console.error);
 
-    return () => {
-      if (interval) clearInterval(interval);
-    };
+      return () => {
+        if (interval) clearInterval(interval);
+        unsubscribeBadge();
+      };
+    }
   }, [isAuthenticated, user?.uid]);
 
   const toggleAuthView = () => setShowLogin(!showLogin);
