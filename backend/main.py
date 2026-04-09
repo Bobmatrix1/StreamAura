@@ -110,11 +110,41 @@ class SuperSniper:
 
 sniper_engine = SuperSniper()
 
-# Initialize Firebase
+# Initialize Firebase Admin
 try:
-    firebase_admin.initialize_app()
+    # 1. Try initializing with serviceAccountKey.json (Local)
+    service_account_path = os.path.join(os.path.dirname(__file__), "serviceAccountKey.json")
+    if os.path.exists(service_account_path):
+        cred = credentials.Certificate(service_account_path)
+        firebase_admin.initialize_app(cred)
+        print("--- Firebase Admin: Local File Initialized ---")
+    else:
+        # 2. Try initializing with Environment Variables (Production/Render)
+        # This works if you have GOOGLE_APPLICATION_CREDENTIALS set or if you use default project auth
+        try:
+            firebase_admin.initialize_app()
+            print("--- Firebase Admin: Default Credentials Initialized ---")
+        except:
+            # 3. Last resort: Manual Credential reconstruction from Env Vars
+            # (Requires adding these keys to Render Settings)
+            firebase_creds = {
+                "type": "service_account",
+                "project_id": os.getenv("FIREBASE_PROJECT_ID"),
+                "private_key_id": os.getenv("FIREBASE_PRIVATE_KEY_ID"),
+                "private_key": os.getenv("FIREBASE_PRIVATE_KEY", "").replace('\\n', '\n'),
+                "client_email": os.getenv("FIREBASE_CLIENT_EMAIL"),
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+            if firebase_creds["project_id"] and firebase_creds["private_key"]:
+                cred = credentials.Certificate(firebase_creds)
+                firebase_admin.initialize_app(cred)
+                print("--- Firebase Admin: Manual Env Initialized ---")
+            else:
+                print("--- Firebase Admin: Missing Credentials in Env ---")
+
     db_admin = firestore.client()
-except:
+except Exception as e:
+    print(f"--- Firebase Admin Critical Error: {e} ---")
     db_admin = None
 
 # CORS
