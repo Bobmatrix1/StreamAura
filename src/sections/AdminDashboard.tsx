@@ -143,11 +143,12 @@ const AdminDashboard: React.FC = () => {
       
       const result = await response.json();
       if (result.success) {
-        showSuccess(`Broadcast sent to ${result.delivered_to} users!`);
+        const count = result.data?.delivered_to ?? 0;
+        showSuccess(`Broadcast delivered to ${count} users.`);
         setNotifTitle('');
         setNotifMessage('');
       } else {
-        showError(result.error || "Failed to broadcast.");
+        showError(result.error || 'Failed to send broadcast');
       }
     } catch (err) {
       showError("Connection to backend failed.");
