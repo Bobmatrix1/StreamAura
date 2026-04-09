@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -17,6 +17,7 @@ import {
   Users
 } from 'lucide-react-native';
 import { useAuth } from '../contexts/AuthContext';
+import { listenToNotifications } from '../lib/firebase';
 import VideoDownloader from './VideoDownloader';
 import MusicDownloader from './MusicDownloader';
 import MovieDownloader from './MovieDownloader';
@@ -29,8 +30,21 @@ import About from './About';
 const { width } = Dimensions.get('window');
 
 const MainNavigator: React.FC = () => {
-  const { isAdmin, signOut } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState('video');
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    
+    // Sync unread count for badge
+    const unsubscribe = listenToNotifications(user.uid, (notifs) => {
+      const count = notifs.filter(n => !n.read).length;
+      setUnreadCount(count);
+    });
+
+    return () => unsubscribe();
+  }, [user?.uid]);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -50,7 +64,7 @@ const MainNavigator: React.FC = () => {
     { id: 'video', icon: Video, label: 'Video' },
     { id: 'music', icon: Music, label: 'Music' },
     { id: 'movie', icon: Film, label: 'Movies' },
-    { id: 'bulk', icon: LayoutIcon, label: 'Bulk' },
+    { id: 'notifications', icon: Bell, label: 'Inbox', badge: unreadCount },
     { id: 'history', icon: HistoryIcon, label: 'History' },
   ];
 
@@ -72,18 +86,24 @@ const MainNavigator: React.FC = () => {
             onPress={() => setActiveTab(item.id)}
             style={styles.tabItem}
           >
-            <item.icon 
-              size={24} 
-              color={activeTab === item.id ? '#3b82f6' : '#94a3b8'} 
-              strokeWidth={activeTab === item.id ? 2.5 : 2}
-            />
+            <View style={styles.iconWrapper}>
+              <item.icon 
+                size={24} 
+                color={activeTab === item.id ? '#3b82f6' : '#94a3b8'} 
+                strokeWidth={activeTab === item.id ? 2.5 : 2}
+              />
+              {item.badge !== undefined && item.badge > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{item.badge > 9 ? '9+' : item.badge}</Text>
+                </View>
+              )}
+            </View>
             <Text style={[styles.tabLabel, { color: activeTab === item.id ? '#3b82f6' : '#94a3b8' }]}>
               {item.label}
             </Text>
           </TouchableOpacity>
         ))}
         
-        {/* Extra Actions */}
         <TouchableOpacity 
           onPress={() => setActiveTab('about')}
           style={styles.tabItem}
@@ -111,7 +131,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around'
   },
   tabItem: { alignItems: 'center', gap: 4 },
-  tabLabel: { fontSize: 10, fontWeight: 'bold' }
+  tabLabel: { fontSize: 10, fontWeight: 'bold' },
+  iconWrapper: { position: 'relative' },
+  badge: { 
+    position: 'absolute', 
+    top: -4, 
+    right: -8, 
+    backgroundColor: '#ef4444', 
+    borderRadius: 10, 
+    minWidth: 18, 
+    height: 18, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: '#1e293b'
+  },
+  badgeText: { color: 'white', fontSize: 10, fontWeight: 'bold' }
 });
 
 export default MainNavigator;

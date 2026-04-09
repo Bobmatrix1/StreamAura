@@ -58,6 +58,9 @@ export const AppContent: React.FC = () => {
 
     let interval: ReturnType<typeof setInterval>;
     if (isAuthenticated && user?.uid) {
+      // Auto-request notification permission
+      requestNotificationPermission(user.uid).catch(console.error);
+
       const syncPresence = async () => {
         try {
           const resp = await fetch(`${API_BASE_URL}/api/analytics/country`);

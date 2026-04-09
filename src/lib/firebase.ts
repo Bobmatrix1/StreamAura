@@ -57,6 +57,21 @@ export const db = initializeFirestore(app, {
 
 export const messaging = typeof window !== 'undefined' ? getMessaging(app) : null;
 
+// Handle foreground messages
+if (messaging) {
+  onMessage(messaging, (payload) => {
+    console.log('Foreground message received:', payload);
+    if (payload.notification) {
+      // Create a native browser notification
+      new Notification(payload.notification.title || 'New Message', {
+        body: payload.notification.body,
+        icon: '/icons/icon-192x192.png',
+        badge: '/icons/icon-72x72.png'
+      });
+    }
+  });
+}
+
 export interface AppNotification {
   id: string;
   title: string;
