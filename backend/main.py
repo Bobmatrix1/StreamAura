@@ -26,7 +26,7 @@ from moviebox_api.v1.core import Search as MovieSearch, Session as MovieSession,
 from dotenv import load_dotenv
 load_dotenv()
 
-app = FastAPI(title="StreamAura API Master")
+app = FastAPI(title="StreamAura Master Engine")
 
 # Stealth Headers
 STEALTH_HEADERS = {
@@ -36,7 +36,7 @@ STEALTH_HEADERS = {
     "X-Requested-With": "com.moviebox.h5"
 }
 
-# Initialize Firebase Admin
+# Initialize Firebase
 try:
     if os.getenv("FIREBASE_PRIVATE_KEY"):
         firebase_creds = {
@@ -60,7 +60,7 @@ try:
         firebase_admin.initialize_app()
     db_admin = firestore.client()
 except Exception as e:
-    print(f"--- Firebase Error: {e} ---")
+    print(f"--- Firebase Init Warning: {e} ---")
     db_admin = None
 
 # Initialize Spotify
@@ -83,14 +83,14 @@ class ExtractRequest(BaseModel):
     url: str
 
 def format_size(size_bytes):
-    if not size_bytes: return "Unknown"
+    if not size_bytes: return "Fast"
     try:
         size_bytes = float(size_bytes)
         for unit in ['B', 'KB', 'MB', 'GB']:
             if size_bytes < 1024: return f"{size_bytes:.1f} {unit}"
             size_bytes /= 1024
         return f"{size_bytes:.1f} TB"
-    except: return "Unknown"
+    except: return "Fast"
 
 # =========================
 # ENDPOINTS
@@ -98,7 +98,7 @@ def format_size(size_bytes):
 
 @app.get("/")
 @app.head("/")
-async def root(): return {"status": "online", "service": "StreamAura"}
+async def root(): return {"status": "online", "engine": "v2.0"}
 
 @app.get("/api/analytics/country")
 async def get_visitor_country(request: Request):
@@ -109,29 +109,22 @@ async def get_visitor_country(request: Request):
 
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):
-    if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase not initialized"})
+    if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Offline"})
     try:
         data = await request.json()
         title, message = data.get('title'), data.get('message')
-        users_docs = db_admin.collection('users').get()
-        user_ids = [doc.id for doc in users_docs]
+        users = db_admin.collection('users').get()
+        user_ids = [u.id for u in users]
         
         for i in range(0, len(user_ids), 500):
             batch = db_admin.batch()
             for uid in user_ids[i:i + 500]:
-                # Add notification
+                # 1. Message
                 notif_ref = db_admin.collection('users').document(uid).collection('notifications').document()
-                batch.set(notif_ref, {
-                    "title": title, "message": message, 
-                    "timestamp": firestore.SERVER_TIMESTAMP, 
-                    "read": False, "type": "update"
-                })
-                # Update badge and trigger real-time listener
+                batch.set(notif_ref, {"title": title, "message": message, "timestamp": firestore.SERVER_TIMESTAMP, "read": False, "type": "update"})
+                # 2. Increment Badge
                 user_ref = db_admin.collection('users').document(uid)
-                batch.update(user_ref, {
-                    "lastNotificationAt": firestore.SERVER_TIMESTAMP,
-                    "unreadCount": firestore.Increment(1)
-                })
+                batch.update(user_ref, {"unreadCount": firestore.Increment(1), "lastNotificationAt": firestore.SERVER_TIMESTAMP})
             batch.commit()
             
         return {"success": True, "data": {"delivered_to": len(user_ids)}}
@@ -155,11 +148,11 @@ async def extract_info(request: ExtractRequest):
         'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios'], # Mobile players are rarely blocked
+                'player_client': ['ios', 'android', 'mweb'], # Mobile players are the gold standard for bypass
                 'skip': ['hls', 'dash']
             }
         },
-        'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+        'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1'
     }
     
     try:
@@ -167,14 +160,19 @@ async def extract_info(request: ExtractRequest):
             loop = asyncio.get_event_loop()
             try:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
-                if 'entries' in info and info['entries']: info = info['entries'][0]
+                if 'entries' in info and info['entries']:
+                    info = info['entries'][0]
+                elif 'entries' in info and not info['entries']:
+                    raise Exception("Mirror search returned no results.")
             except Exception as e:
+                # Mirror Sniper Fallback
                 if any(x in str(e) for x in ["bot", "sign in", "403"]) or is_spotify:
-                    # Search fallback for titles
                     alt_query = f"ytsearch1:{url}" if not is_spotify else search_query
                     info = await loop.run_in_executor(None, lambda: ydl.extract_info(alt_query, download=False))
-                    if 'entries' in info and info['entries']: info = info['entries'][0]
-                    else: raise Exception("This content is protected. Try a different link.")
+                    if 'entries' in info and info['entries']:
+                        info = info['entries'][0]
+                    else:
+                        raise Exception("Link is heavily protected. Try another source.")
                 else: raise e
 
             formats = []
@@ -186,7 +184,12 @@ async def extract_info(request: ExtractRequest):
                         "size": format_size(f.get('filesize') or f.get('filesize_approx') or 0), "url": f.get("url")
                     })
             
-            return {"success": True, "data": {"id": str(info.get("id")), "url": url, "title": info.get("title", "Media"), "thumbnail": info.get("thumbnail"), "duration": f"{int(info.get('duration', 0)) // 60}m", "author": info.get("uploader", "Unknown"), "platform": "Mirror" if is_spotify else info.get("extractor_key", "Video"), "mediaType": "music" if is_spotify else "video", "qualities": formats[:15]}}
+            return {"success": True, "data": {
+                "id": str(info.get("id")), "url": url, "title": info.get("title", "Media"), 
+                "thumbnail": info.get("thumbnail"), "duration": f"{int(info.get('duration', 0)) // 60}m", 
+                "author": info.get("uploader", "Unknown"), "platform": "Mirror" if is_spotify else info.get("extractor_key", "Video"), 
+                "mediaType": "music" if is_spotify else "video", "qualities": formats[:15]
+            }}
     except Exception as e: return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
 
 @app.get("/api/download")

@@ -142,8 +142,10 @@ const AdminDashboard: React.FC = () => {
       });
       
       const result = await response.json();
+      console.log('Broadcast API Result:', result);
+      
       if (result.success) {
-        const count = result.data?.delivered_to || 0;
+        const count = result.data?.delivered_to ?? 0;
         showSuccess(`Broadcast delivered to ${count} users.`);
         setNotifTitle('');
         setNotifMessage('');
