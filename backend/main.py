@@ -144,6 +144,46 @@ def get_duration_str(item):
 @app.get("/api/analytics/country")
 async def get_visitor_country(): return {"country": "Unknown", "device": "Mobile"}
 
+@app.post("/api/admin/broadcast")
+async def broadcast_notification(request: Request):
+    if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Admin not initialized"})
+    data = await request.json()
+    title, message = data.get('title'), data.get('message')
+    if not title or not message: raise HTTPException(status_code=400, detail="Title and message required")
+    try:
+        users_docs = db_admin.collection('users').stream()
+        user_ids = [doc.id for doc in users_docs]
+        for i in range(0, len(user_ids), 500):
+            batch = db_admin.batch()
+            for uid in user_ids[i:i + 500]:
+                notif_ref = db_admin.collection('users').document(uid).collection('notifications').document()
+                batch.set(notif_ref, {"title": title, "message": message, "timestamp": firestore.SERVER_TIMESTAMP, "read": False, "type": "update"})
+            batch.commit()
+        return {"success": True, "data": {"delivered_to": len(user_ids)}}
+    except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+@app.delete("/api/admin/notifications/clear")
+async def clear_all_notifications():
+    if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Admin not initialized"})
+    try:
+        users_docs = db_admin.collection('users').stream()
+        cleared_count = 0
+        for user_doc in users_docs:
+            notifs = db_admin.collection('users').document(user_doc.id).collection('notifications').stream()
+            batch = db_admin.batch()
+            count = 0
+            for n in notifs:
+                batch.delete(n.reference)
+                count += 1
+                cleared_count += 1
+                if count >= 400:
+                    batch.commit()
+                    batch = db_admin.batch()
+                    count = 0
+            batch.commit()
+        return {"success": True, "data": {"total_cleared": cleared_count}}
+    except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
 @app.get("/api/stream")
 async def stream_video(url: str): return RedirectResponse(url=url)
 
