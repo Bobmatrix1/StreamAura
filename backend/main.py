@@ -100,6 +100,14 @@ def format_size(size_bytes):
 @app.head("/")
 async def root(): return {"status": "online", "service": "StreamAura"}
 
+@app.get("/api/analytics/country")
+async def get_visitor_country(request: Request):
+    # Try to get country from headers (Render/Cloudflare usually provide this)
+    country = request.headers.get("cf-ipcountry") or request.headers.get("x-vercel-ip-country") or "Unknown"
+    ua = request.headers.get("user-agent", "").lower()
+    device = "Mobile" if any(x in ua for x in ["iphone", "android", "mobile"]) else "Desktop"
+    return {"country": country, "device": device}
+
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):
     if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase not initialized"})
