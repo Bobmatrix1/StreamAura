@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "394951930000",
+    "project_id": "universal-media-download-10529",
+    "storage_bucket": "universal-media-download-10529.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:394951930000:android:d0385644a513dcc2be6815",
+        "android_client_info": {
+          "package_name": "com.bobmatrix.streamaura"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "394951930000-rc8dsf6rlkhr7r531ovdsipgqrnr72lu.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBiPdx-3tv0ktwqthmPvGIx-oyhcjerzgI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "394951930000-rc8dsf6rlkhr7r531ovdsipgqrnr72lu.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
