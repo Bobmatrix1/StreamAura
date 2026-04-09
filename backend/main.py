@@ -21,7 +21,6 @@ from bs4 import BeautifulSoup
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from moviebox_api.v1.core import Search as MovieSearch, Session as MovieSession, SubjectType
-from moviebox_api.v1 import MovieDetails, DownloadableMovieFilesDetail
 
 # Load environment
 from dotenv import load_dotenv
@@ -37,63 +36,7 @@ STEALTH_HEADERS = {
     "X-Requested-With": "com.moviebox.h5"
 }
 
-# =========================
-# ENGINES
-# =========================
-class SuperSniper:
-    def __init__(self):
-        self.yts_api = "https://yts.mx/api/v2/list_movies.json"
-        self.naija_sources = [
-            {"name": "NollySauce", "base": "https://nollysauce.com.ng"},
-            {"name": "NaijaPrey", "base": "https://www.naijaprey.tv"},
-            {"name": "Net9ja", "base": "https://www.net9ja.com.ng"}
-        ]
-
-    async def resolve_direct_file(self, url: str):
-        async with httpx.AsyncClient(headers=STEALTH_HEADERS, follow_redirects=True, timeout=15.0) as client:
-            try:
-                resp = await client.head(url)
-                if "video" in resp.headers.get("Content-Type", "") or url.lower().endswith(('.mkv', '.mp4')):
-                    return url, int(resp.headers.get("Content-Length", 0))
-                resp = await client.get(url)
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                btn = soup.select_one('a[href*="wildshare"], a[href*="sabishare"], a[href*="download"], a.btn-success')
-                if btn and btn['href'] != url: return btn['href'], 0
-                return url, 0
-            except: return url, 0
-
-    async def scrape_naija(self, source, title: str):
-        async with httpx.AsyncClient(headers=STEALTH_HEADERS, follow_redirects=True, timeout=12.0) as client:
-            try:
-                search_url = f"{source['base']}/?s={urllib.parse.quote(title)}"
-                resp = await client.get(search_url)
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                for a in soup.find_all('a', href=True):
-                    if title.lower()[:4] in a.text.lower() and source['base'] in a['href']:
-                        p_resp = await client.get(a['href'])
-                        p_soup = BeautifulSoup(p_resp.text, 'html.parser')
-                        btns = p_soup.select('a[href*="download"], a.btn-primary, a.btn-success')
-                        links = []
-                        for b in btns[:2]:
-                            final_url, _ = await self.resolve_direct_file(b['href'])
-                            links.append({"quality": f"{source['name']} Mirror", "resolution": "HD", "format": "MP4/MKV", "size": "Fast", "url": final_url})
-                        return links
-            except: pass
-        return []
-
-    async def get_yts_links(self, title: str):
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(f"{self.yts_api}?query_term={urllib.parse.quote(title)}")
-                data = resp.json()
-                if data.get('status') == 'ok' and data.get('data', {}).get('movie_count', 0) > 0:
-                    return [{"quality": f"YTS HD {t['quality']}", "resolution": t['quality'], "format": "MAGNET", "size": t['size'], "url": f"magnet:?xt=urn:btih:{t['hash']}&dn={urllib.parse.quote(title)}"} for t in data['data']['movies'][0].get('torrents', [])]
-        except: pass
-        return []
-
-sniper_engine = SuperSniper()
-
-# Initialize Firebase
+# Initialize Firebase Admin
 try:
     if os.getenv("FIREBASE_PRIVATE_KEY"):
         firebase_creds = {
@@ -124,7 +67,10 @@ except Exception as e:
 sp = None
 if os.getenv("SPOTIFY_CLIENT_ID"):
     try:
-        sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=os.getenv("SPOTIFY_CLIENT_ID"), client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")))
+        sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
+            client_id=os.getenv("SPOTIFY_CLIENT_ID"), 
+            client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")
+        ))
     except: pass
 
 # CORS
@@ -135,15 +81,6 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 class ExtractRequest(BaseModel):
     url: str
-
-# Helpers
-def get_val(obj, key, default=None):
-    if obj is None: return default
-    return obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)
-
-def get_cover_url(item):
-    cover = get_val(item, 'cover')
-    return get_val(cover, 'url', '') if isinstance(cover, dict) else getattr(cover, 'url', '') if hasattr(cover, 'url') else ""
 
 def format_size(size_bytes):
     if not size_bytes: return "Unknown"
@@ -163,9 +100,6 @@ def format_size(size_bytes):
 @app.head("/")
 async def root(): return {"status": "online", "service": "StreamAura"}
 
-@app.get("/api/analytics/country")
-async def get_visitor_country(): return {"country": "Unknown", "device": "Mobile"}
-
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):
     if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase not initialized"})
@@ -174,44 +108,69 @@ async def broadcast_notification(request: Request):
         title, message = data.get('title'), data.get('message')
         users_docs = db_admin.collection('users').stream()
         user_ids = [doc.id for doc in users_docs]
+        
         for i in range(0, len(user_ids), 500):
             batch = db_admin.batch()
             for uid in user_ids[i:i + 500]:
-                batch.set(db_admin.collection('users').document(uid).collection('notifications').document(), {"title": title, "message": message, "timestamp": firestore.SERVER_TIMESTAMP, "read": False, "type": "update"})
+                # 1. Add notification record
+                notif_ref = db_admin.collection('users').document(uid).collection('notifications').document()
+                batch.set(notif_ref, {
+                    "title": title, 
+                    "message": message, 
+                    "timestamp": firestore.SERVER_TIMESTAMP, 
+                    "read": False, 
+                    "type": "update"
+                })
+                # 2. Trigger Real-time Push (Simulation for Badge)
+                user_ref = db_admin.collection('users').document(uid)
+                batch.update(user_ref, {"lastNotificationAt": firestore.SERVER_TIMESTAMP})
             batch.commit()
+            
         return {"success": True, "data": {"delivered_to": len(user_ids)}}
     except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.post("/api/extract")
 async def extract_info(request: ExtractRequest):
     url = request.url.strip()
+    search_query = url
+    is_spotify = "spotify.com" in url
+    
+    # 1. SPOTIFY TO YOUTUBE LOGIC
+    if is_spotify and sp:
+        try:
+            track_id = url.split("track/")[1].split("?")[0]
+            track = sp.track(track_id)
+            artist = track['artists'][0]['name']
+            song_name = track['name']
+            search_query = f"ytsearch1:{artist} {song_name} audio"
+            print(f"--- Spotify Match: {artist} - {song_name} ---")
+        except: pass
+
     ydl_opts = {'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 'user_agent': 'Mozilla/5.0'}
+    
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             loop = asyncio.get_event_loop()
             try:
-                info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=False))
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
+                if 'entries' in info:
+                    if not info['entries']: raise Exception("No matching audio found on public mirrors.")
+                    info = info['entries'][0]
             except Exception as e:
-                # DRM / PROTECTION BYPASS LOGIC
-                if "DRM" in str(e) or "sign in" in str(e).lower():
-                    print(f"--- DRM Detected for {url}, attempting search bypass ---")
-                    # Use yt-dlp to search for an unprotected version of the same title
-                    # We try to extract just the title from the URL if possible
-                    search_query = url
-                    if "spotify.com" in url or "apple.com" in url:
-                        # For music, we try to find the track on YouTube
-                        search_query = f"ytsearch1:{url}"
-                    
-                    info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
-                    if 'entries' in info: info = info['entries'][0]
-                else:
-                    raise e
+                # Secondary DRM Bypass
+                if "DRM" in str(e) or "sign in" in str(e).lower() or is_spotify:
+                    alt_query = f"ytsearch1:{url}" if not is_spotify else search_query
+                    info = await loop.run_in_executor(None, lambda: ydl.extract_info(alt_query, download=False))
+                    if 'entries' in info: 
+                        if not info['entries']: raise Exception("No mirrors found.")
+                        info = info['entries'][0]
+                else: raise e
 
             formats = []
             for f in info.get("formats", []):
                 if f.get("vcodec") != "none" and f.get("url"):
                     formats.append({
-                        "quality": f.get("format_note", "Standard"), 
+                        "quality": f.get("format_note", "HD"), 
                         "format": f.get("ext", "mp4").upper(), 
                         "resolution": f"{f.get('width','?')}x{f.get('height','?')}", 
                         "size": format_size(f.get('filesize') or f.get('filesize_approx') or 0), 
@@ -227,9 +186,9 @@ async def extract_info(request: ExtractRequest):
                     "thumbnail": info.get("thumbnail"), 
                     "duration": f"{int(info.get('duration', 0)) // 60}m", 
                     "author": info.get("uploader", "Unknown"), 
-                    "platform": info.get("extractor_key", "Video"), 
-                    "mediaType": "video", 
-                    "qualities": formats[:10]
+                    "platform": "Spotify Mirror" if is_spotify else info.get("extractor_key", "Video"), 
+                    "mediaType": "music" if is_spotify else "video", 
+                    "qualities": formats[:15]
                 }
             }
     except Exception as e: return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
@@ -245,13 +204,6 @@ async def download_media(url: str, background_tasks: BackgroundTasks, filename: 
         return FileResponse(path=temp_path, filename=filename)
     except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
-@app.post("/api/movies/download/start")
-async def start_movie_download(request: Request, background_tasks: BackgroundTasks):
-    data = await request.json()
-    url, title, task_id = data.get('url'), data.get('title', 'media'), str(uuid.uuid4())
-    # Placeholder for status tracking - simplified for now
-    return {"success": True, "data": {"task_id": task_id}}
-
 @app.get("/api/movies/search")
 async def search_movies(query: str, media_type: str = Query("movie", alias="type")):
     try:
@@ -261,21 +213,14 @@ async def search_movies(query: str, media_type: str = Query("movie", alias="type
         formatted = []
         if search and 'items' in search:
             for item in search['items']:
-                rd = get_val(item, 'releaseDate')
-                formatted.append({"id": str(get_val(item, 'subjectId')), "title": get_val(item, 'title'), "thumbnail": get_cover_url(item), "year": str(rd).split('-')[0] if rd else 'N/A', "rating": get_val(item, 'imdbRatingValue', 'N/A'), "mediaType": media_type, "platform": "MovieBox"})
+                formatted.append({
+                    "id": str(item.get('subjectId')), "title": item.get('title'),
+                    "thumbnail": item.get('cover', {}).get('url', ''), 
+                    "year": str(item.get('releaseDate', 'N/A')).split('-')[0],
+                    "rating": item.get('imdbRatingValue', 'N/A'), "mediaType": media_type, "platform": "MovieBox"
+                })
         return {"success": True, "data": formatted}
     except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
-
-@app.get("/api/movies/details")
-async def get_movie_details(subject_id: str, media_type: str = Query("movie", alias="type"), title: Optional[str] = None):
-    try:
-        tasks = [sniper_engine.get_yts_links(title or "")]
-        for src in sniper_engine.naija_sources: tasks.append(sniper_engine.scrape_naija(src, title or ""))
-        results = await asyncio.gather(*tasks)
-        final = [link for sublist in results for link in sublist]
-        if final: return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": final, "mediaType": media_type, "platform": "Super Sniper Engine"}}
-        raise Exception("No mirrors found.")
-    except Exception as e: return JSONResponse(status_code=404, content={"success": False, "error": str(e)})
 
 if __name__ == "__main__":
     import uvicorn
