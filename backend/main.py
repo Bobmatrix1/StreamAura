@@ -20,20 +20,12 @@ import httpx
 from bs4 import BeautifulSoup
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
-from moviebox_api.v1.core import Search as MovieSearch, Session as MovieSession, SubjectType
 
 # Load environment
 from dotenv import load_dotenv
 load_dotenv()
 
 app = FastAPI(title="StreamAura API Master")
-
-# Stealth Headers
-STEALTH_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "X-Requested-With": "com.moviebox.h5"
-}
 
 # Initialize Firebase Admin
 try:
@@ -101,7 +93,6 @@ async def root(): return {"status": "online", "service": "StreamAura"}
 
 @app.get("/api/analytics/country")
 async def get_visitor_country(request: Request):
-    # Try to get country from headers (Render/Cloudflare usually provide this)
     country = request.headers.get("cf-ipcountry") or request.headers.get("x-vercel-ip-country") or "Unknown"
     ua = request.headers.get("user-agent", "").lower()
     device = "Mobile" if any(x in ua for x in ["iphone", "android", "mobile"]) else "Desktop"
@@ -119,84 +110,107 @@ async def broadcast_notification(request: Request):
         for i in range(0, len(user_ids), 500):
             batch = db_admin.batch()
             for uid in user_ids[i:i + 500]:
-                # 1. Add notification record
                 notif_ref = db_admin.collection('users').document(uid).collection('notifications').document()
-                batch.set(notif_ref, {
-                    "title": title, "message": message, 
-                    "timestamp": firestore.SERVER_TIMESTAMP, 
-                    "read": False, "type": "update"
-                })
-                # 2. Update badge count and timestamp
+                batch.set(notif_ref, {"title": title, "message": message, "timestamp": firestore.SERVER_TIMESTAMP, "read": False, "type": "update"})
                 user_ref = db_admin.collection('users').document(uid)
-                batch.update(user_ref, {
-                    "unreadCount": firestore.Increment(1),
-                    "lastNotificationAt": firestore.SERVER_TIMESTAMP
-                })
+                batch.update(user_ref, {"unreadCount": firestore.Increment(1), "lastNotificationAt": firestore.SERVER_TIMESTAMP})
             batch.commit()
             
         # Simplified response to fix "undefined" on frontend
-        return {"success": True, "data": {"delivered_to": len(user_ids)}, "delivered_to": len(user_ids)}
+        return {"success": True, "data": {"delivered_to": len(user_ids)}}
     except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.post("/api/extract")
 async def extract_info(request: ExtractRequest):
     url = request.url.strip()
-    search_query = url
+    search_term = url
     is_spotify = "spotify.com" in url
     
+    # 1. ENHANCED SPOTIFY METADATA EXTRACTION
     if is_spotify and sp:
         try:
             track_id = url.split("track/")[1].split("?")[0]
             track = sp.track(track_id)
-            search_query = f"ytsearch1:{track['artists'][0]['name']} {track['name']} official audio"
+            search_term = f"{track['artists'][0]['name']} {track['name']} official"
+            print(f"--- Spotify Snipe: {search_term} ---")
         except: pass
 
-    # THE ABSOLUTE BEST BOT BYPASS CONFIG
-    ydl_opts = {
-        'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android'], # Android client is the least likely to get bot-blocked
-                'skip': ['hls', 'dash']
-            }
-        },
-        'user_agent': 'com.google.android.youtube/19.05.36 (Linux; U; Android 14; en_US; SM-S928B) gzip'
-    }
-    
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            loop = asyncio.get_event_loop()
+    # 2. BULLETPROOF MIRROR EXTRACTION (Bypasses YT-DLP Bot Check)
+    # If direct extraction fails, we use a public resolver mirror
+    async def try_mirror_resolver(query):
+        async with httpx.AsyncClient(timeout=10.0) as client:
             try:
-                info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
-                if info and 'entries' in info:
-                    if not info['entries']: raise Exception("No results found.")
-                    info = info['entries'][0]
-            except Exception as e:
-                # If bot detected, try one last search fallback with different client
-                if any(x in str(e).lower() for x in ["bot", "confirm", "403"]):
-                    print("--- Bot Detected, trying MWEB fallback ---")
-                    ydl_opts['extractor_args']['youtube']['player_client'] = ['mweb']
-                    info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch1:{url}", download=False))
-                    if info and 'entries' in info and info['entries']:
-                        info = info['entries'][0]
-                    else: raise e
-                else: raise e
+                # Use a public YouTube search resolver to get clean metadata and formats
+                # This bypasses the Render server's IP block
+                resp = await client.get(f"https://pipedapi.kavin.rocks/search?q={urllib.parse.quote(query)}&filter=videos")
+                data = resp.json()
+                if data.get("items"):
+                    item = data["items"][0]
+                    v_resp = await client.get(f"https://pipedapi.kavin.rocks/streams/{item['url'].split('=')[1]}")
+                    v_data = v_resp.json()
+                    
+                    qualities = []
+                    for s in v_data.get("videoStreams", []):
+                        qualities.append({
+                            "quality": s.get("quality", "HD"),
+                            "format": s.get("format", "MP4").upper(),
+                            "resolution": s.get("quality", "720p"),
+                            "size": "Fast",
+                            "url": s.get("url")
+                        })
+                    
+                    return {
+                        "id": item['url'].split('=')[1],
+                        "title": item.get("title", "Media"),
+                        "thumbnail": item.get("thumbnail"),
+                        "duration": "Mirror",
+                        "author": item.get("uploaderName", "Unknown"),
+                        "platform": "Cloud Mirror",
+                        "mediaType": "music" if is_spotify else "video",
+                        "qualities": qualities[:10]
+                    }
+            except: pass
+        return None
 
-            formats = []
-            for f in info.get("formats", []):
-                if f.get("vcodec") != "none" and f.get("url"):
-                    formats.append({
-                        "quality": f.get("format_note", "HD"), "format": f.get("ext", "mp4").upper(), 
-                        "resolution": f"{f.get('width','?')}x{f.get('height','?')}", 
-                        "size": format_size(f.get('filesize') or f.get('filesize_approx') or 0), "url": f.get("url")
-                    })
-            
-            return {"success": True, "data": {
-                "id": str(info.get("id")), "url": url, "title": info.get("title", "Media"), 
-                "thumbnail": info.get("thumbnail"), "duration": f"{int(info.get('duration', 0)) // 60}m", 
-                "author": info.get("uploader", "Unknown"), "platform": "Spotify Mirror" if is_spotify else info.get("extractor_key", "Video"), 
-                "mediaType": "music" if is_spotify else "video", "qualities": formats[:15]
-            }}
+    # 3. MAIN EXTRACTION LOOP
+    try:
+        # Try local yt-dlp first with mobile player clients
+        ydl_opts = {
+            'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
+            'extractor_args': {'youtube': {'player_client': ['android', 'ios']}},
+            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)'
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            try:
+                loop = asyncio.get_event_loop()
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch1:{search_term}" if is_spotify else url, download=False))
+                if 'entries' in info and info['entries']: info = info['entries'][0]
+                
+                formats = []
+                for f in info.get("formats", []):
+                    if f.get("vcodec") != "none" and f.get("url"):
+                        formats.append({
+                            "quality": f.get("format_note", "HD"), "format": f.get("ext", "mp4").upper(), 
+                            "resolution": f"{f.get('width','?')}x{f.get('height','?')}", 
+                            "size": format_size(f.get('filesize') or f.get('filesize_approx') or 0), "url": f.get("url")
+                        })
+                
+                return {"success": True, "data": {
+                    "id": str(info.get("id")), "url": url, "title": info.get("title", "Media"), 
+                    "thumbnail": info.get("thumbnail"), "duration": f"{int(info.get('duration', 0)) // 60}m", 
+                    "author": info.get("uploader", "Unknown"), "platform": info.get("extractor_key", "Video"), 
+                    "mediaType": "music" if is_spotify else "video", "qualities": formats[:15]
+                }}
+            except Exception as e:
+                # 4. CRITICAL FALLBACK: If yt-dlp is bot-blocked, use the Mirror Resolver
+                print(f"--- Bot Detected on Render, launching Mirror Fallback ---")
+                mirror_data = await try_mirror_resolver(search_term)
+                if mirror_data:
+                    return {"success": True, "data": mirror_data}
+                else:
+                    raise Exception("YouTube is temporarily blocking this request. Please try again in 5 minutes.")
+
     except Exception as e: return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
 
 @app.get("/api/download")
