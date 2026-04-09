@@ -189,12 +189,49 @@ async def extract_info(request: ExtractRequest):
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             loop = asyncio.get_event_loop()
-            info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=False))
+            try:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=False))
+            except Exception as e:
+                # DRM / PROTECTION BYPASS LOGIC
+                if "DRM" in str(e) or "sign in" in str(e).lower():
+                    print(f"--- DRM Detected for {url}, attempting search bypass ---")
+                    # Use yt-dlp to search for an unprotected version of the same title
+                    # We try to extract just the title from the URL if possible
+                    search_query = url
+                    if "spotify.com" in url or "apple.com" in url:
+                        # For music, we try to find the track on YouTube
+                        search_query = f"ytsearch1:{url}"
+                    
+                    info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
+                    if 'entries' in info: info = info['entries'][0]
+                else:
+                    raise e
+
             formats = []
             for f in info.get("formats", []):
                 if f.get("vcodec") != "none" and f.get("url"):
-                    formats.append({"quality": f.get("format_note", "Standard"), "format": f.get("ext", "mp4").upper(), "resolution": f"{f.get('width','?')}x{f.get('height','?')}", "size": format_size(f.get('filesize') or f.get('filesize_approx') or 0), "url": f.get("url")})
-            return {"success": True, "data": {"id": str(info.get("id")), "url": url, "title": info.get("title", "Media"), "thumbnail": info.get("thumbnail"), "duration": f"{int(info.get('duration', 0)) // 60}m", "author": info.get("uploader", "Unknown"), "platform": info.get("extractor_key", "Video"), "mediaType": "video", "qualities": formats[:10]}}
+                    formats.append({
+                        "quality": f.get("format_note", "Standard"), 
+                        "format": f.get("ext", "mp4").upper(), 
+                        "resolution": f"{f.get('width','?')}x{f.get('height','?')}", 
+                        "size": format_size(f.get('filesize') or f.get('filesize_approx') or 0), 
+                        "url": f.get("url")
+                    })
+            
+            return {
+                "success": True, 
+                "data": {
+                    "id": str(info.get("id")), 
+                    "url": url, 
+                    "title": info.get("title", "Media"), 
+                    "thumbnail": info.get("thumbnail"), 
+                    "duration": f"{int(info.get('duration', 0)) // 60}m", 
+                    "author": info.get("uploader", "Unknown"), 
+                    "platform": info.get("extractor_key", "Video"), 
+                    "mediaType": "video", 
+                    "qualities": formats[:10]
+                }
+            }
     except Exception as e: return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
 
 @app.get("/api/download")
