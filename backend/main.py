@@ -102,7 +102,6 @@ async def root(): return {"status": "online", "service": "StreamAura"}
 
 @app.get("/api/analytics/country")
 async def get_visitor_country(request: Request):
-    # Try to get country from headers (Render/Cloudflare usually provide this)
     country = request.headers.get("cf-ipcountry") or request.headers.get("x-vercel-ip-country") or "Unknown"
     ua = request.headers.get("user-agent", "").lower()
     device = "Mobile" if any(x in ua for x in ["iphone", "android", "mobile"]) else "Desktop"
@@ -114,24 +113,25 @@ async def broadcast_notification(request: Request):
     try:
         data = await request.json()
         title, message = data.get('title'), data.get('message')
-        users_docs = db_admin.collection('users').stream()
+        users_docs = db_admin.collection('users').get()
         user_ids = [doc.id for doc in users_docs]
         
         for i in range(0, len(user_ids), 500):
             batch = db_admin.batch()
             for uid in user_ids[i:i + 500]:
-                # 1. Add notification record
+                # Add notification
                 notif_ref = db_admin.collection('users').document(uid).collection('notifications').document()
                 batch.set(notif_ref, {
-                    "title": title, 
-                    "message": message, 
+                    "title": title, "message": message, 
                     "timestamp": firestore.SERVER_TIMESTAMP, 
-                    "read": False, 
-                    "type": "update"
+                    "read": False, "type": "update"
                 })
-                # 2. Trigger Real-time Push (Simulation for Badge)
+                # Update badge and trigger real-time listener
                 user_ref = db_admin.collection('users').document(uid)
-                batch.update(user_ref, {"lastNotificationAt": firestore.SERVER_TIMESTAMP})
+                batch.update(user_ref, {
+                    "lastNotificationAt": firestore.SERVER_TIMESTAMP,
+                    "unreadCount": firestore.Increment(1)
+                })
             batch.commit()
             
         return {"success": True, "data": {"delivered_to": len(user_ids)}}
@@ -143,26 +143,19 @@ async def extract_info(request: ExtractRequest):
     search_query = url
     is_spotify = "spotify.com" in url
     
-    # 1. SPOTIFY TO YOUTUBE LOGIC
     if is_spotify and sp:
         try:
             track_id = url.split("track/")[1].split("?")[0]
             track = sp.track(track_id)
-            artist = track['artists'][0]['name']
-            song_name = track['name']
-            search_query = f"ytsearch1:{artist} {song_name} audio"
-            print(f"--- Spotify Match: {artist} - {song_name} ---")
+            search_query = f"ytsearch1:{track['artists'][0]['name']} {track['name']} audio"
         except: pass
 
-    # STEALTH YT-DLP OPTS
+    # THE ULTIMATE BOT BYPASS CONFIG
     ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'nocheckcertificate': True,
-        # Use mobile clients to bypass "confirm you're not a bot"
+        'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'web_embedded'],
+                'player_client': ['android', 'ios'], # Mobile players are rarely blocked
                 'skip': ['hls', 'dash']
             }
         },
@@ -174,52 +167,26 @@ async def extract_info(request: ExtractRequest):
             loop = asyncio.get_event_loop()
             try:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
-                if 'entries' in info:
-                    if not info['entries']: raise Exception("No matching results found.")
-                    info = info['entries'][0]
+                if 'entries' in info and info['entries']: info = info['entries'][0]
             except Exception as e:
-                # ADVANCED BOT/DRM BYPASS
-                if any(x in str(e) for x in ["bot", "sign in", "DRM", "403"]):
-                    print(f"--- Protection detected, launching Sniper Fallback ---")
-                    # If it's a direct YT link being blocked, try searching for its title instead
-                    if "youtube.com" in url or "youtu.be" in url:
-                        # Attempt to get title from URL metadata or just search query
-                        alt_query = f"ytsearch1:{url}" 
-                        info = await loop.run_in_executor(None, lambda: ydl.extract_info(alt_query, download=False))
-                        if 'entries' in info and info['entries']:
-                            info = info['entries'][0]
-                        else:
-                            raise e
-                    else:
-                        raise e
-                else:
-                    raise e
+                if any(x in str(e) for x in ["bot", "sign in", "403"]) or is_spotify:
+                    # Search fallback for titles
+                    alt_query = f"ytsearch1:{url}" if not is_spotify else search_query
+                    info = await loop.run_in_executor(None, lambda: ydl.extract_info(alt_query, download=False))
+                    if 'entries' in info and info['entries']: info = info['entries'][0]
+                    else: raise Exception("This content is protected. Try a different link.")
+                else: raise e
 
             formats = []
             for f in info.get("formats", []):
                 if f.get("vcodec") != "none" and f.get("url"):
                     formats.append({
-                        "quality": f.get("format_note", "HD"), 
-                        "format": f.get("ext", "mp4").upper(), 
+                        "quality": f.get("format_note", "HD"), "format": f.get("ext", "mp4").upper(), 
                         "resolution": f"{f.get('width','?')}x{f.get('height','?')}", 
-                        "size": format_size(f.get('filesize') or f.get('filesize_approx') or 0), 
-                        "url": f.get("url")
+                        "size": format_size(f.get('filesize') or f.get('filesize_approx') or 0), "url": f.get("url")
                     })
             
-            return {
-                "success": True, 
-                "data": {
-                    "id": str(info.get("id")), 
-                    "url": url, 
-                    "title": info.get("title", "Media"), 
-                    "thumbnail": info.get("thumbnail"), 
-                    "duration": f"{int(info.get('duration', 0)) // 60}m", 
-                    "author": info.get("uploader", "Unknown"), 
-                    "platform": "Spotify Mirror" if is_spotify else info.get("extractor_key", "Video"), 
-                    "mediaType": "music" if is_spotify else "video", 
-                    "qualities": formats[:15]
-                }
-            }
+            return {"success": True, "data": {"id": str(info.get("id")), "url": url, "title": info.get("title", "Media"), "thumbnail": info.get("thumbnail"), "duration": f"{int(info.get('duration', 0)) // 60}m", "author": info.get("uploader", "Unknown"), "platform": "Mirror" if is_spotify else info.get("extractor_key", "Video"), "mediaType": "music" if is_spotify else "video", "qualities": formats[:15]}}
     except Exception as e: return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
 
 @app.get("/api/download")
