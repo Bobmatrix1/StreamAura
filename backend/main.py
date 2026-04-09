@@ -120,13 +120,11 @@ try:
         print("--- Firebase Admin: Local File Initialized ---")
     else:
         # 2. Try initializing with Environment Variables (Production/Render)
-        # This works if you have GOOGLE_APPLICATION_CREDENTIALS set or if you use default project auth
         try:
             firebase_admin.initialize_app()
             print("--- Firebase Admin: Default Credentials Initialized ---")
         except:
             # 3. Last resort: Manual Credential reconstruction from Env Vars
-            # (Requires adding these keys to Render Settings)
             firebase_creds = {
                 "type": "service_account",
                 "project_id": os.getenv("FIREBASE_PROJECT_ID"),
@@ -146,56 +144,58 @@ try:
             else:
                 print("--- Firebase Admin: Missing Credentials in Env ---")
 
-            db_admin = firestore.client()
-            except Exception as e:
-            print(f"--- Firebase Admin Critical Error: {e} ---")
-            traceback.print_exc()
-            db_admin = None
+    db_admin = firestore.client()
+except Exception as e:
+    print(f"--- Firebase Admin Critical Error: {e} ---")
+    traceback.print_exc()
+    db_admin = None
 
-            # CORS
-            app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+# CORS
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-            DOWNLOAD_DIR = "/tmp/downloads"
-            os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+DOWNLOAD_DIR = "/tmp/downloads"
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-            # Helpers
-            def get_val(obj, key, default=None):
-            if obj is None: return default
-            return obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)
+# Helpers
+def get_val(obj, key, default=None):
+    if obj is None: return default
+    if isinstance(obj, dict): return obj.get(key, default)
+    return getattr(obj, key, default)
 
-            def get_cover_url(item):
-            cover = get_val(item, 'cover')
-            return get_val(cover, 'url', '') if isinstance(cover, dict) else getattr(cover, 'url', '') if hasattr(cover, 'url') else ""
+def get_cover_url(item):
+    cover = get_val(item, 'cover')
+    return get_val(cover, 'url', '') if isinstance(cover, dict) else getattr(cover, 'url', '') if hasattr(cover, 'url') else ""
 
-            def get_duration_str(item):
-            duration = get_val(item, 'duration')
-            try: return f"{int(duration) // 60}m"
-            except: return "Series"
+def get_duration_str(item):
+    duration = get_val(item, 'duration')
+    try: return f"{int(duration) // 60}m"
+    except: return "Series"
 
-            # =========================
-            # ENDPOINTS
-            # =========================
+# =========================
+# ENDPOINTS
+# =========================
 
-            @app.get("/api/analytics/country")
-            async def get_visitor_country(): return {"country": "Unknown", "device": "Mobile"}
+@app.get("/api/analytics/country")
+async def get_visitor_country(): return {"country": "Unknown", "device": "Mobile"}
 
-            @app.post("/api/admin/broadcast")
-            async def broadcast_notification(request: Request):
-            print("--- Broadcast Request Received ---")
-            if not db_admin: 
-            print("Error: db_admin is None")
-            return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Admin not initialized"})
-
-            try:
-            data = await request.json()
-            title, message = data.get('title'), data.get('message')
-            print(f"Broadcasting: {title}")
-
-            users_docs = db_admin.collection('users').stream()
-            user_ids = [doc.id for doc in users_docs]
-            print(f"Total users to deliver: {len(user_ids)}")
-
-            for i in range(0, len(user_ids), 500):
+@app.post("/api/admin/broadcast")
+async def broadcast_notification(request: Request):
+    print("--- Broadcast Request Received ---")
+    if not db_admin: 
+        print("Error: db_admin is None")
+        return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Admin not initialized"})
+    
+    try:
+        data = await request.json()
+        title, message = data.get('title'), data.get('message')
+        if not title or not message: raise HTTPException(status_code=400, detail="Title and message required")
+        print(f"Broadcasting: {title}")
+        
+        users_docs = db_admin.collection('users').stream()
+        user_ids = [doc.id for doc in users_docs]
+        print(f"Total users to deliver: {len(user_ids)}")
+        
+        for i in range(0, len(user_ids), 500):
             batch = db_admin.batch()
             for uid in user_ids[i:i + 500]:
                 notif_ref = db_admin.collection('users').document(uid).collection('notifications').document()
@@ -207,12 +207,13 @@ try:
                     "type": "update"
                 })
             batch.commit()
+        
+        return {"success": True, "data": {"delivered_to": len(user_ids)}}
+    except Exception as e: 
+        print(f"Broadcast Endpoint Error: {e}")
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
-            return {"success": True, "data": {"delivered_to": len(user_ids)}}
-            except Exception as e: 
-            print(f"Broadcast Endpoint Error: {e}")
-            traceback.print_exc()
-            return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 @app.delete("/api/admin/notifications/clear")
 async def clear_all_notifications():
     if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Admin not initialized"})
@@ -242,7 +243,7 @@ async def stream_video(url: str): return RedirectResponse(url=url)
 async def start_movie_download(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
     url, title, task_id = data.get('url'), data.get('title', 'media'), str(uuid.uuid4())
-    download_tasks = {} # Local tracker
+    download_tasks = {} # Local tracker placeholder
     async def run_dl():
         try:
             file_path = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
@@ -261,21 +262,21 @@ async def search_movies(query: str, media_type: str = Query("movie", alias="type
         if hasattr(session, '_client'): session._client.headers.update(STEALTH_HEADERS)
         search = await MovieSearch(session, query, subject_type=SubjectType.TV_SERIES if media_type == "series" else SubjectType.MOVIES).get_content()
         formatted = []
-        for item in search.get('items', []):
-            formatted.append({
-                "id": str(get_val(item, 'subjectId')), "title": get_val(item, 'title'),
-                "thumbnail": get_cover_url(item), "year": str(get_val(item, 'releaseDate', 'N/A')).split('-')[0],
-                "rating": get_val(item, 'imdbRatingValue', 'N/A'), "mediaType": media_type, "platform": "MovieBox"
-            })
+        if search and isinstance(search, dict) and 'items' in search:
+            for item in search.get('items', []):
+                rd = get_val(item, 'releaseDate')
+                formatted.append({
+                    "id": str(get_val(item, 'subjectId')), "title": get_val(item, 'title'),
+                    "thumbnail": get_cover_url(item), "year": str(rd).split('-')[0] if rd else 'N/A',
+                    "rating": get_val(item, 'imdbRatingValue', 'N/A'), "mediaType": media_type, "platform": "MovieBox"
+                })
         return {"success": True, "data": formatted}
-    except: return JSONResponse(status_code=500, content={"success": False, "error": "Search engine error"})
+    except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.get("/api/movies/details")
 async def get_movie_details(subject_id: str, media_type: str = Query("movie", alias="type"), title: Optional[str] = None):
     try:
         print(f"--- Global Sniper Launch: '{title}' ---")
-        
-        # 1. Search all mirrors in parallel
         tasks = [sniper_engine.get_yts_links(title or "")]
         for src in sniper_engine.naija_sources:
             tasks.append(sniper_engine.scrape_naija(src, title or ""))
@@ -283,7 +284,6 @@ async def get_movie_details(subject_id: str, media_type: str = Query("movie", al
         results = await asyncio.gather(*tasks)
         final_links = [link for sublist in results for link in sublist]
 
-        # 2. Fallback to MovieBox (Only as metadata backup)
         if final_links:
             return {"success": True, "data": {"id": subject_id, "title": title or "Media", "qualities": final_links, "mediaType": media_type, "platform": "Super Sniper Engine"}}
         
