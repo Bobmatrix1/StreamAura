@@ -133,7 +133,11 @@ try:
                 "private_key_id": os.getenv("FIREBASE_PRIVATE_KEY_ID"),
                 "private_key": os.getenv("FIREBASE_PRIVATE_KEY", "").replace('\\n', '\n'),
                 "client_email": os.getenv("FIREBASE_CLIENT_EMAIL"),
+                "client_id": os.getenv("FIREBASE_CLIENT_ID"),
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                 "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "client_x509_cert_url": os.getenv("FIREBASE_CLIENT_X509_CERT_URL")
             }
             if firebase_creds["project_id"] and firebase_creds["private_key"]:
                 cred = credentials.Certificate(firebase_creds)
@@ -142,56 +146,73 @@ try:
             else:
                 print("--- Firebase Admin: Missing Credentials in Env ---")
 
-    db_admin = firestore.client()
-except Exception as e:
-    print(f"--- Firebase Admin Critical Error: {e} ---")
-    db_admin = None
+            db_admin = firestore.client()
+            except Exception as e:
+            print(f"--- Firebase Admin Critical Error: {e} ---")
+            traceback.print_exc()
+            db_admin = None
 
-# CORS
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+            # CORS
+            app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-DOWNLOAD_DIR = "/tmp/downloads"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+            DOWNLOAD_DIR = "/tmp/downloads"
+            os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Helpers
-def get_val(obj, key, default=None):
-    if obj is None: return default
-    return obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)
+            # Helpers
+            def get_val(obj, key, default=None):
+            if obj is None: return default
+            return obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)
 
-def get_cover_url(item):
-    cover = get_val(item, 'cover')
-    return get_val(cover, 'url', '') if isinstance(cover, dict) else getattr(cover, 'url', '') if hasattr(cover, 'url') else ""
+            def get_cover_url(item):
+            cover = get_val(item, 'cover')
+            return get_val(cover, 'url', '') if isinstance(cover, dict) else getattr(cover, 'url', '') if hasattr(cover, 'url') else ""
 
-def get_duration_str(item):
-    duration = get_val(item, 'duration')
-    try: return f"{int(duration) // 60}m"
-    except: return "Series"
+            def get_duration_str(item):
+            duration = get_val(item, 'duration')
+            try: return f"{int(duration) // 60}m"
+            except: return "Series"
 
-# =========================
-# ENDPOINTS
-# =========================
+            # =========================
+            # ENDPOINTS
+            # =========================
 
-@app.get("/api/analytics/country")
-async def get_visitor_country(): return {"country": "Unknown", "device": "Mobile"}
+            @app.get("/api/analytics/country")
+            async def get_visitor_country(): return {"country": "Unknown", "device": "Mobile"}
 
-@app.post("/api/admin/broadcast")
-async def broadcast_notification(request: Request):
-    if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Admin not initialized"})
-    data = await request.json()
-    title, message = data.get('title'), data.get('message')
-    if not title or not message: raise HTTPException(status_code=400, detail="Title and message required")
-    try:
-        users_docs = db_admin.collection('users').stream()
-        user_ids = [doc.id for doc in users_docs]
-        for i in range(0, len(user_ids), 500):
+            @app.post("/api/admin/broadcast")
+            async def broadcast_notification(request: Request):
+            print("--- Broadcast Request Received ---")
+            if not db_admin: 
+            print("Error: db_admin is None")
+            return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Admin not initialized"})
+
+            try:
+            data = await request.json()
+            title, message = data.get('title'), data.get('message')
+            print(f"Broadcasting: {title}")
+
+            users_docs = db_admin.collection('users').stream()
+            user_ids = [doc.id for doc in users_docs]
+            print(f"Total users to deliver: {len(user_ids)}")
+
+            for i in range(0, len(user_ids), 500):
             batch = db_admin.batch()
             for uid in user_ids[i:i + 500]:
                 notif_ref = db_admin.collection('users').document(uid).collection('notifications').document()
-                batch.set(notif_ref, {"title": title, "message": message, "timestamp": firestore.SERVER_TIMESTAMP, "read": False, "type": "update"})
+                batch.set(notif_ref, {
+                    "title": title, 
+                    "message": message, 
+                    "timestamp": firestore.SERVER_TIMESTAMP, 
+                    "read": False, 
+                    "type": "update"
+                })
             batch.commit()
-        return {"success": True, "data": {"delivered_to": len(user_ids)}}
-    except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
+            return {"success": True, "data": {"delivered_to": len(user_ids)}}
+            except Exception as e: 
+            print(f"Broadcast Endpoint Error: {e}")
+            traceback.print_exc()
+            return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 @app.delete("/api/admin/notifications/clear")
 async def clear_all_notifications():
     if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Admin not initialized"})
