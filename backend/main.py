@@ -154,7 +154,20 @@ async def extract_info(request: ExtractRequest):
             print(f"--- Spotify Match: {artist} - {song_name} ---")
         except: pass
 
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 'user_agent': 'Mozilla/5.0'}
+    # STEALTH YT-DLP OPTS
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
+        # Use mobile clients to bypass "confirm you're not a bot"
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'web_embedded'],
+                'skip': ['hls', 'dash']
+            }
+        },
+        'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+    }
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -162,17 +175,25 @@ async def extract_info(request: ExtractRequest):
             try:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
                 if 'entries' in info:
-                    if not info['entries']: raise Exception("No matching audio found on public mirrors.")
+                    if not info['entries']: raise Exception("No matching results found.")
                     info = info['entries'][0]
             except Exception as e:
-                # Secondary DRM Bypass
-                if "DRM" in str(e) or "sign in" in str(e).lower() or is_spotify:
-                    alt_query = f"ytsearch1:{url}" if not is_spotify else search_query
-                    info = await loop.run_in_executor(None, lambda: ydl.extract_info(alt_query, download=False))
-                    if 'entries' in info: 
-                        if not info['entries']: raise Exception("No mirrors found.")
-                        info = info['entries'][0]
-                else: raise e
+                # ADVANCED BOT/DRM BYPASS
+                if any(x in str(e) for x in ["bot", "sign in", "DRM", "403"]):
+                    print(f"--- Protection detected, launching Sniper Fallback ---")
+                    # If it's a direct YT link being blocked, try searching for its title instead
+                    if "youtube.com" in url or "youtu.be" in url:
+                        # Attempt to get title from URL metadata or just search query
+                        alt_query = f"ytsearch1:{url}" 
+                        info = await loop.run_in_executor(None, lambda: ydl.extract_info(alt_query, download=False))
+                        if 'entries' in info and info['entries']:
+                            info = info['entries'][0]
+                        else:
+                            raise e
+                    else:
+                        raise e
+                else:
+                    raise e
 
             formats = []
             for f in info.get("formats", []):
