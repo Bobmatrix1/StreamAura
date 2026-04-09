@@ -26,17 +26,16 @@ from moviebox_api.v1.core import Search as MovieSearch, Session as MovieSession,
 from dotenv import load_dotenv
 load_dotenv()
 
-app = FastAPI(title="StreamAura Master Engine")
+app = FastAPI(title="StreamAura API Master")
 
 # Stealth Headers
 STEALTH_HEADERS = {
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
     "X-Requested-With": "com.moviebox.h5"
 }
 
-# Initialize Firebase
+# Initialize Firebase Admin
 try:
     if os.getenv("FIREBASE_PRIVATE_KEY"):
         firebase_creds = {
@@ -60,7 +59,7 @@ try:
         firebase_admin.initialize_app()
     db_admin = firestore.client()
 except Exception as e:
-    print(f"--- Firebase Init Warning: {e} ---")
+    print(f"--- Firebase Error: {e} ---")
     db_admin = None
 
 # Initialize Spotify
@@ -98,14 +97,7 @@ def format_size(size_bytes):
 
 @app.get("/")
 @app.head("/")
-async def root(): return {"status": "online", "engine": "v2.0"}
-
-@app.get("/api/analytics/country")
-async def get_visitor_country(request: Request):
-    country = request.headers.get("cf-ipcountry") or request.headers.get("x-vercel-ip-country") or "Unknown"
-    ua = request.headers.get("user-agent", "").lower()
-    device = "Mobile" if any(x in ua for x in ["iphone", "android", "mobile"]) else "Desktop"
-    return {"country": country, "device": device}
+async def root(): return {"status": "online", "service": "StreamAura"}
 
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):
@@ -113,21 +105,29 @@ async def broadcast_notification(request: Request):
     try:
         data = await request.json()
         title, message = data.get('title'), data.get('message')
-        users = db_admin.collection('users').get()
-        user_ids = [u.id for u in users]
+        users_docs = db_admin.collection('users').stream()
+        user_ids = [doc.id for doc in users_docs]
         
         for i in range(0, len(user_ids), 500):
             batch = db_admin.batch()
             for uid in user_ids[i:i + 500]:
-                # 1. Message
+                # 1. Add notification record
                 notif_ref = db_admin.collection('users').document(uid).collection('notifications').document()
-                batch.set(notif_ref, {"title": title, "message": message, "timestamp": firestore.SERVER_TIMESTAMP, "read": False, "type": "update"})
-                # 2. Increment Badge
+                batch.set(notif_ref, {
+                    "title": title, "message": message, 
+                    "timestamp": firestore.SERVER_TIMESTAMP, 
+                    "read": False, "type": "update"
+                })
+                # 2. Update badge count and timestamp
                 user_ref = db_admin.collection('users').document(uid)
-                batch.update(user_ref, {"unreadCount": firestore.Increment(1), "lastNotificationAt": firestore.SERVER_TIMESTAMP})
+                batch.update(user_ref, {
+                    "unreadCount": firestore.Increment(1),
+                    "lastNotificationAt": firestore.SERVER_TIMESTAMP
+                })
             batch.commit()
             
-        return {"success": True, "data": {"delivered_to": len(user_ids)}}
+        # Simplified response to fix "undefined" on frontend
+        return {"success": True, "data": {"delivered_to": len(user_ids)}, "delivered_to": len(user_ids)}
     except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.post("/api/extract")
@@ -140,19 +140,19 @@ async def extract_info(request: ExtractRequest):
         try:
             track_id = url.split("track/")[1].split("?")[0]
             track = sp.track(track_id)
-            search_query = f"ytsearch1:{track['artists'][0]['name']} {track['name']} audio"
+            search_query = f"ytsearch1:{track['artists'][0]['name']} {track['name']} official audio"
         except: pass
 
-    # THE ULTIMATE BOT BYPASS CONFIG
+    # THE ABSOLUTE BEST BOT BYPASS CONFIG
     ydl_opts = {
         'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['ios', 'android', 'mweb'], # Mobile players are the gold standard for bypass
+                'player_client': ['android'], # Android client is the least likely to get bot-blocked
                 'skip': ['hls', 'dash']
             }
         },
-        'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1'
+        'user_agent': 'com.google.android.youtube/19.05.36 (Linux; U; Android 14; en_US; SM-S928B) gzip'
     }
     
     try:
@@ -160,19 +160,18 @@ async def extract_info(request: ExtractRequest):
             loop = asyncio.get_event_loop()
             try:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
-                if 'entries' in info and info['entries']:
+                if info and 'entries' in info:
+                    if not info['entries']: raise Exception("No results found.")
                     info = info['entries'][0]
-                elif 'entries' in info and not info['entries']:
-                    raise Exception("Mirror search returned no results.")
             except Exception as e:
-                # Mirror Sniper Fallback
-                if any(x in str(e) for x in ["bot", "sign in", "403"]) or is_spotify:
-                    alt_query = f"ytsearch1:{url}" if not is_spotify else search_query
-                    info = await loop.run_in_executor(None, lambda: ydl.extract_info(alt_query, download=False))
-                    if 'entries' in info and info['entries']:
+                # If bot detected, try one last search fallback with different client
+                if any(x in str(e).lower() for x in ["bot", "confirm", "403"]):
+                    print("--- Bot Detected, trying MWEB fallback ---")
+                    ydl_opts['extractor_args']['youtube']['player_client'] = ['mweb']
+                    info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch1:{url}", download=False))
+                    if info and 'entries' in info and info['entries']:
                         info = info['entries'][0]
-                    else:
-                        raise Exception("Link is heavily protected. Try another source.")
+                    else: raise e
                 else: raise e
 
             formats = []
@@ -187,7 +186,7 @@ async def extract_info(request: ExtractRequest):
             return {"success": True, "data": {
                 "id": str(info.get("id")), "url": url, "title": info.get("title", "Media"), 
                 "thumbnail": info.get("thumbnail"), "duration": f"{int(info.get('duration', 0)) // 60}m", 
-                "author": info.get("uploader", "Unknown"), "platform": "Mirror" if is_spotify else info.get("extractor_key", "Video"), 
+                "author": info.get("uploader", "Unknown"), "platform": "Spotify Mirror" if is_spotify else info.get("extractor_key", "Video"), 
                 "mediaType": "music" if is_spotify else "video", "qualities": formats[:15]
             }}
     except Exception as e: return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
@@ -201,24 +200,6 @@ async def download_media(url: str, background_tasks: BackgroundTasks, filename: 
             await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.download([url]))
         background_tasks.add_task(os.remove, temp_path)
         return FileResponse(path=temp_path, filename=filename)
-    except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
-
-@app.get("/api/movies/search")
-async def search_movies(query: str, media_type: str = Query("movie", alias="type")):
-    try:
-        session = MovieSession()
-        if hasattr(session, '_client'): session._client.headers.update(STEALTH_HEADERS)
-        search = await MovieSearch(session, query, subject_type=SubjectType.TV_SERIES if media_type == "series" else SubjectType.MOVIES).get_content()
-        formatted = []
-        if search and 'items' in search:
-            for item in search['items']:
-                formatted.append({
-                    "id": str(item.get('subjectId')), "title": item.get('title'),
-                    "thumbnail": item.get('cover', {}).get('url', ''), 
-                    "year": str(item.get('releaseDate', 'N/A')).split('-')[0],
-                    "rating": item.get('imdbRatingValue', 'N/A'), "mediaType": media_type, "platform": "MovieBox"
-                })
-        return {"success": True, "data": formatted}
     except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 if __name__ == "__main__":

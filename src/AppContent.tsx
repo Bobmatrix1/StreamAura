@@ -56,8 +56,19 @@ export const AppContent: React.FC = () => {
     
     trackVisit();
 
-    let interval: ReturnType<typeof setInterval>;
+  useEffect(() => {
     if (isAuthenticated && user?.uid) {
+      // Sync unread count for badge
+      const unsubscribe = listenToNotifications(user.uid, (notifs) => {
+        const count = notifs.filter(n => !n.read).length;
+        
+        // Update browser/mobile icon badge
+        if ('setAppBadge' in navigator) {
+          if (count > 0) (navigator as any).setAppBadge(count);
+          else (navigator as any).clearAppBadge();
+        }
+      });
+
       // Auto-request notification permission
       requestNotificationPermission(user.uid).catch(console.error);
 
