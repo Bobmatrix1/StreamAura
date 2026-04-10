@@ -27,6 +27,11 @@ load_dotenv()
 
 app = FastAPI(title="StreamAura API Master")
 
+# Stealth Headers
+STEALTH_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+}
+
 # Initialize Firebase
 try:
     if os.getenv("FIREBASE_PRIVATE_KEY"):
@@ -50,17 +55,14 @@ try:
     else:
         firebase_admin.initialize_app()
     db_admin = firestore.client()
-except Exception as e:
+except:
     db_admin = None
 
 # Initialize Spotify
 sp = None
 if os.getenv("SPOTIFY_CLIENT_ID"):
     try:
-        sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
-            client_id=os.getenv("SPOTIFY_CLIENT_ID"), 
-            client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")
-        ))
+        sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=os.getenv("SPOTIFY_CLIENT_ID"), client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")))
     except: pass
 
 # CORS
@@ -82,44 +84,52 @@ def format_size(size_bytes):
         return f"{size_bytes:.1f} TB"
     except: return "Fast"
 
-async def get_info_surgical(url: str):
-    """Accurately extracts info with fallback logic ONLY when needed."""
-    is_spotify = "spotify.com" in url
-    
-    # Standard Options
-    ydl_opts = {
-        'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 
-        'format': 'bestaudio/best',
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
+async def get_metadata_stealth(url: str):
+    try:
+        async with httpx.AsyncClient(headers=STEALTH_HEADERS, follow_redirects=True, timeout=10.0) as client:
+            resp = await client.get(url)
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            title = soup.find("meta", property="og:title")
+            artist = soup.find("meta", property="og:description") or soup.find("meta", property="twitter:creator")
+            t_str = title["content"] if title else ""
+            a_str = artist["content"] if artist else "Unknown Artist"
+            t_str = t_str.replace(" | Audiomack", "").strip()
+            if t_str: return f"{a_str} {t_str}"
+    except: pass
+    return url
 
+async def get_info_surgical(url: str):
+    is_spotify = "spotify.com" in url
+    is_audiomack = "audiomack.com" in url
+    search_query = url
+    platform_name = "Audio"
+
+    if is_spotify and sp:
+        try:
+            track_id = url.split("track/")[1].split("?")[0]
+            track = sp.track(track_id)
+            search_query = f"scsearch1:{track['artists'][0]['name']} {track['name']} official"
+            platform_name = "Spotify"
+        except: pass
+    elif is_audiomack:
+        meta_search = await get_metadata_stealth(url)
+        search_query = f"scsearch1:{meta_search}"
+        platform_name = "Audiomack"
+
+    ydl_opts = {'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 'format': 'bestaudio/best'}
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Case 1: Spotify - Use Metadata + Search
-            if is_spotify and sp:
-                track_id = url.split("track/")[1].split("?")[0]
-                track = sp.track(track_id)
-                search_query = f"scsearch1:{track['artists'][0]['name']} {track['name']} official"
-                info = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
-                if 'entries' in info: info = info['entries'][0]
-                info['original_platform'] = "Spotify"
-                return info
-
-            # Case 2: Direct Link (Audiomack, SoundCloud, YouTube)
-            try:
+            info = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
+            if 'entries' in info: info = info['entries'][0]
+            info['original_platform'] = platform_name
+            return info
+    except:
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(url, download=False))
                 info['original_platform'] = info.get('extractor_key', 'Audio')
                 return info
-            except Exception as e:
-                # Fallback ONLY if direct extraction fails (e.g. Bot block)
-                if any(x in str(e) for x in ["403", "bot", "confirm"]):
-                    search_query = f"scsearch1:{url}"
-                    info = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
-                    if 'entries' in info: info = info['entries'][0]
-                    info['original_platform'] = "Mirror (Source Blocked)"
-                    return info
-                raise e
-    except: return None
+        except: return None
 
 # =========================
 # ENDPOINTS
@@ -138,11 +148,20 @@ async def get_visitor_country(request: Request):
 
 @app.get("/api/stream")
 async def stream_media(url: str):
-    """Returns the direct playable media stream."""
+    """Proxies audio stream to bypass CORS and fix preview playback."""
     info = await get_info_surgical(url)
-    if info and info.get('url'):
-        return RedirectResponse(url=info['url'])
-    return JSONResponse(status_code=400, content={"error": "Stream unavailable"})
+    if not info or not info.get('url'):
+        raise HTTPException(status_code=404, detail="Stream not found")
+    
+    stream_url = info['url']
+    
+    async def generate():
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            async with client.stream("GET", stream_url) as resp:
+                async for chunk in resp.aiter_bytes():
+                    yield chunk
+
+    return StreamingResponse(generate(), media_type="audio/mpeg")
 
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):
@@ -170,7 +189,7 @@ async def extract_info(request: ExtractRequest):
     
     info = await get_info_surgical(url)
     if not info:
-        return JSONResponse(status_code=400, content={"success": False, "error": "Content not found or link blocked."})
+        return JSONResponse(status_code=400, content={"success": False, "error": "Song not found or blocked."})
 
     formats = []
     for f in info.get("formats", []):
@@ -183,11 +202,15 @@ async def extract_info(request: ExtractRequest):
                 "url": f.get("url")
             })
     
+    # Internal stream URL for the preview player
+    stream_url = f"{str(request.base_url).rstrip('/')}/api/stream?url={urllib.parse.quote(url)}"
+
     return {
         "success": True, 
         "data": {
             "id": str(info.get("id")),
             "url": url,
+            "streamUrl": stream_url,
             "title": info.get("title", "Song"),
             "thumbnail": info.get("thumbnail"),
             "duration": f"{int(info.get('duration', 0)) // 60}m",
@@ -201,10 +224,8 @@ async def extract_info(request: ExtractRequest):
 @app.get("/api/download")
 async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):
     temp_path = os.path.join(DOWNLOAD_DIR, f"{uuid.uuid4()}.mp4")
-    
     info = await get_info_surgical(url)
     download_url = info['url'] if info and info.get('url') else url
-
     ydl_opts = {'format': 'best', 'outtmpl': temp_path, 'quiet': True}
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
