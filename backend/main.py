@@ -94,10 +94,6 @@ async def get_visitor_country(request: Request):
     device = "Mobile" if any(x in ua for x in ["iphone", "android", "mobile"]) else "Desktop"
     return {"country": country, "device": device}
 
-@app.get("/api/stream")
-async def stream_media(url: str):
-    return RedirectResponse(url=url)
-
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):
     if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Offline"})
@@ -121,18 +117,23 @@ async def broadcast_notification(request: Request):
 async def extract_info(request: ExtractRequest):
     url = request.url.strip()
     search_query = url
-    platform = "Video"
+    platform = "Music"
     
-    # Spotify Metadata Restoration
-    if "spotify.com" in url and sp:
+    # 1. SPOTIFY/AUDIOMACK TO SOUNDCLOUD (Bulletproof Bypass)
+    if "spotify.com" in url or "audiomack.com" in url:
         try:
-            track_id = url.split("track/")[1].split("?")[0]
-            track = sp.track(track_id)
-            search_query = f"ytsearch1:{track['artists'][0]['name']} {track['name']} official audio"
-            platform = "Spotify"
-        except: pass
-    elif "audiomack.com" in url:
-        platform = "Audiomack"
+            # If Spotify, get metadata first
+            if "spotify.com" in url and sp:
+                track_id = url.split("track/")[1].split("?")[0]
+                track = sp.track(track_id)
+                search_query = f"scsearch1:{track['artists'][0]['name']} {track['name']}"
+                platform = "Spotify"
+            else:
+                # Direct SoundCloud search for the URL title
+                search_query = f"scsearch1:{url}"
+                platform = "Audiomack"
+        except: 
+            search_query = f"scsearch1:{url}"
 
     ydl_opts = {
         'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 
@@ -144,15 +145,18 @@ async def extract_info(request: ExtractRequest):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             loop = asyncio.get_event_loop()
             info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
-            if 'entries' in info: info = info['entries'][0]
+            
+            if 'entries' in info:
+                if not info['entries']: raise Exception("No matching mirrors found on SoundCloud.")
+                info = info['entries'][0]
 
             formats = []
             for f in info.get("formats", []):
                 if f.get("url"):
                     formats.append({
                         "quality": f.get("format_note") or "HQ",
-                        "format": f.get("ext", "mp4").upper(),
-                        "resolution": "Audio" if f.get("vcodec") == "none" else f"{f.get('width')}x{f.get('height')}",
+                        "format": f.get("ext", "mp3").upper(),
+                        "resolution": "Audio",
                         "size": format_size(f.get('filesize') or f.get('filesize_approx')),
                         "url": f.get("url")
                     })
@@ -167,27 +171,26 @@ async def extract_info(request: ExtractRequest):
                     "duration": f"{int(info.get('duration', 0)) // 60}m",
                     "author": info.get("uploader", "Unknown"),
                     "platform": platform,
-                    "mediaType": "music" if "audio" in search_query or "music" in platform.lower() else "video",
+                    "mediaType": "music",
                     "qualities": formats[:10]
                 }
             }
     except Exception as e:
-        return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
+        return JSONResponse(status_code=400, content={"success": False, "error": "This link is currently protected. Try another source."})
 
 @app.get("/api/download")
 async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):
     temp_path = os.path.join(DOWNLOAD_DIR, f"{uuid.uuid4()}.mp4")
-    ydl_opts = {'format': 'best', 'outtmpl': temp_path, 'quiet': True}
+    ydl_opts = {'format': 'bestaudio/best', 'outtmpl': temp_path, 'quiet': True}
     try:
-        download_url = url
-        if "spotify.com" in url:
-            # Re-resolve Spotify for download
-            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-                info = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(f"ytsearch1:{url}", download=False))
-                if 'entries' in info: download_url = info['entries'][0]['url']
+        target_url = url
+        # Always resolve Spotify/Audiomack to SoundCloud for download
+        if "spotify.com" in url or "audiomack.com" in url:
+            target_url = f"scsearch1:{url}"
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.download([download_url]))
+            await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.download([target_url]))
+        
         background_tasks.add_task(os.remove, temp_path)
         return FileResponse(path=temp_path, filename=filename)
     except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
