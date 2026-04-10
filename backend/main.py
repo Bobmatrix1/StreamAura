@@ -50,7 +50,7 @@ try:
     else:
         firebase_admin.initialize_app()
     db_admin = firestore.client()
-except:
+except Exception as e:
     db_admin = None
 
 # Initialize Spotify
@@ -94,6 +94,11 @@ async def get_visitor_country(request: Request):
     device = "Mobile" if any(x in ua for x in ["iphone", "android", "mobile"]) else "Desktop"
     return {"country": country, "device": device}
 
+@app.get("/api/stream")
+async def stream_media(url: str):
+    """Simple redirect for streaming preview."""
+    return RedirectResponse(url=url)
+
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):
     if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Offline"})
@@ -119,19 +124,20 @@ async def extract_info(request: ExtractRequest):
     search_query = url
     platform = "Audio"
     
-    # 1. STABLE SPOTIFY LOGIC
+    # 1. RESTORED STABLE SPOTIFY LOGIC (YouTube Mirror)
     if "spotify.com" in url and sp:
         try:
             track_id = url.split("track/")[1].split("?")[0]
             track = sp.track(track_id)
-            search_query = f"scsearch1:{track['artists'][0]['name']} {track['name']} official"
+            artist = track['artists'][0]['name']
+            song_name = track['name']
+            search_query = f"ytsearch1:{artist} {song_name} official audio"
             platform = "Spotify"
         except: pass
     
-    # 2. AUDIOMACK MIRROR LOGIC (Matches Spotify's approach)
+    # 2. AUDIOMACK LOGIC
     elif "audiomack.com" in url:
-        # Search mirror directly using the URL as a query
-        search_query = f"scsearch1:{url}"
+        search_query = url # Try direct first
         platform = "Audiomack"
 
     ydl_opts = {
@@ -143,10 +149,17 @@ async def extract_info(request: ExtractRequest):
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             loop = asyncio.get_event_loop()
-            # Try mirror search
-            info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
+            try:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
+            except Exception as e:
+                # If Audiomack/YouTube is blocked, fallback to search mirror
+                if "audiomack.com" in url or "youtube.com" in url:
+                    alt_query = f"ytsearch1:{url}"
+                    info = await loop.run_in_executor(None, lambda: ydl.extract_info(alt_query, download=False))
+                else: raise e
+
             if 'entries' in info:
-                if not info['entries']: raise Exception("Mirror search failed.")
+                if not info['entries']: raise Exception("No matching mirrors found.")
                 info = info['entries'][0]
 
             formats = []
@@ -171,23 +184,21 @@ async def extract_info(request: ExtractRequest):
                     "author": info.get("uploader", "Artist"),
                     "platform": platform,
                     "mediaType": "music",
-                    "qualities": formats[:10]
+                    "qualities": formats[:15]
                 }
             }
     except Exception as e:
-        return JSONResponse(status_code=400, content={"success": False, "error": "This link is currently restricted. Try a different source."})
+        return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
 
 @app.get("/api/download")
 async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):
     temp_path = os.path.join(DOWNLOAD_DIR, f"{uuid.uuid4()}.mp4")
-    # For music, we try to download the mirror bestaudio
     ydl_opts = {'format': 'bestaudio/best', 'outtmpl': temp_path, 'quiet': True}
     try:
-        # If it's a Spotify link, we need to resolve it again for the download
-        # (Using scsearch for stability)
         download_target = url
-        if "spotify.com" in url or "audiomack.com" in url:
-            download_target = f"scsearch1:{url}"
+        # Correctly handle search mirrors for downloads
+        if "spotify.com" in url:
+            download_target = f"ytsearch1:{url}"
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.download([download_target]))
