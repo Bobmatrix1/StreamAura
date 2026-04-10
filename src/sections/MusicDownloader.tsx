@@ -16,9 +16,7 @@ import {
   Loader2,
   Volume2,
   ChevronDown,
-  ExternalLink,
-  Square,
-  AlertCircle
+  ExternalLink
 } from 'lucide-react';
 import { useDownload } from '../contexts/DownloadContext';
 import { useToast } from '../contexts/ToastContext';
@@ -46,19 +44,9 @@ const MusicDownloader: React.FC = () => {
     setCurrentPreview, 
     isLoadingPreview, 
     downloadWithProgress,
-    currentDownloadProgress,
-    cancelDownload
+    currentDownloadProgress 
   } = useDownload();
   const { showSuccess, showError } = useToast();
-
-  // Re-sync local isDownloading with global context
-  useEffect(() => {
-    if (currentDownloadProgress === 0) {
-      setIsDownloading(false);
-    } else {
-      setIsDownloading(true);
-    }
-  }, [currentDownloadProgress]);
 
   useEffect(() => {
     if (isPlaying && audioRef.current) {
@@ -81,11 +69,7 @@ const MusicDownloader: React.FC = () => {
     setIsMatching(true);
     try {
       const info = await getMediaInfo(url);
-      if (info) {
-        setCurrentPreview(info);
-        setPreviewProgress(0);
-        setIsPlaying(false);
-      }
+      if (info) setCurrentPreview(info);
     } finally {
       setIsMatching(false);
     }
@@ -98,7 +82,6 @@ const MusicDownloader: React.FC = () => {
     setIsPlaying(false);
     setIsMatching(false);
     setPreviewProgress(0);
-    setIsQualityDropdownOpen(false);
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = "";
@@ -113,15 +96,14 @@ const MusicDownloader: React.FC = () => {
       setIsPlaying(false);
     } else {
       setIsAudioLoading(true);
-      // RESTORED: Use direct quality URL for preview
-      const previewUrl = currentPreview.qualities[0]?.url;
-      if (previewUrl) {
-        audioRef.current.src = previewUrl;
+      const streamUrl = currentPreview.qualities[0]?.url;
+      if (streamUrl) {
+        audioRef.current.src = streamUrl;
         audioRef.current.play()
           .then(() => setIsPlaying(true))
           .catch(() => {
             setIsAudioLoading(false);
-            showError('Preview failed. Try a different link.');
+            showError('Preview unavailable.');
           });
       }
     }
@@ -134,17 +116,9 @@ const MusicDownloader: React.FC = () => {
       const safeTitle = currentPreview.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
       await downloadWithProgress(currentPreview.url, selectedQuality.quality, `${safeTitle}.mp3`);
       showSuccess('Download complete!');
-    } catch (error) {
-      // Error is already handled by context toast
     } finally {
       setIsDownloading(false);
     }
-  };
-
-  const handleCancel = () => {
-    cancelDownload();
-    setIsDownloading(false);
-    setIsMatching(false);
   };
 
   return (
@@ -169,20 +143,13 @@ const MusicDownloader: React.FC = () => {
           />
           {url && <button onClick={handleClear} className="absolute right-4 top-1/2 -translate-y-1/2"><X className="w-4 h-4 text-muted-foreground" /></button>}
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={handleFetch}
-            disabled={!url.trim() || isLoadingPreview || isMatching}
-            className="px-8 py-4 bg-orange-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 min-w-[120px]"
-          >
-            {isLoadingPreview || isMatching ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Fetch</span>}
-          </button>
-          {(isMatching || isLoadingPreview) && (
-            <button onClick={handleCancel} className="px-4 py-4 bg-red-500/20 text-red-400 rounded-xl hover:bg-red-500/30 transition-all">
-              <Square size={20} />
-            </button>
-          )}
-        </div>
+        <button
+          onClick={handleFetch}
+          disabled={!url.trim() || isLoadingPreview || isMatching}
+          className="px-8 py-4 bg-orange-600 text-white font-bold rounded-xl flex items-center justify-center gap-2"
+        >
+          {isLoadingPreview || isMatching ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Fetch</span>}
+        </button>
       </div>
 
       <AnimatePresence>
@@ -190,14 +157,14 @@ const MusicDownloader: React.FC = () => {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
             <div className="glass-card p-6">
               <div className="flex flex-col md:flex-row gap-6">
-                <div className="relative w-full md:w-40 aspect-square rounded-xl overflow-hidden bg-black/50 shadow-2xl">
+                <div className="relative w-full md:w-40 aspect-square rounded-xl overflow-hidden bg-black/50">
                   {currentPreview.thumbnail && <img src={currentPreview.thumbnail} className="w-full h-full object-cover" />}
-                  <button onClick={togglePreview} className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/40 transition-all group">
-                    <div className="w-14 h-14 rounded-full bg-orange-500 flex items-center justify-center shadow-lg group-active:scale-95 transition-transform">
+                  <button onClick={togglePreview} className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/40 transition-all">
+                    <div className="w-14 h-14 rounded-full bg-orange-500 flex items-center justify-center shadow-lg">
                       {isAudioLoading ? <Loader2 className="w-6 h-6 text-white animate-spin" /> : isPlaying ? <Pause className="w-6 h-6 text-white" /> : <Play className="w-6 h-6 text-white fill-current ml-1" />}
                     </div>
                   </button>
-                  <audio ref={audioRef} onPlaying={() => setIsAudioLoading(false)} onEnded={() => setIsPlaying(false)} onCanPlay={() => setIsAudioLoading(false)} />
+                  <audio ref={audioRef} onPlaying={() => setIsAudioLoading(false)} onEnded={() => setIsPlaying(false)} />
                 </div>
 
                 <div className="flex-1 space-y-4">
@@ -214,14 +181,8 @@ const MusicDownloader: React.FC = () => {
                     </a>
                   </div>
                   {(isPlaying || previewProgress > 0) && (
-                    <div className="space-y-2">
-                      <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                        <motion.div animate={{ width: `${previewProgress}%` }} className="h-full bg-orange-500" />
-                      </div>
-                      <div className="flex justify-between text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                        <span>{isPlaying ? 'Playing Preview' : 'Paused'}</span>
-                        <span>{currentPreview.duration}</span>
-                      </div>
+                    <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                      <motion.div animate={{ width: `${previewProgress}%` }} className="h-full bg-orange-500" />
                     </div>
                   )}
                 </div>
@@ -229,43 +190,30 @@ const MusicDownloader: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="glass-card p-4 space-y-4">
-                <button onClick={() => setIsQualityDropdownOpen(!isQualityDropdownOpen)} className="w-full p-4 bg-white/5 rounded-xl border border-white/10 flex items-center justify-between hover:bg-white/10 transition-colors">
-                  <span className="font-bold text-sm">{selectedQuality ? selectedQuality.quality : 'Select MP3 Quality'}</span>
-                  <ChevronDown className={`w-4 h-4 transition-transform ${isQualityDropdownOpen ? 'rotate-180' : ''}`} />
-                </button>
-                {isQualityDropdownOpen && (
-                  <div className="space-y-1 max-h-40 overflow-y-auto overflow-hidden">
-                    {currentPreview.qualities.map((q) => (
-                      <button key={q.url} onClick={() => { setSelectedQuality(q as AudioQuality); setIsQualityDropdownOpen(false); }} className="w-full p-3 text-left hover:bg-white/10 rounded-lg text-xs font-bold flex justify-between">
-                        <span>{q.quality}</span>
-                        <span className="opacity-50">{q.size}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <button 
-                  onClick={handleDownload} 
-                  disabled={!selectedQuality || isDownloading}
-                  className="flex-1 bg-gradient-to-r from-orange-600 to-pink-600 text-white font-black uppercase tracking-widest py-4 rounded-xl shadow-lg disabled:opacity-50"
-                >
-                  {isDownloading ? (
-                    <div className="flex items-center justify-center gap-3">
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      <span>{currentDownloadProgress}%</span>
-                    </div>
-                  ) : 'Start Download'}
-                </button>
-                {isDownloading && (
-                  <button onClick={handleCancel} className="py-2.5 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2">
-                    <Square size={10} fill="currentColor" /> Cancel Download
-                  </button>
-                )}
-              </div>
+              <button onClick={() => setIsQualityDropdownOpen(!isQualityDropdownOpen)} className="w-full p-4 bg-white/5 rounded-xl border border-white/10 flex items-center justify-between">
+                <span className="font-bold text-sm">{selectedQuality ? selectedQuality.quality : 'Select Quality'}</span>
+                <ChevronDown className={`w-4 h-4 transition-transform ${isQualityDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+              
+              <button 
+                onClick={handleDownload} 
+                disabled={!selectedQuality || isDownloading}
+                className="bg-gradient-to-r from-orange-600 to-pink-600 text-white font-black uppercase tracking-widest py-4 rounded-xl shadow-lg disabled:opacity-50"
+              >
+                {isDownloading ? `Downloading ${currentDownloadProgress}%` : 'Start Download'}
+              </button>
             </div>
+
+            {isQualityDropdownOpen && (
+              <div className="glass-card p-2 space-y-1">
+                {currentPreview.qualities.map((q) => (
+                  <button key={q.url} onClick={() => { setSelectedQuality(q as AudioQuality); setIsQualityDropdownOpen(false); }} className="w-full p-3 text-left hover:bg-white/5 rounded-lg text-xs font-bold flex justify-between">
+                    <span>{q.quality}</span>
+                    <span className="opacity-50">{q.size}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
