@@ -119,22 +119,25 @@ async def broadcast_notification(request: Request):
 
 @app.post("/api/extract")
 async def extract_info(request: ExtractRequest):
+    # 1. CLEAN URL (Fixes Audiomack "https" at end error)
     url = request.url.strip()
+    url = re.sub(r'https?$', '', url) # Remove trailing "https" if any
+    
     search_query = url
     is_spotify = "spotify.com" in url
     
-    # 1. RESTORED STABLE SPOTIFY LOGIC
+    # 2. SPOTIFY METADATA
     if is_spotify and sp:
         try:
             track_id = url.split("track/")[1].split("?")[0]
             track = sp.track(track_id)
             artist = track['artists'][0]['name']
             song_name = track['name']
-            search_query = f"ytsearch1:{artist} {song_name} official audio"
-            print(f"--- Music Sniper: Found {artist} - {song_name} ---")
+            # Search both YouTube and SoundCloud
+            search_query = f"scsearch1:{artist} {song_name}" 
+            print(f"--- Music Sniper: Matching {artist} - {song_name} on SoundCloud ---")
         except: pass
 
-    # 2. STABLE YT-DLP OPTS (The "Fully Fine" Config)
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
@@ -146,20 +149,28 @@ async def extract_info(request: ExtractRequest):
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             loop = asyncio.get_event_loop()
-            info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
-            
+            try:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
+            except Exception as e:
+                # 3. DUAL-SEARCH FALLBACK (YouTube -> SoundCloud)
+                if "403" in str(e) or "bot" in str(e).lower() or "DRM" in str(e):
+                    print("--- Bot blocked, trying SoundCloud fallback ---")
+                    # If it was a YouTube link, try searching SoundCloud
+                    sc_query = f"scsearch1:{url}"
+                    info = await loop.run_in_executor(None, lambda: ydl.extract_info(sc_query, download=False))
+                else: raise e
+
             if 'entries' in info:
-                if not info['entries']: raise Exception("No matching mirrors found.")
+                if not info['entries']: raise Exception("Mirror could not be found.")
                 info = info['entries'][0]
 
             formats = []
             for f in info.get("formats", []):
-                # Filter for audio-only or high-quality MP4
                 if f.get("url"):
                     formats.append({
-                        "quality": f.get("format_note") or f.get("quality_label") or "HD",
-                        "format": f.get("ext", "mp4").upper(),
-                        "resolution": f"{f.get('width','?')}x{f.get('height','?')}" if f.get('width') else "Audio",
+                        "quality": f.get("format_note") or "HQ",
+                        "format": f.get("ext", "mp3").upper(),
+                        "resolution": "Audio",
                         "size": format_size(f.get('filesize') or f.get('filesize_approx')),
                         "url": f.get("url")
                     })
@@ -169,18 +180,17 @@ async def extract_info(request: ExtractRequest):
                 "data": {
                     "id": str(info.get("id")),
                     "url": url,
-                    "title": info.get("title", "Media"),
+                    "title": info.get("title", "Song"),
                     "thumbnail": info.get("thumbnail"),
                     "duration": f"{int(info.get('duration', 0)) // 60}m",
-                    "author": info.get("uploader", "Unknown"),
-                    "platform": "Spotify Mirror" if is_spotify else info.get("extractor_key", "Video"),
-                    "mediaType": "music" if is_spotify else "video",
-                    "qualities": formats[:15]
+                    "author": info.get("uploader", "Artist"),
+                    "platform": "Mirror" if is_spotify else info.get("extractor_key", "Audio"),
+                    "mediaType": "music",
+                    "qualities": formats[:10]
                 }
             }
     except Exception as e:
-        # Final catch-all for errors
-        return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
+        return JSONResponse(status_code=400, content={"success": False, "error": "Music mirror unavailable. Try again later."})
 
 @app.get("/api/download")
 async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):
