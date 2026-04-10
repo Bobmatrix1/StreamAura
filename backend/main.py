@@ -82,27 +82,35 @@ def format_size(size_bytes):
         return f"{size_bytes:.1f} TB"
     except: return "Fast"
 
-async def resolve_mirror(url: str):
-    """Internal helper to convert Spotify/Protected links to working mirrors."""
+async def get_direct_stream(url: str):
+    """Extracts the real playable audio/video URL from any webpage."""
     search_query = url
     is_spotify = "spotify.com" in url
+    
     if is_spotify and sp:
         try:
             track_id = url.split("track/")[1].split("?")[0]
             track = sp.track(track_id)
             search_query = f"scsearch1:{track['artists'][0]['name']} {track['name']} official"
         except: pass
+
+    ydl_opts = {
+        'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 
+        'format': 'bestaudio/best',
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
     
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 'format': 'bestaudio/best'}
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
+            # 1. Try direct extraction
             info = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
             if 'entries' in info: info = info['entries'][0]
             return info.get('url'), info
         except:
-            # Fallback to direct SoundCloud search
+            # 2. Try mirror search only if direct fails
             try:
-                info = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(f"scsearch1:{url}", download=False))
+                mirror_query = f"scsearch1:{url}" if not is_spotify else search_query
+                info = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(mirror_query, download=False))
                 if 'entries' in info: info = info['entries'][0]
                 return info.get('url'), info
             except: return None, None
@@ -123,12 +131,12 @@ async def get_visitor_country(request: Request):
     return {"country": country, "device": device}
 
 @app.get("/api/stream")
-async def stream_audio(url: str):
-    """Proxies audio streams so the browser can play them directly."""
-    if "spotify.com" in url:
-        resolved_url, _ = await resolve_mirror(url)
-        if resolved_url: return RedirectResponse(url=resolved_url)
-    return RedirectResponse(url=url)
+async def stream_media(url: str):
+    """Directly proxies the playable media stream for the preview player."""
+    direct_url, _ = await get_direct_stream(url)
+    if direct_url:
+        return RedirectResponse(url=direct_url)
+    return JSONResponse(status_code=400, content={"error": "Could not stream this content"})
 
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):
@@ -155,9 +163,9 @@ async def extract_info(request: ExtractRequest):
     url = re.sub(r'https?$', '', url)
     is_spotify = "spotify.com" in url
     
-    resolved_url, info = await resolve_mirror(url)
+    direct_url, info = await get_direct_stream(url)
     if not info:
-        return JSONResponse(status_code=400, content={"success": False, "error": "Could not find a working mirror for this song."})
+        return JSONResponse(status_code=400, content={"success": False, "error": "Mirror not found."})
 
     formats = []
     for f in info.get("formats", []):
@@ -174,7 +182,7 @@ async def extract_info(request: ExtractRequest):
         "success": True, 
         "data": {
             "id": str(info.get("id")),
-            "url": url, # Keep original URL for the frontend
+            "url": url,
             "title": info.get("title", "Song"),
             "thumbnail": info.get("thumbnail"),
             "duration": f"{int(info.get('duration', 0)) // 60}m",
@@ -189,11 +197,9 @@ async def extract_info(request: ExtractRequest):
 async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):
     temp_path = os.path.join(DOWNLOAD_DIR, f"{uuid.uuid4()}.mp4")
     
-    # CRITICAL: Resolve mirror before downloading if it's a Spotify link
-    download_url = url
-    if "spotify.com" in url:
-        resolved_url, _ = await resolve_mirror(url)
-        if resolved_url: download_url = resolved_url
+    # Resolve the direct playable URL before downloading
+    download_url, _ = await get_direct_stream(url)
+    if not download_url: download_url = url
 
     ydl_opts = {'format': 'best', 'outtmpl': temp_path, 'quiet': True}
     try:
