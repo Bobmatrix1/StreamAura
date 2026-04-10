@@ -16,7 +16,8 @@ import {
   Loader2,
   Volume2,
   ChevronDown,
-  ExternalLink
+  ExternalLink,
+  Square
 } from 'lucide-react';
 import { useDownload } from '../contexts/DownloadContext';
 import { useToast } from '../contexts/ToastContext';
@@ -49,14 +50,6 @@ const MusicDownloader: React.FC = () => {
   const { showSuccess, showError } = useToast();
 
   useEffect(() => {
-    if (currentPreview && !isLoadingPreview) {
-      setTimeout(() => {
-        previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
-    }
-  }, [currentPreview, isLoadingPreview]);
-
-  useEffect(() => {
     if (isPlaying && audioRef.current) {
       previewIntervalRef.current = setInterval(() => {
         if (audioRef.current) {
@@ -73,10 +66,7 @@ const MusicDownloader: React.FC = () => {
   }, [isPlaying]);
 
   const handleFetch = async () => {
-    if (!url.trim()) {
-      showError('Please enter a music URL');
-      return;
-    }
+    if (!url.trim()) return;
     setIsMatching(true);
     try {
       const info = await getMediaInfo(url);
@@ -92,10 +82,12 @@ const MusicDownloader: React.FC = () => {
     setSelectedQuality(null);
     setIsPlaying(false);
     setIsMatching(false);
-    setIsAudioLoading(false);
     setPreviewProgress(0);
     setIsQualityDropdownOpen(false);
-    inputRef.current?.focus();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = "";
+    }
   };
 
   const togglePreview = () => {
@@ -106,13 +98,13 @@ const MusicDownloader: React.FC = () => {
       setIsPlaying(false);
     } else {
       setIsAudioLoading(true);
-      // Use the stream endpoint for all previews
+      // Use the dedicated stream endpoint
       audioRef.current.src = `${API_BASE_URL}/api/stream?url=${encodeURIComponent(currentPreview.url)}`;
       audioRef.current.play()
         .then(() => setIsPlaying(true))
         .catch(() => {
           setIsAudioLoading(false);
-          showError('Preview unavailable for this track.');
+          showError('Stream unavailable.');
         });
     }
   };
@@ -132,7 +124,7 @@ const MusicDownloader: React.FC = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-32 scroll-smooth">
+    <div className="max-w-4xl mx-auto space-y-8 pb-32">
       <div className="text-center space-y-4">
         <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-br from-orange-500 to-pink-600 flex items-center justify-center shadow-lg">
           <Music className="w-10 h-10 text-white" />
@@ -140,7 +132,7 @@ const MusicDownloader: React.FC = () => {
         <h2 className="text-4xl font-bold gradient-text">Music Downloader</h2>
       </div>
 
-      <div className="glass-card p-2 md:p-3 flex flex-col md:flex-row gap-3">
+      <div className="glass-card p-3 flex flex-col md:flex-row gap-3">
         <div className="relative flex-1 group">
           <Link2 className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5" />
           <input
@@ -148,23 +140,30 @@ const MusicDownloader: React.FC = () => {
             type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="Paste music link here..."
+            placeholder="Paste Audiomack, Spotify, or SoundCloud link..."
             className="w-full glass-input pl-12 pr-12 py-4 rounded-xl outline-none"
           />
           {url && <button onClick={handleClear} className="absolute right-4 top-1/2 -translate-y-1/2"><X className="w-4 h-4 text-muted-foreground" /></button>}
         </div>
-        <button
-          onClick={handleFetch}
-          disabled={!url.trim() || isLoadingPreview || isMatching}
-          className="px-8 py-4 bg-orange-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 disabled:opacity-50"
-        >
-          {isLoadingPreview || isMatching ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Fetch</span>}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleFetch}
+            disabled={!url.trim() || isLoadingPreview || isMatching}
+            className="px-8 py-4 bg-orange-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {isLoadingPreview || isMatching ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Fetch</span>}
+          </button>
+          {(isMatching || isLoadingPreview) && (
+            <button onClick={handleClear} className="px-4 py-4 bg-red-500/20 text-red-400 rounded-xl hover:bg-red-500/30 transition-all">
+              <Square size={20} />
+            </button>
+          )}
+        </div>
       </div>
 
       <AnimatePresence>
         {currentPreview && currentPreview.mediaType === 'music' && !isLoadingPreview && (
-          <motion.div ref={previewRef} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
             <div className="glass-card p-6">
               <div className="flex flex-col md:flex-row gap-6">
                 <div className="relative w-full md:w-40 aspect-square rounded-xl overflow-hidden bg-black/50">
@@ -191,15 +190,20 @@ const MusicDownloader: React.FC = () => {
                     </a>
                   </div>
                   {(isPlaying || previewProgress > 0) && (
-                    <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                      <motion.div animate={{ width: `${previewProgress}%` }} className="h-full bg-orange-500" />
+                    <div className="space-y-2">
+                      <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                        <motion.div animate={{ width: `${previewProgress}%` }} className="h-full bg-orange-500" />
+                      </div>
+                      <div className="flex justify-between text-[10px] font-bold text-muted-foreground uppercase">
+                        <span>{isPlaying ? 'Playing Preview' : 'Paused'}</span>
+                        <span>{currentPreview.duration}</span>
+                      </div>
                     </div>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* Quality and Controls */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="glass-card p-4 space-y-4">
                 <button onClick={() => setIsQualityDropdownOpen(!isQualityDropdownOpen)} className="w-full p-4 bg-white/5 rounded-xl border border-white/10 flex items-center justify-between">
@@ -225,9 +229,9 @@ const MusicDownloader: React.FC = () => {
                 >
                   {isDownloading ? `Downloading ${currentDownloadProgress}%` : 'Start Download'}
                 </button>
-                {(isDownloading || isMatching) && (
-                  <button onClick={handleClear} className="py-2 text-[10px] font-black uppercase text-red-400 hover:text-red-300 transition-all">
-                    Cancel Task
+                {isDownloading && (
+                  <button onClick={() => setIsDownloading(false)} className="py-2 text-[10px] font-black uppercase text-red-400 hover:text-red-300 transition-all flex items-center justify-center gap-2">
+                    <Square size={10} /> Cancel Download
                   </button>
                 )}
               </div>
