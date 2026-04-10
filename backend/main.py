@@ -51,7 +51,6 @@ try:
         firebase_admin.initialize_app()
     db_admin = firestore.client()
 except Exception as e:
-    print(f"--- Firebase Error: {e} ---")
     db_admin = None
 
 # Initialize Spotify
@@ -83,6 +82,31 @@ def format_size(size_bytes):
         return f"{size_bytes:.1f} TB"
     except: return "Fast"
 
+async def resolve_mirror(url: str):
+    """Internal helper to convert Spotify/Protected links to working mirrors."""
+    search_query = url
+    is_spotify = "spotify.com" in url
+    if is_spotify and sp:
+        try:
+            track_id = url.split("track/")[1].split("?")[0]
+            track = sp.track(track_id)
+            search_query = f"scsearch1:{track['artists'][0]['name']} {track['name']} official"
+        except: pass
+    
+    ydl_opts = {'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 'format': 'bestaudio/best'}
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        try:
+            info = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
+            if 'entries' in info: info = info['entries'][0]
+            return info.get('url'), info
+        except:
+            # Fallback to direct SoundCloud search
+            try:
+                info = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(f"scsearch1:{url}", download=False))
+                if 'entries' in info: info = info['entries'][0]
+                return info.get('url'), info
+            except: return None, None
+
 # =========================
 # ENDPOINTS
 # =========================
@@ -97,6 +121,14 @@ async def get_visitor_country(request: Request):
     ua = request.headers.get("user-agent", "").lower()
     device = "Mobile" if any(x in ua for x in ["iphone", "android", "mobile"]) else "Desktop"
     return {"country": country, "device": device}
+
+@app.get("/api/stream")
+async def stream_audio(url: str):
+    """Proxies audio streams so the browser can play them directly."""
+    if "spotify.com" in url:
+        resolved_url, _ = await resolve_mirror(url)
+        if resolved_url: return RedirectResponse(url=resolved_url)
+    return RedirectResponse(url=url)
 
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):
@@ -119,86 +151,54 @@ async def broadcast_notification(request: Request):
 
 @app.post("/api/extract")
 async def extract_info(request: ExtractRequest):
-    # 1. CLEAN URL (Fixes Audiomack "https" at end error)
     url = request.url.strip()
-    url = re.sub(r'https?$', '', url) # Remove trailing "https" if any
-    
-    search_query = url
+    url = re.sub(r'https?$', '', url)
     is_spotify = "spotify.com" in url
     
-    # 2. SPOTIFY METADATA
-    if is_spotify and sp:
-        try:
-            track_id = url.split("track/")[1].split("?")[0]
-            track = sp.track(track_id)
-            artist = track['artists'][0]['name']
-            song_name = track['name']
-            # Search both YouTube and SoundCloud
-            search_query = f"scsearch1:{artist} {song_name}" 
-            print(f"--- Music Sniper: Matching {artist} - {song_name} on SoundCloud ---")
-        except: pass
+    resolved_url, info = await resolve_mirror(url)
+    if not info:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Could not find a working mirror for this song."})
 
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'nocheckcertificate': True,
-        'format': 'bestaudio/best',
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
+    formats = []
+    for f in info.get("formats", []):
+        if f.get("url"):
+            formats.append({
+                "quality": f.get("format_note") or "HQ",
+                "format": f.get("ext", "mp3").upper(),
+                "resolution": "Audio",
+                "size": format_size(f.get('filesize') or f.get('filesize_approx')),
+                "url": f.get("url")
+            })
     
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            loop = asyncio.get_event_loop()
-            try:
-                info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
-            except Exception as e:
-                # 3. DUAL-SEARCH FALLBACK (YouTube -> SoundCloud)
-                if "403" in str(e) or "bot" in str(e).lower() or "DRM" in str(e):
-                    print("--- Bot blocked, trying SoundCloud fallback ---")
-                    # If it was a YouTube link, try searching SoundCloud
-                    sc_query = f"scsearch1:{url}"
-                    info = await loop.run_in_executor(None, lambda: ydl.extract_info(sc_query, download=False))
-                else: raise e
-
-            if 'entries' in info:
-                if not info['entries']: raise Exception("Mirror could not be found.")
-                info = info['entries'][0]
-
-            formats = []
-            for f in info.get("formats", []):
-                if f.get("url"):
-                    formats.append({
-                        "quality": f.get("format_note") or "HQ",
-                        "format": f.get("ext", "mp3").upper(),
-                        "resolution": "Audio",
-                        "size": format_size(f.get('filesize') or f.get('filesize_approx')),
-                        "url": f.get("url")
-                    })
-            
-            return {
-                "success": True, 
-                "data": {
-                    "id": str(info.get("id")),
-                    "url": url,
-                    "title": info.get("title", "Song"),
-                    "thumbnail": info.get("thumbnail"),
-                    "duration": f"{int(info.get('duration', 0)) // 60}m",
-                    "author": info.get("uploader", "Artist"),
-                    "platform": "Mirror" if is_spotify else info.get("extractor_key", "Audio"),
-                    "mediaType": "music",
-                    "qualities": formats[:10]
-                }
-            }
-    except Exception as e:
-        return JSONResponse(status_code=400, content={"success": False, "error": "Music mirror unavailable. Try again later."})
+    return {
+        "success": True, 
+        "data": {
+            "id": str(info.get("id")),
+            "url": url, # Keep original URL for the frontend
+            "title": info.get("title", "Song"),
+            "thumbnail": info.get("thumbnail"),
+            "duration": f"{int(info.get('duration', 0)) // 60}m",
+            "author": info.get("uploader", "Artist"),
+            "platform": "Spotify" if is_spotify else info.get("extractor_key", "Audio"),
+            "mediaType": "music",
+            "qualities": formats[:10]
+        }
+    }
 
 @app.get("/api/download")
 async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):
     temp_path = os.path.join(DOWNLOAD_DIR, f"{uuid.uuid4()}.mp4")
+    
+    # CRITICAL: Resolve mirror before downloading if it's a Spotify link
+    download_url = url
+    if "spotify.com" in url:
+        resolved_url, _ = await resolve_mirror(url)
+        if resolved_url: download_url = resolved_url
+
     ydl_opts = {'format': 'best', 'outtmpl': temp_path, 'quiet': True}
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.download([url]))
+            await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.download([download_url]))
         background_tasks.add_task(os.remove, temp_path)
         return FileResponse(path=temp_path, filename=filename)
     except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
