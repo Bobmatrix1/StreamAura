@@ -17,12 +17,10 @@ import {
   Volume2,
   ChevronDown,
   ExternalLink,
-  Square,
-  AlertCircle
+  Square
 } from 'lucide-react';
 import { useDownload } from '../contexts/DownloadContext';
 import { useToast } from '../contexts/ToastContext';
-import { API_BASE_URL } from '../api/mediaApi';
 import type { AudioQuality } from '@/types';
 
 const MusicDownloader: React.FC = () => {
@@ -33,7 +31,6 @@ const MusicDownloader: React.FC = () => {
   const [isAudioLoading, setIsAudioLoading] = useState(false);
   const [previewProgress, setPreviewProgress] = useState(0);
   const [isQualityDropdownOpen, setIsQualityDropdownOpen] = useState(false);
-  const [isDownloadingLocal, setIsDownloadingLocal] = useState(false);
   
   const inputRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -50,6 +47,8 @@ const MusicDownloader: React.FC = () => {
     cancelDownload
   } = useDownload();
   const { showSuccess, showError } = useToast();
+
+  const isDownloading = currentDownloadProgress > 0 && currentDownloadProgress < 100;
 
   useEffect(() => {
     if (isPlaying && audioRef.current) {
@@ -72,11 +71,7 @@ const MusicDownloader: React.FC = () => {
     setIsMatching(true);
     try {
       const info = await getMediaInfo(url);
-      if (info) {
-        setCurrentPreview(info);
-        setPreviewProgress(0);
-        setIsPlaying(false);
-      }
+      if (info) setCurrentPreview(info);
     } finally {
       setIsMatching(false);
     }
@@ -88,7 +83,6 @@ const MusicDownloader: React.FC = () => {
     setSelectedQuality(null);
     setIsPlaying(false);
     setIsMatching(false);
-    setIsDownloadingLocal(false);
     setPreviewProgress(0);
     if (audioRef.current) {
       audioRef.current.pause();
@@ -104,10 +98,10 @@ const MusicDownloader: React.FC = () => {
       setIsPlaying(false);
     } else {
       setIsAudioLoading(true);
-      // Use the direct mirror URL for instant preview
-      const previewUrl = currentPreview.qualities[0]?.url;
-      if (previewUrl) {
-        audioRef.current.src = previewUrl;
+      // Use the direct mirror URL for the preview player
+      const mirrorUrl = currentPreview.qualities[0]?.url;
+      if (mirrorUrl) {
+        audioRef.current.src = mirrorUrl;
         audioRef.current.play()
           .then(() => setIsPlaying(true))
           .catch(() => {
@@ -120,25 +114,12 @@ const MusicDownloader: React.FC = () => {
 
   const handleDownload = async () => {
     if (!currentPreview || !selectedQuality) return;
-    
-    setIsDownloadingLocal(true);
     try {
       const safeTitle = currentPreview.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      // CRITICAL: Send the MIRROR URL, not the Spotify link
-      const targetUrl = selectedQuality.url;
-      await downloadWithProgress(targetUrl, selectedQuality.quality, `${safeTitle}.mp3`);
+      // Use the mirror URL for download to avoid 500 error
+      await downloadWithProgress(selectedQuality.url, selectedQuality.quality, `${safeTitle}.mp3`);
       showSuccess('Download complete!');
-    } catch (error) {
-      // Error handled by context
-    } finally {
-      setIsDownloadingLocal(false);
-    }
-  };
-
-  const handleCancel = () => {
-    cancelDownload();
-    setIsDownloadingLocal(false);
-    setIsMatching(false);
+    } catch (error) {}
   };
 
   return (
@@ -158,7 +139,7 @@ const MusicDownloader: React.FC = () => {
             type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="Paste Audiomack, Spotify, or SoundCloud link..."
+            placeholder="Paste music link here..."
             className="w-full glass-input pl-12 pr-12 py-4 rounded-xl outline-none"
           />
           {url && <button onClick={handleClear} className="absolute right-4 top-1/2 -translate-y-1/2"><X className="w-4 h-4 text-muted-foreground" /></button>}
@@ -166,13 +147,13 @@ const MusicDownloader: React.FC = () => {
         <div className="flex gap-2">
           <button
             onClick={handleFetch}
-            disabled={!url.trim() || isLoadingPreview || isMatching || isDownloadingLocal}
+            disabled={!url.trim() || isLoadingPreview || isMatching}
             className="px-8 py-4 bg-orange-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 min-w-[120px]"
           >
             {isLoadingPreview || isMatching ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Fetch</span>}
           </button>
-          {(isMatching || isLoadingPreview || isDownloadingLocal) && (
-            <button onClick={handleCancel} className="px-4 py-4 bg-red-500/20 text-red-400 rounded-xl hover:bg-red-500/30 transition-all">
+          {(isMatching || isLoadingPreview || isDownloading) && (
+            <button onClick={() => { cancelDownload(); handleClear(); }} className="px-4 py-4 bg-red-500/20 text-red-400 rounded-xl hover:bg-red-500/30 transition-all">
               <Square size={20} fill="currentColor" />
             </button>
           )}
@@ -187,11 +168,11 @@ const MusicDownloader: React.FC = () => {
                 <div className="relative w-full md:w-40 aspect-square rounded-xl overflow-hidden bg-black/50 shadow-2xl">
                   {currentPreview.thumbnail && <img src={currentPreview.thumbnail} className="w-full h-full object-cover" />}
                   <button onClick={togglePreview} className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/40 transition-all">
-                    <div className="w-14 h-14 rounded-full bg-orange-500 flex items-center justify-center shadow-lg border border-white/20">
+                    <div className="w-14 h-14 rounded-full bg-orange-500 flex items-center justify-center shadow-lg">
                       {isAudioLoading ? <Loader2 className="w-6 h-6 text-white animate-spin" /> : isPlaying ? <Pause className="w-6 h-6 text-white" /> : <Play className="w-6 h-6 text-white fill-current ml-1" />}
                     </div>
                   </button>
-                  <audio ref={audioRef} onPlaying={() => setIsAudioLoading(false)} onEnded={() => setIsPlaying(false)} onCanPlay={() => setIsAudioLoading(false)} />
+                  <audio ref={audioRef} onPlaying={() => setIsAudioLoading(false)} onEnded={() => setIsPlaying(false)} />
                 </div>
 
                 <div className="flex-1 space-y-4">
@@ -202,7 +183,7 @@ const MusicDownloader: React.FC = () => {
                   {(isPlaying || previewProgress > 0) && (
                     <div className="space-y-2">
                       <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                        <motion.div animate={{ width: `${previewProgress}%` }} className="h-full bg-orange-500" />
+                        <motion.div animate={{ width: `${previewProgress}%` }} className="h-full bg-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.5)]" />
                       </div>
                       <div className="flex justify-between text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
                         <span>{isPlaying ? 'Playing Preview' : 'Paused'}</span>
@@ -220,35 +201,33 @@ const MusicDownloader: React.FC = () => {
                   <span className="font-bold text-sm">{selectedQuality ? selectedQuality.quality : 'Select MP3 Quality'}</span>
                   <ChevronDown className={`w-4 h-4 transition-transform ${isQualityDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
-                <AnimatePresence>
-                  {isQualityDropdownOpen && (
-                    <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="space-y-1 max-h-40 overflow-y-auto overflow-hidden">
-                      {currentPreview.qualities.map((q) => (
-                        <button key={q.url} onClick={() => { setSelectedQuality(q as AudioQuality); setIsQualityDropdownOpen(false); }} className="w-full p-3 text-left hover:bg-white/10 rounded-lg text-xs font-bold flex justify-between">
-                          <span>{q.quality}</span>
-                          <span className="opacity-50">{q.size}</span>
-                        </button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                {isQualityDropdownOpen && (
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {currentPreview.qualities.map((q) => (
+                      <button key={q.url} onClick={() => { setSelectedQuality(q as AudioQuality); setIsQualityDropdownOpen(false); }} className="w-full p-3 text-left hover:bg-white/5 rounded-lg text-xs font-bold flex justify-between">
+                        <span>{q.quality}</span>
+                        <span className="opacity-50">{q.size}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-col gap-2">
                 <button 
                   onClick={handleDownload} 
-                  disabled={!selectedQuality || isDownloadingLocal}
-                  className="flex-1 bg-gradient-to-r from-orange-600 to-pink-600 text-white font-black uppercase py-4 rounded-xl shadow-lg disabled:opacity-50"
+                  disabled={!selectedQuality || isDownloading}
+                  className="flex-1 bg-gradient-to-r from-orange-600 to-pink-600 text-white font-black uppercase tracking-widest py-4 rounded-xl shadow-lg disabled:opacity-50"
                 >
-                  {isDownloadingLocal ? (
+                  {isDownloading ? (
                     <div className="flex items-center justify-center gap-3">
                       <Loader2 className="w-5 h-5 animate-spin" />
                       <span>{currentDownloadProgress}%</span>
                     </div>
                   ) : 'Start Download'}
                 </button>
-                {isDownloadingLocal && (
-                  <button onClick={handleCancel} className="py-2.5 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 text-[10px] font-black uppercase transition-all flex items-center justify-center gap-2">
+                {isDownloading && (
+                  <button onClick={() => { cancelDownload(); handleClear(); }} className="py-2.5 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 text-[10px] font-black uppercase transition-all flex items-center justify-center gap-2">
                     <Square size={10} fill="currentColor" /> Cancel Download
                   </button>
                 )}

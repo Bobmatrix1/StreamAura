@@ -94,6 +94,10 @@ async def get_visitor_country(request: Request):
     device = "Mobile" if any(x in ua for x in ["iphone", "android", "mobile"]) else "Desktop"
     return {"country": country, "device": device}
 
+@app.get("/api/stream")
+async def stream_media(url: str):
+    return RedirectResponse(url=url)
+
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):
     if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Offline"})
@@ -117,20 +121,17 @@ async def broadcast_notification(request: Request):
 async def extract_info(request: ExtractRequest):
     url = request.url.strip()
     search_query = url
-    platform = "Audio"
+    platform = "Video"
     
-    # Spotify Metadata Mirroring (Most Stable)
     if "spotify.com" in url and sp:
         try:
             track_id = url.split("track/")[1].split("?")[0]
             track = sp.track(track_id)
-            artist = track['artists'][0]['name']
-            song_name = track['name']
-            search_query = f"scsearch1:{artist} {song_name} official"
+            search_query = f"ytsearch1:{track['artists'][0]['name']} {track['name']} official audio"
             platform = "Spotify"
         except: pass
     elif "audiomack.com" in url:
-        search_query = f"scsearch1:{url}"
+        search_query = f"ytsearch1:{url}"
         platform = "Audiomack"
 
     ydl_opts = {
@@ -167,21 +168,26 @@ async def extract_info(request: ExtractRequest):
                     "author": info.get("uploader", "Unknown"),
                     "platform": platform,
                     "mediaType": "music",
-                    "qualities": formats[:15]
+                    "qualities": formats[:10]
                 }
             }
     except Exception as e:
-        return JSONResponse(status_code=400, content={"success": False, "error": "This link is currently restricted."})
+        return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
 
 @app.get("/api/download")
 async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):
     temp_path = os.path.join(DOWNLOAD_DIR, f"{uuid.uuid4()}.mp4")
-    # For music, we try to download the mirror bestaudio
     ydl_opts = {'format': 'bestaudio/best', 'outtmpl': temp_path, 'quiet': True}
     try:
-        # Simple high-speed download
+        download_target = url
+        # SMART RESOLVER: If Spotify/Audiomack is passed, re-resolve to YouTube mirror
+        if "spotify.com" in url or "audiomack.com" in url:
+            with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+                info = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(f"ytsearch1:{url}", download=False))
+                if 'entries' in info: download_target = info['entries'][0]['url']
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.download([url]))
+            await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.download([download_target]))
         
         background_tasks.add_task(os.remove, temp_path)
         return FileResponse(path=temp_path, filename=filename)
