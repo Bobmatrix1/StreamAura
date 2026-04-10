@@ -27,11 +27,6 @@ load_dotenv()
 
 app = FastAPI(title="StreamAura API Master")
 
-# Stealth Headers
-STEALTH_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-}
-
 # Initialize Firebase
 try:
     if os.getenv("FIREBASE_PRIVATE_KEY"):
@@ -84,53 +79,6 @@ def format_size(size_bytes):
         return f"{size_bytes:.1f} TB"
     except: return "Fast"
 
-async def get_metadata_stealth(url: str):
-    try:
-        async with httpx.AsyncClient(headers=STEALTH_HEADERS, follow_redirects=True, timeout=10.0) as client:
-            resp = await client.get(url)
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            title = soup.find("meta", property="og:title")
-            artist = soup.find("meta", property="og:description") or soup.find("meta", property="twitter:creator")
-            t_str = title["content"] if title else ""
-            a_str = artist["content"] if artist else "Unknown Artist"
-            t_str = t_str.replace(" | Audiomack", "").strip()
-            if t_str: return f"{a_str} {t_str}"
-    except: pass
-    return url
-
-async def get_info_surgical(url: str):
-    is_spotify = "spotify.com" in url
-    is_audiomack = "audiomack.com" in url
-    search_query = url
-    platform_name = "Audio"
-
-    if is_spotify and sp:
-        try:
-            track_id = url.split("track/")[1].split("?")[0]
-            track = sp.track(track_id)
-            search_query = f"scsearch1:{track['artists'][0]['name']} {track['name']} official"
-            platform_name = "Spotify"
-        except: pass
-    elif is_audiomack:
-        meta_search = await get_metadata_stealth(url)
-        search_query = f"scsearch1:{meta_search}"
-        platform_name = "Audiomack"
-
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 'format': 'bestaudio/best'}
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
-            if 'entries' in info: info = info['entries'][0]
-            info['original_platform'] = platform_name
-            return info
-    except:
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(url, download=False))
-                info['original_platform'] = info.get('extractor_key', 'Audio')
-                return info
-        except: return None
-
 # =========================
 # ENDPOINTS
 # =========================
@@ -145,23 +93,6 @@ async def get_visitor_country(request: Request):
     ua = request.headers.get("user-agent", "").lower()
     device = "Mobile" if any(x in ua for x in ["iphone", "android", "mobile"]) else "Desktop"
     return {"country": country, "device": device}
-
-@app.get("/api/stream")
-async def stream_media(url: str):
-    """Proxies audio stream to bypass CORS and fix preview playback."""
-    info = await get_info_surgical(url)
-    if not info or not info.get('url'):
-        raise HTTPException(status_code=404, detail="Stream not found")
-    
-    stream_url = info['url']
-    
-    async def generate():
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            async with client.stream("GET", stream_url) as resp:
-                async for chunk in resp.aiter_bytes():
-                    yield chunk
-
-    return StreamingResponse(generate(), media_type="audio/mpeg")
 
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):
@@ -185,51 +116,82 @@ async def broadcast_notification(request: Request):
 @app.post("/api/extract")
 async def extract_info(request: ExtractRequest):
     url = request.url.strip()
-    url = re.sub(r'https?$', '', url)
+    search_query = url
+    platform = "Audio"
     
-    info = await get_info_surgical(url)
-    if not info:
-        return JSONResponse(status_code=400, content={"success": False, "error": "Song not found or blocked."})
-
-    formats = []
-    for f in info.get("formats", []):
-        if f.get("url"):
-            formats.append({
-                "quality": f.get("format_note") or "HQ",
-                "format": f.get("ext", "mp3").upper(),
-                "resolution": "Audio",
-                "size": format_size(f.get('filesize') or f.get('filesize_approx')),
-                "url": f.get("url")
-            })
+    # 1. STABLE SPOTIFY LOGIC
+    if "spotify.com" in url and sp:
+        try:
+            track_id = url.split("track/")[1].split("?")[0]
+            track = sp.track(track_id)
+            search_query = f"scsearch1:{track['artists'][0]['name']} {track['name']} official"
+            platform = "Spotify"
+        except: pass
     
-    # Internal stream URL for the preview player
-    stream_url = f"{str(request.base_url).rstrip('/')}/api/stream?url={urllib.parse.quote(url)}"
+    # 2. AUDIOMACK MIRROR LOGIC (Matches Spotify's approach)
+    elif "audiomack.com" in url:
+        # Search mirror directly using the URL as a query
+        search_query = f"scsearch1:{url}"
+        platform = "Audiomack"
 
-    return {
-        "success": True, 
-        "data": {
-            "id": str(info.get("id")),
-            "url": url,
-            "streamUrl": stream_url,
-            "title": info.get("title", "Song"),
-            "thumbnail": info.get("thumbnail"),
-            "duration": f"{int(info.get('duration', 0)) // 60}m",
-            "author": info.get("uploader", "Artist"),
-            "platform": info.get('original_platform', 'Audio'),
-            "mediaType": "music",
-            "qualities": formats[:15]
-        }
+    ydl_opts = {
+        'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 
+        'format': 'bestaudio/best',
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            loop = asyncio.get_event_loop()
+            # Try mirror search
+            info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
+            if 'entries' in info:
+                if not info['entries']: raise Exception("Mirror search failed.")
+                info = info['entries'][0]
+
+            formats = []
+            for f in info.get("formats", []):
+                if f.get("url"):
+                    formats.append({
+                        "quality": f.get("format_note") or "HQ",
+                        "format": f.get("ext", "mp3").upper(),
+                        "resolution": "Audio",
+                        "size": format_size(f.get('filesize') or f.get('filesize_approx')),
+                        "url": f.get("url")
+                    })
+            
+            return {
+                "success": True, 
+                "data": {
+                    "id": str(info.get("id")),
+                    "url": url,
+                    "title": info.get("title", "Song"),
+                    "thumbnail": info.get("thumbnail"),
+                    "duration": f"{int(info.get('duration', 0)) // 60}m",
+                    "author": info.get("uploader", "Artist"),
+                    "platform": platform,
+                    "mediaType": "music",
+                    "qualities": formats[:10]
+                }
+            }
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"success": False, "error": "This link is currently restricted. Try a different source."})
 
 @app.get("/api/download")
 async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):
     temp_path = os.path.join(DOWNLOAD_DIR, f"{uuid.uuid4()}.mp4")
-    info = await get_info_surgical(url)
-    download_url = info['url'] if info and info.get('url') else url
-    ydl_opts = {'format': 'best', 'outtmpl': temp_path, 'quiet': True}
+    # For music, we try to download the mirror bestaudio
+    ydl_opts = {'format': 'bestaudio/best', 'outtmpl': temp_path, 'quiet': True}
     try:
+        # If it's a Spotify link, we need to resolve it again for the download
+        # (Using scsearch for stability)
+        download_target = url
+        if "spotify.com" in url or "audiomack.com" in url:
+            download_target = f"scsearch1:{url}"
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.download([download_url]))
+            await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.download([download_target]))
+        
         background_tasks.add_task(os.remove, temp_path)
         return FileResponse(path=temp_path, filename=filename)
     except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
