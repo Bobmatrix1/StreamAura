@@ -27,7 +27,7 @@ load_dotenv()
 
 app = FastAPI(title="StreamAura API Master")
 
-# Initialize Firebase Admin
+# Initialize Firebase
 try:
     if os.getenv("FIREBASE_PRIVATE_KEY"):
         firebase_creds = {
@@ -104,9 +104,8 @@ async def broadcast_notification(request: Request):
     try:
         data = await request.json()
         title, message = data.get('title'), data.get('message')
-        users_docs = db_admin.collection('users').stream()
-        user_ids = [doc.id for doc in users_docs]
-        
+        users = db_admin.collection('users').get()
+        user_ids = [u.id for u in users]
         for i in range(0, len(user_ids), 500):
             batch = db_admin.batch()
             for uid in user_ids[i:i + 500]:
@@ -115,103 +114,73 @@ async def broadcast_notification(request: Request):
                 user_ref = db_admin.collection('users').document(uid)
                 batch.update(user_ref, {"unreadCount": firestore.Increment(1), "lastNotificationAt": firestore.SERVER_TIMESTAMP})
             batch.commit()
-            
-        # Simplified response to fix "undefined" on frontend
         return {"success": True, "data": {"delivered_to": len(user_ids)}}
     except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.post("/api/extract")
 async def extract_info(request: ExtractRequest):
     url = request.url.strip()
-    search_term = url
+    search_query = url
     is_spotify = "spotify.com" in url
     
-    # 1. ENHANCED SPOTIFY METADATA EXTRACTION
+    # 1. RESTORED STABLE SPOTIFY LOGIC
     if is_spotify and sp:
         try:
             track_id = url.split("track/")[1].split("?")[0]
             track = sp.track(track_id)
-            search_term = f"{track['artists'][0]['name']} {track['name']} official"
-            print(f"--- Spotify Snipe: {search_term} ---")
+            artist = track['artists'][0]['name']
+            song_name = track['name']
+            search_query = f"ytsearch1:{artist} {song_name} official audio"
+            print(f"--- Music Sniper: Found {artist} - {song_name} ---")
         except: pass
 
-    # 2. BULLETPROOF MIRROR EXTRACTION (Bypasses YT-DLP Bot Check)
-    # If direct extraction fails, we use a public resolver mirror
-    async def try_mirror_resolver(query):
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            try:
-                # Use a public YouTube search resolver to get clean metadata and formats
-                # This bypasses the Render server's IP block
-                resp = await client.get(f"https://pipedapi.kavin.rocks/search?q={urllib.parse.quote(query)}&filter=videos")
-                data = resp.json()
-                if data.get("items"):
-                    item = data["items"][0]
-                    v_resp = await client.get(f"https://pipedapi.kavin.rocks/streams/{item['url'].split('=')[1]}")
-                    v_data = v_resp.json()
-                    
-                    qualities = []
-                    for s in v_data.get("videoStreams", []):
-                        qualities.append({
-                            "quality": s.get("quality", "HD"),
-                            "format": s.get("format", "MP4").upper(),
-                            "resolution": s.get("quality", "720p"),
-                            "size": "Fast",
-                            "url": s.get("url")
-                        })
-                    
-                    return {
-                        "id": item['url'].split('=')[1],
-                        "title": item.get("title", "Media"),
-                        "thumbnail": item.get("thumbnail"),
-                        "duration": "Mirror",
-                        "author": item.get("uploaderName", "Unknown"),
-                        "platform": "Cloud Mirror",
-                        "mediaType": "music" if is_spotify else "video",
-                        "qualities": qualities[:10]
-                    }
-            except: pass
-        return None
-
-    # 3. MAIN EXTRACTION LOOP
+    # 2. STABLE YT-DLP OPTS (The "Fully Fine" Config)
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
+        'format': 'bestaudio/best',
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    
     try:
-        # Try local yt-dlp first with mobile player clients
-        ydl_opts = {
-            'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
-            'extractor_args': {'youtube': {'player_client': ['android', 'ios']}},
-            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)'
-        }
-        
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
-                loop = asyncio.get_event_loop()
-                info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch1:{search_term}" if is_spotify else url, download=False))
-                if 'entries' in info and info['entries']: info = info['entries'][0]
-                
-                formats = []
-                for f in info.get("formats", []):
-                    if f.get("vcodec") != "none" and f.get("url"):
-                        formats.append({
-                            "quality": f.get("format_note", "HD"), "format": f.get("ext", "mp4").upper(), 
-                            "resolution": f"{f.get('width','?')}x{f.get('height','?')}", 
-                            "size": format_size(f.get('filesize') or f.get('filesize_approx') or 0), "url": f.get("url")
-                        })
-                
-                return {"success": True, "data": {
-                    "id": str(info.get("id")), "url": url, "title": info.get("title", "Media"), 
-                    "thumbnail": info.get("thumbnail"), "duration": f"{int(info.get('duration', 0)) // 60}m", 
-                    "author": info.get("uploader", "Unknown"), "platform": info.get("extractor_key", "Video"), 
-                    "mediaType": "music" if is_spotify else "video", "qualities": formats[:15]
-                }}
-            except Exception as e:
-                # 4. CRITICAL FALLBACK: If yt-dlp is bot-blocked, use the Mirror Resolver
-                print(f"--- Bot Detected on Render, launching Mirror Fallback ---")
-                mirror_data = await try_mirror_resolver(search_term)
-                if mirror_data:
-                    return {"success": True, "data": mirror_data}
-                else:
-                    raise Exception("YouTube is temporarily blocking this request. Please try again in 5 minutes.")
+            loop = asyncio.get_event_loop()
+            info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
+            
+            if 'entries' in info:
+                if not info['entries']: raise Exception("No matching mirrors found.")
+                info = info['entries'][0]
 
-    except Exception as e: return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
+            formats = []
+            for f in info.get("formats", []):
+                # Filter for audio-only or high-quality MP4
+                if f.get("url"):
+                    formats.append({
+                        "quality": f.get("format_note") or f.get("quality_label") or "HD",
+                        "format": f.get("ext", "mp4").upper(),
+                        "resolution": f"{f.get('width','?')}x{f.get('height','?')}" if f.get('width') else "Audio",
+                        "size": format_size(f.get('filesize') or f.get('filesize_approx')),
+                        "url": f.get("url")
+                    })
+            
+            return {
+                "success": True, 
+                "data": {
+                    "id": str(info.get("id")),
+                    "url": url,
+                    "title": info.get("title", "Media"),
+                    "thumbnail": info.get("thumbnail"),
+                    "duration": f"{int(info.get('duration', 0)) // 60}m",
+                    "author": info.get("uploader", "Unknown"),
+                    "platform": "Spotify Mirror" if is_spotify else info.get("extractor_key", "Video"),
+                    "mediaType": "music" if is_spotify else "video",
+                    "qualities": formats[:15]
+                }
+            }
+    except Exception as e:
+        # Final catch-all for errors
+        return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
 
 @app.get("/api/download")
 async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):
