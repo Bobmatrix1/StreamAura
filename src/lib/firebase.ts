@@ -34,7 +34,7 @@ import {
   onSnapshot,
   initializeFirestore
 } from 'firebase/firestore';
-import { getMessaging, getToken } from 'firebase/messaging';
+import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import type { User, GlobalHistoryItem } from '@/types';
 
 const firebaseConfig = {

@@ -5,10 +5,6 @@ import time
 import re
 import urllib.parse
 import uuid
-import html
-import traceback
-import random
-from typing import List, Optional, Union
 import firebase_admin
 from firebase_admin import credentials, messaging, firestore
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Query
@@ -17,7 +13,6 @@ from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, Red
 from pydantic import BaseModel
 import yt_dlp
 import httpx
-from bs4 import BeautifulSoup
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 
@@ -25,7 +20,7 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from dotenv import load_dotenv
 load_dotenv()
 
-app = FastAPI(title="StreamAura API Master")
+app = FastAPI(title="StreamAura API Classic")
 
 # Initialize Firebase
 try:
@@ -50,15 +45,17 @@ try:
     else:
         firebase_admin.initialize_app()
     db_admin = firestore.client()
-except Exception as e:
-    print(f"--- Firebase Init Error: {e} ---")
+except:
     db_admin = None
 
 # Initialize Spotify
 sp = None
 if os.getenv("SPOTIFY_CLIENT_ID"):
     try:
-        sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=os.getenv("SPOTIFY_CLIENT_ID"), client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")))
+        sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
+            client_id=os.getenv("SPOTIFY_CLIENT_ID"), 
+            client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")
+        ))
     except: pass
 
 # CORS
@@ -86,14 +83,18 @@ def format_size(size_bytes):
 
 @app.get("/")
 @app.head("/")
-async def root(): return {"status": "online", "service": "StreamAura"}
+async def root(): return {"status": "online", "mode": "classic"}
 
 @app.get("/api/analytics/country")
 async def get_visitor_country(request: Request):
-    country = request.headers.get("cf-ipcountry") or request.headers.get("x-vercel-ip-country") or "Unknown"
+    country = request.headers.get("cf-ipcountry") or "Unknown"
     ua = request.headers.get("user-agent", "").lower()
     device = "Mobile" if any(x in ua for x in ["iphone", "android", "mobile"]) else "Desktop"
     return {"country": country, "device": device}
+
+@app.get("/api/stream")
+async def stream_media(url: str):
+    return RedirectResponse(url=url)
 
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):
@@ -112,28 +113,19 @@ async def broadcast_notification(request: Request):
 @app.post("/api/extract")
 async def extract_info(request: ExtractRequest):
     url = request.url.strip()
-    # Sanitize URL
-    url = re.sub(r'https?$', '', url)
     search_query = url
-    platform = "Media"
+    platform = "Video"
     
-    # Spotify Metadata Mirroring
+    # Clean Spotify/Classic Logic
     if "spotify.com" in url and sp:
         try:
             track_id = url.split("track/")[1].split("?")[0]
             track = sp.track(track_id)
-            artist = track['artists'][0]['name']
-            song_name = track['name']
-            # Search YouTube for the exact track
-            search_query = f"ytsearch1:{artist} {song_name} official audio"
+            search_query = f"ytsearch1:{track['artists'][0]['name']} {track['name']} official audio"
             platform = "Spotify"
-        except: 
-            search_query = f"ytsearch1:{url}"
-            platform = "Spotify"
-    elif "audiomack.com" in url:
-        platform = "Audiomack"
-    elif "youtube.com" in url or "youtu.be" in url:
-        platform = "YouTube"
+        except: platform = "Spotify"
+    elif "audiomack.com" in url: platform = "Audiomack"
+    elif "youtube.com" in url or "youtu.be" in url: platform = "YouTube"
 
     ydl_opts = {
         'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 
@@ -146,10 +138,8 @@ async def extract_info(request: ExtractRequest):
             loop = asyncio.get_event_loop()
             info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
             
-            # FIXED: Safety check for empty search results
             if 'entries' in info:
-                if not info['entries']:
-                    return JSONResponse(status_code=400, content={"success": False, "error": "No matching mirrors found. Try a different source."})
+                if not info['entries']: raise Exception("No results found.")
                 info = info['entries'][0]
 
             formats = []
@@ -173,8 +163,8 @@ async def extract_info(request: ExtractRequest):
                     "duration": f"{int(info.get('duration', 0)) // 60}m",
                     "author": info.get("uploader", "Unknown"),
                     "platform": platform,
-                    "mediaType": "music" if "audio" in search_query or platform == "Spotify" else "video",
-                    "qualities": formats[:15]
+                    "mediaType": "music" if platform in ["Spotify", "Audiomack"] or "audio" in search_query else "video",
+                    "qualities": formats[:10]
                 }
             }
     except Exception as e:
@@ -183,12 +173,17 @@ async def extract_info(request: ExtractRequest):
 @app.get("/api/download")
 async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):
     temp_path = os.path.join(DOWNLOAD_DIR, f"{uuid.uuid4()}.mp4")
-    ydl_opts = {'format': 'bestaudio/best' if filename.endswith('.mp3') else 'best', 'outtmpl': temp_path, 'quiet': True}
+    ydl_opts = {
+        'format': 'bestaudio/best' if filename.endswith('.mp3') else 'best', 
+        'outtmpl': temp_path, 
+        'quiet': True,
+        'nocheckcertificate': True
+    }
     try:
         download_target = url
-        # If it's a Spotify link, re-resolve to YouTube mirror for actual download
-        if "spotify.com" in url:
-            with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+        # If it's a search-based link, re-resolve it
+        if "spotify.com" in url or "audiomack.com" in url:
+            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
                 info = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(f"ytsearch1:{url}", download=False))
                 if 'entries' in info and info['entries']:
                     download_target = info['entries'][0]['url']
