@@ -15,7 +15,8 @@ import {
   Check,
   Loader2,
   ChevronDown,
-  ExternalLink
+  ExternalLink,
+  Square
 } from 'lucide-react';
 import { useDownload } from '../contexts/DownloadContext';
 import { useToast } from '../contexts/ToastContext';
@@ -24,7 +25,6 @@ import type { AudioQuality } from '@/types';
 const MusicDownloader: React.FC = () => {
   const [url, setUrl] = useState('');
   const [selectedQuality, setSelectedQuality] = useState<AudioQuality | null>(null);
-  const [isDownloading, setIsDownloading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMatching, setIsMatching] = useState(false);
   const [isAudioLoading, setIsAudioLoading] = useState(false);
@@ -32,7 +32,6 @@ const MusicDownloader: React.FC = () => {
   const [isQualityDropdownOpen, setIsQualityDropdownOpen] = useState(false);
   
   const inputRef = useRef<HTMLInputElement>(null);
-  const previewRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const previewIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
@@ -42,9 +41,13 @@ const MusicDownloader: React.FC = () => {
     setCurrentPreview, 
     isLoadingPreview, 
     downloadWithProgress,
-    currentDownloadProgress 
+    currentDownloadProgress,
+    cancelDownload,
+    activeDownloads
   } = useDownload();
   const { showSuccess, showError } = useToast();
+
+  const isDownloading = activeDownloads > 0;
 
   useEffect(() => {
     if (isPlaying && audioRef.current) {
@@ -67,7 +70,11 @@ const MusicDownloader: React.FC = () => {
     setIsMatching(true);
     try {
       const info = await getMediaInfo(url);
-      if (info) setCurrentPreview(info);
+      if (info) {
+        setCurrentPreview(info);
+        setIsPlaying(false);
+        setPreviewProgress(0);
+      }
     } finally {
       setIsMatching(false);
     }
@@ -94,9 +101,9 @@ const MusicDownloader: React.FC = () => {
       setIsPlaying(false);
     } else {
       setIsAudioLoading(true);
-      const audioUrl = currentPreview.qualities[0]?.url;
-      if (audioUrl) {
-        audioRef.current.src = audioUrl;
+      const streamUrl = currentPreview.qualities[0]?.url;
+      if (streamUrl) {
+        audioRef.current.src = streamUrl;
         audioRef.current.play()
           .then(() => setIsPlaying(true))
           .catch(() => {
@@ -109,14 +116,12 @@ const MusicDownloader: React.FC = () => {
 
   const handleDownload = async () => {
     if (!currentPreview || !selectedQuality) return;
-    setIsDownloading(true);
     try {
       const safeTitle = currentPreview.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      await downloadWithProgress(currentPreview.url, selectedQuality.quality, `${safeTitle}.mp3`);
+      // CRITICAL: Send the MIRROR URL, not the Spotify link, to avoid 500 error
+      await downloadWithProgress(selectedQuality.url, selectedQuality.quality, `${safeTitle}.mp3`);
       showSuccess('Download complete!');
-    } finally {
-      setIsDownloading(false);
-    }
+    } catch (error) {}
   };
 
   return (
@@ -136,18 +141,25 @@ const MusicDownloader: React.FC = () => {
             type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="Paste music link here..."
+            placeholder="Paste Spotify or music link..."
             className="w-full glass-input pl-12 pr-12 py-4 rounded-xl outline-none"
           />
-          {url && <button onClick={handleClear} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground"><X size={16} /></button>}
+          {url && <button onClick={handleClear} className="absolute right-4 top-1/2 -translate-y-1/2"><X className="w-4 h-4 text-muted-foreground" /></button>}
         </div>
-        <button
-          onClick={handleFetch}
-          disabled={!url.trim() || isLoadingPreview || isMatching}
-          className="px-8 py-4 bg-orange-600 text-white font-bold rounded-xl flex items-center justify-center gap-2"
-        >
-          {isLoadingPreview || isMatching ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Fetch</span>}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleFetch}
+            disabled={!url.trim() || isLoadingPreview || isMatching}
+            className="px-8 py-4 bg-orange-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 min-w-[120px]"
+          >
+            {isLoadingPreview || isMatching ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Fetch</span>}
+          </button>
+          {(isMatching || isLoadingPreview || isDownloading) && (
+            <button onClick={() => { cancelDownload(); handleClear(); }} className="px-4 py-4 bg-red-500/20 text-red-400 rounded-xl hover:bg-red-500/30">
+              <Square size={20} fill="currentColor" />
+            </button>
+          )}
+        </div>
       </div>
 
       <AnimatePresence>
@@ -157,7 +169,7 @@ const MusicDownloader: React.FC = () => {
               <div className="flex flex-col md:flex-row gap-6">
                 <div className="relative w-full md:w-40 aspect-square rounded-xl overflow-hidden bg-black/50 shadow-2xl">
                   {currentPreview.thumbnail && <img src={currentPreview.thumbnail} className="w-full h-full object-cover" />}
-                  <button onClick={togglePreview} className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/40 transition-all group">
+                  <button onClick={togglePreview} className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/40 transition-all">
                     <div className="w-14 h-14 rounded-full bg-orange-500 flex items-center justify-center shadow-lg group-active:scale-95 transition-transform">
                       {isAudioLoading ? <Loader2 className="w-6 h-6 text-white animate-spin" /> : isPlaying ? <Pause className="w-6 h-6 text-white" /> : <Play className="w-6 h-6 text-white fill-current ml-1" />}
                     </div>
@@ -172,7 +184,7 @@ const MusicDownloader: React.FC = () => {
                   </div>
                   {(isPlaying || previewProgress > 0) && (
                     <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                      <motion.div animate={{ width: `${previewProgress}%` }} className="h-full bg-orange-500" />
+                      <motion.div animate={{ width: `${previewProgress}%` }} className="h-full bg-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.5)]" />
                     </div>
                   )}
                 </div>
@@ -187,7 +199,7 @@ const MusicDownloader: React.FC = () => {
               <button 
                 onClick={handleDownload} 
                 disabled={!selectedQuality || isDownloading}
-                className="bg-gradient-to-r from-orange-600 to-pink-600 text-white font-black py-4 rounded-xl shadow-lg disabled:opacity-50"
+                className="bg-gradient-to-r from-orange-600 to-pink-600 text-white font-black uppercase tracking-widest py-4 rounded-xl shadow-lg disabled:opacity-50"
               >
                 {isDownloading ? (
                   <div className="flex items-center justify-center gap-3">
@@ -199,10 +211,10 @@ const MusicDownloader: React.FC = () => {
             </div>
 
             {isQualityDropdownOpen && (
-              <div className="glass-card p-2 space-y-1">
+              <div className="glass-card p-2 space-y-1 overflow-hidden">
                 {currentPreview.qualities.map((q) => (
-                  <button key={q.url} onClick={() => { setSelectedQuality(q as AudioQuality); setIsQualityDropdownOpen(false); }} className="w-full p-3 text-left hover:bg-white/10 rounded-lg text-xs font-bold flex justify-between group">
-                    <span className="group-hover:text-orange-400 transition-colors">{q.quality}</span>
+                  <button key={q.url} onClick={() => { setSelectedQuality(q as AudioQuality); setIsQualityDropdownOpen(false); }} className="w-full p-3 text-left hover:bg-white/10 rounded-lg text-xs font-bold flex justify-between">
+                    <span>{q.quality}</span>
                     <span className="opacity-50 font-medium">{q.size}</span>
                   </button>
                 ))}

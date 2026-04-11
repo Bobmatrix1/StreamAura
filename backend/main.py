@@ -13,7 +13,6 @@ from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, Red
 from pydantic import BaseModel
 import yt_dlp
 import httpx
-from bs4 import BeautifulSoup
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 
@@ -75,21 +74,6 @@ def format_size(size_bytes):
         return f"{size_bytes:.1f} TB"
     except: return "Fast"
 
-async def get_metadata_stealth(url: str):
-    """Deep scrapes metadata for Audiomack/Web links."""
-    try:
-        async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0"}, follow_redirects=True, timeout=10.0) as client:
-            resp = await client.get(url)
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            title = soup.find("meta", property="og:title")
-            artist = soup.find("meta", property="og:description") or soup.find("meta", property="twitter:creator")
-            t_str = title["content"] if title else ""
-            a_str = artist["content"] if artist else "Unknown Artist"
-            t_str = t_str.replace(" | Audiomack", "").strip()
-            if t_str: return f"{a_str} {t_str}"
-    except: pass
-    return url
-
 # =========================
 # ENDPOINTS
 # =========================
@@ -97,6 +81,17 @@ async def get_metadata_stealth(url: str):
 @app.get("/")
 @app.head("/")
 async def root(): return {"status": "online", "service": "StreamAura"}
+
+@app.get("/api/analytics/country")
+async def get_visitor_country(request: Request):
+    country = request.headers.get("cf-ipcountry") or "Unknown"
+    ua = request.headers.get("user-agent", "").lower()
+    device = "Mobile" if any(x in ua for x in ["iphone", "android", "mobile"]) else "Desktop"
+    return {"country": country, "device": device}
+
+@app.get("/api/stream")
+async def stream_media(url: str):
+    return RedirectResponse(url=url)
 
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):
@@ -116,82 +111,46 @@ async def broadcast_notification(request: Request):
 async def extract_info(request: ExtractRequest):
     url = request.url.strip()
     search_query = url
-    platform = "Music"
+    platform = "Video"
     
-    # 1. SOUNDCLOUD MIRROR ENGINE
     if "spotify.com" in url and sp:
         try:
             track_id = url.split("track/")[1].split("?")[0]
             track = sp.track(track_id)
-            # Switch to SoundCloud Search (scsearch1) for stability
-            search_query = f"scsearch1:{track['artists'][0]['name']} {track['name']} official"
+            search_query = f"scsearch1:{track['artists'][0]['name']} {track['name']} official audio"
             platform = "Spotify"
-        except: 
-            search_query = f"scsearch1:{url}"
-            platform = "Spotify"
-    elif "audiomack.com" in url:
-        meta = await get_metadata_stealth(url)
-        search_query = f"scsearch1:{meta}"
-        platform = "Audiomack"
+        except: platform = "Spotify"
+    elif "audiomack.com" in url: platform = "Audiomack"
 
-    ydl_opts = {
-        'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 
-        'format': 'bestaudio/best',
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
-    
+    ydl_opts = {'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 'format': 'bestaudio/best'}
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             loop = asyncio.get_event_loop()
             info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
+            if 'entries' in info: info = info['entries'][0]
             
-            if 'entries' in info:
-                if not info['entries']: raise Exception("No matching mirrors found on SoundCloud.")
-                info = info['entries'][0]
-
             formats = []
             for f in info.get("formats", []):
                 if f.get("url"):
-                    formats.append({
-                        "quality": f.get("format_note") or "HQ",
-                        "format": f.get("ext", "mp3").upper(),
-                        "resolution": "Audio",
-                        "size": format_size(f.get('filesize') or f.get('filesize_approx')),
-                        "url": f.get("url")
-                    })
+                    formats.append({"quality": f.get("format_note") or "HQ", "format": f.get("ext", "mp3").upper(), "resolution": "Audio", "size": format_size(f.get('filesize') or f.get('filesize_approx')), "url": f.get("url")})
             
-            return {
-                "success": True, 
-                "data": {
-                    "id": str(info.get("id")),
-                    "url": url,
-                    "title": info.get("title", "Media"),
-                    "thumbnail": info.get("thumbnail"),
-                    "duration": f"{int(info.get('duration', 0)) // 60}m",
-                    "author": info.get("uploader", "Unknown"),
-                    "platform": platform,
-                    "mediaType": "music",
-                    "qualities": formats[:10]
-                }
-            }
-    except Exception as e:
-        return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
+            return {"success": True, "data": {"id": str(info.get("id")), "url": url, "title": info.get("title", "Media"), "thumbnail": info.get("thumbnail"), "duration": f"{int(info.get('duration', 0)) // 60}m", "author": info.get("uploader", "Unknown"), "platform": platform, "mediaType": "music", "qualities": formats[:10]}}
+    except Exception as e: return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
 
 @app.get("/api/download")
 async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):
     temp_path = os.path.join(DOWNLOAD_DIR, f"{uuid.uuid4()}.mp4")
-    # For music, we try to download the SoundCloud mirror
-    ydl_opts = {'format': 'bestaudio/best', 'outtmpl': temp_path, 'quiet': True}
+    # For music, we try to download the best audio format
+    ydl_opts = {
+        'format': 'bestaudio/best' if filename.endswith('.mp3') else 'best', 
+        'outtmpl': temp_path, 
+        'quiet': True,
+        'nocheckcertificate': True
+    }
     try:
-        download_target = url
-        if "spotify.com" in url or "audiomack.com" in url:
-            # Re-resolve link to SoundCloud for actual download
-            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-                info = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(f"scsearch1:{url}", download=False))
-                if 'entries' in info: download_target = info['entries'][0]['url']
-
+        # PURE PROXY DOWNLOAD: The frontend now sends the WORKING mirror URL directly
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.download([download_target]))
+            await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.download([url]))
         
         background_tasks.add_task(os.remove, temp_path)
         return FileResponse(path=temp_path, filename=filename)
