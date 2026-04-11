@@ -116,12 +116,17 @@ const MusicDownloader: React.FC = () => {
 
   const handleDownload = async () => {
     if (!currentPreview || !selectedQuality) return;
+    setIsDownloadingLocal(true);
     try {
       const safeTitle = currentPreview.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      // CRITICAL: Send the MIRROR URL, not the Spotify link, to avoid 500 error
+      // Send the MIRROR URL found during extraction
       await downloadWithProgress(selectedQuality.url, selectedQuality.quality, `${safeTitle}.mp3`);
       showSuccess('Download complete!');
-    } catch (error) {}
+    } catch (error) {
+      // Error handled by context
+    } finally {
+      setIsDownloadingLocal(false);
+    }
   };
 
   return (
