@@ -5,6 +5,10 @@ import time
 import re
 import urllib.parse
 import uuid
+import html
+import traceback
+import random
+from typing import List, Optional, Union
 import firebase_admin
 from firebase_admin import credentials, messaging, firestore
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Query
@@ -13,6 +17,7 @@ from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, Red
 from pydantic import BaseModel
 import yt_dlp
 import httpx
+from bs4 import BeautifulSoup
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 
@@ -111,46 +116,82 @@ async def broadcast_notification(request: Request):
 async def extract_info(request: ExtractRequest):
     url = request.url.strip()
     search_query = url
-    platform = "Video"
+    platform = "Music"
     
+    # 1. Spotify/Audiomack to SoundCloud Mirror (Requested Stable Logic)
     if "spotify.com" in url and sp:
         try:
             track_id = url.split("track/")[1].split("?")[0]
             track = sp.track(track_id)
-            search_query = f"scsearch1:{track['artists'][0]['name']} {track['name']} official audio"
+            search_query = f"scsearch1:{track['artists'][0]['name']} {track['name']} official"
             platform = "Spotify"
-        except: platform = "Spotify"
-    elif "audiomack.com" in url: platform = "Audiomack"
+        except: 
+            search_query = f"scsearch1:{url}"
+            platform = "Spotify"
+    elif "audiomack.com" in url:
+        search_query = f"scsearch1:{url}"
+        platform = "Audiomack"
 
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 'format': 'bestaudio/best'}
+    ydl_opts = {
+        'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 
+        'format': 'bestaudio/best',
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             loop = asyncio.get_event_loop()
             info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
-            if 'entries' in info: info = info['entries'][0]
             
+            # FIXED: Safe entry extraction
+            if info and 'entries' in info:
+                if not info['entries']:
+                    return JSONResponse(status_code=400, content={"success": False, "error": "No matching mirrors found."})
+                info = info['entries'][0]
+
             formats = []
             for f in info.get("formats", []):
                 if f.get("url"):
-                    formats.append({"quality": f.get("format_note") or "HQ", "format": f.get("ext", "mp3").upper(), "resolution": "Audio", "size": format_size(f.get('filesize') or f.get('filesize_approx')), "url": f.get("url")})
+                    formats.append({
+                        "quality": f.get("format_note") or "HQ",
+                        "format": f.get("ext", "mp3").upper(),
+                        "resolution": "Audio",
+                        "size": format_size(f.get('filesize') or f.get('filesize_approx')),
+                        "url": f.get("url")
+                    })
             
-            return {"success": True, "data": {"id": str(info.get("id")), "url": url, "title": info.get("title", "Media"), "thumbnail": info.get("thumbnail"), "duration": f"{int(info.get('duration', 0)) // 60}m", "author": info.get("uploader", "Unknown"), "platform": platform, "mediaType": "music", "qualities": formats[:10]}}
-    except Exception as e: return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
+            return {
+                "success": True, 
+                "data": {
+                    "id": str(info.get("id")),
+                    "url": url,
+                    "title": info.get("title", "Media"),
+                    "thumbnail": info.get("thumbnail"),
+                    "duration": f"{int(info.get('duration', 0)) // 60}m",
+                    "author": info.get("uploader", "Unknown"),
+                    "platform": platform,
+                    "mediaType": "music",
+                    "qualities": formats[:15]
+                }
+            }
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
 
 @app.get("/api/download")
 async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):
     temp_path = os.path.join(DOWNLOAD_DIR, f"{uuid.uuid4()}.mp4")
-    # For music, we try to download the best audio format
-    ydl_opts = {
-        'format': 'bestaudio/best' if filename.endswith('.mp3') else 'best', 
-        'outtmpl': temp_path, 
-        'quiet': True,
-        'nocheckcertificate': True
-    }
+    ydl_opts = {'format': 'bestaudio/best', 'outtmpl': temp_path, 'quiet': True}
     try:
-        # PURE PROXY DOWNLOAD: The frontend now sends the WORKING mirror URL directly
+        # Re-resolve Spotify/Audiomack to SoundCloud for actual download
+        target_url = url
+        if "spotify.com" in url or "audiomack.com" in url:
+            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+                info = await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.extract_info(f"scsearch1:{url}", download=False))
+                if info and 'entries' in info and info['entries']:
+                    target_url = info['entries'][0]['url']
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.download([url]))
+            await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.download([target_url]))
         
         background_tasks.add_task(os.remove, temp_path)
         return FileResponse(path=temp_path, filename=filename)
