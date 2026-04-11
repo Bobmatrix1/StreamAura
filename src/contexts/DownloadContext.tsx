@@ -340,7 +340,7 @@ export const DownloadProvider: React.FC<DownloadProviderProps> = ({ children }) 
       
       const contentType = response.headers.get('Content-Type');
       if (!response.ok || (contentType && contentType.includes('text/html'))) {
-        throw new Error('Backend server is not responding correctly. Ensure the Python backend is running on port 8000.');
+        throw new Error('Download server is currently busy. Please try again in a few moments.');
       }
 
       const reader = response.body?.getReader();
