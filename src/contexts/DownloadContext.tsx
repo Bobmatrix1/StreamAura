@@ -151,7 +151,7 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
       url,
       status: 'waiting',
       progress: 0,
-      timestamp: Date.now()
+      createdAt: Date.now()
     }));
     setQueue(prev => [...prev, ...newItems]);
     showSuccess(`Added ${urls.length} links to queue`);

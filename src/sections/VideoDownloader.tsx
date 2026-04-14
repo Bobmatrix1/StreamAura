@@ -7,11 +7,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Link2, 
   X, 
-  Download, 
   Play, 
-  Pause,
   User,
-  Check,
   Loader2,
   ExternalLink,
   Video as VideoIcon,
@@ -341,12 +338,5 @@ const VideoDownloader: React.FC = () => {
     </div>
   );
 };
-
-// Simplified icon component
-const Zap: React.FC<{ className?: string }> = ({ className }) => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d="M4 14.71 14 3l-3 8.29H20L10 21l3-8.29H4Z"/>
-  </svg>
-);
 
 export default VideoDownloader;
