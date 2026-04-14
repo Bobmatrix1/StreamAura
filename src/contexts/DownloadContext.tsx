@@ -65,27 +65,21 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
   const { showSuccess, showError } = useToast();
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  /**
-   * Fetch media info
-   */
   const getMediaInfo = useCallback(async (url: string): Promise<VideoInfo | MusicInfo | null> => {
     setIsLoadingPreview(true);
     try {
       const result = await mediaApi.extractVideoInfo(url);
       if (result.success && result.data) return result.data;
-      showError(result.error || 'Mirror not found. Try another link.');
+      showError(result.error || 'Mirror not found.');
       return null;
     } catch (error) {
-      showError('Backend server is busy. Please try again.');
+      showError('Server busy. Try again.');
       return null;
     } finally {
       setIsLoadingPreview(false);
     }
   }, [showError]);
 
-  /**
-   * Download with Progress
-   */
   const downloadWithProgress = useCallback(async (
     url: string, 
     quality: string,
@@ -100,13 +94,13 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
 
     try {
       const baseUrl = API_BASE_URL || window.location.origin;
+      // CRITICAL: Ensure the URL is not empty
+      if (!url) throw new Error('Download URL is missing.');
+
       const downloadUrl = `${baseUrl}/api/download?url=${encodeURIComponent(url)}&quality=${encodeURIComponent(quality)}&filename=${encodeURIComponent(filename)}${referer ? `&referer=${encodeURIComponent(referer)}` : ''}`;
       
       const response = await fetch(downloadUrl, { signal });
-      
-      if (!response.ok) {
-        throw new Error('The download server is currently busy. Please try again in 30 seconds.');
-      }
+      if (!response.ok) throw new Error('Download server busy.');
 
       const reader = response.body?.getReader();
       const contentLength = +(response.headers.get('Content-Length') ?? 0);
@@ -169,34 +163,40 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
     const item = queue.find(q => q.id === id);
     if (!item) return;
 
+    // Set to processing while we fetch mirrors
     setQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'processing' } : q));
 
     try {
+      // 1. Fetch Mirror Info (Same as Music Downloader logic)
       const info = await getMediaInfo(item.url);
-      if (info) {
-        setQueue(prev => prev.map(q => q.id === id ? { 
-          ...q, 
-          status: 'downloading', 
-          mediaInfo: info 
-        } : q));
-
-        const selectedQ = quality || info.qualities[0];
-        const safeTitle = info.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-        const ext = info.mediaType === 'music' ? 'mp3' : 'mp4';
-        
-        await downloadWithProgress(
-          selectedQ.url, 
-          selectedQ.quality, 
-          `${safeTitle}.${ext}`
-        );
-
-        setQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'completed', progress: 100 } : q));
-      } else {
-        throw new Error('Failed to fetch info');
+      if (!info || !info.qualities || info.qualities.length === 0) {
+        throw new Error('No working mirrors found');
       }
-    } catch (err) {
-      setQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'error' } : q));
-      showError(`Failed to download: ${item.url}`);
+
+      // 2. Select Quality (Mirror URL)
+      const selectedQ = quality || info.qualities[0];
+      const safeTitle = info.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+      const ext = info.mediaType === 'music' ? 'mp3' : 'mp4';
+      
+      // Update item status to downloading
+      setQueue(prev => prev.map(q => q.id === id ? { 
+        ...q, 
+        status: 'downloading', 
+        mediaInfo: info,
+        selectedQuality: selectedQ
+      } : q));
+
+      // 3. Download using the RESOLVED mirror URL
+      await downloadWithProgress(
+        selectedQ.url, 
+        selectedQ.quality, 
+        `${safeTitle}.${ext}`
+      );
+
+      setQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'completed', progress: 100 } : q));
+    } catch (err: any) {
+      setQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'error', error: err.message } : q));
+      showError(`Queue Error: ${err.message}`);
     }
   }, [queue, getMediaInfo, downloadWithProgress, showError]);
 
@@ -208,28 +208,12 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, [showSuccess]);
 
   const value = {
-    queue, 
-    addToQueue, 
-    removeFromQueue, 
-    clearQueue,
-    startDownload, 
-    downloadWithProgress, 
-    downloadAll: async () => {},
-    cancelDownload, 
-    pauseDownload: () => {}, 
-    getMediaInfo, 
-    currentPreview, 
-    setCurrentPreview, 
-    isLoadingPreview, 
-    history, 
-    addToHistory: () => {},
-    clearHistory: () => {}, 
-    removeFromHistory: () => {}, 
-    activeDownloads,
-    currentDownloadProgress, 
-    maxConcurrent: 3, 
-    isPaused, 
-    activeStage
+    queue, addToQueue, removeFromQueue, clearQueue,
+    startDownload, downloadWithProgress, downloadAll: async () => {},
+    cancelDownload, pauseDownload: () => {}, getMediaInfo, currentPreview, 
+    setCurrentPreview, isLoadingPreview, history, addToHistory: () => {},
+    clearHistory: () => {}, removeFromHistory: () => {}, activeDownloads,
+    currentDownloadProgress, maxConcurrent: 3, isPaused, activeStage
   };
 
   return <DownloadContext.Provider value={value as any}>{children}</DownloadContext.Provider>;
