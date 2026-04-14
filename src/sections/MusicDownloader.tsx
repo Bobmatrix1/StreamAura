@@ -2,22 +2,27 @@
  * Music Downloader Component
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Link2, 
   X, 
+  Download, 
   Play, 
   Pause,
+  User,
   Music,
+  Check,
   Loader2,
   Volume2,
   ChevronDown,
+  ExternalLink,
   Square,
   AlertCircle
 } from 'lucide-react';
 import { useDownload } from '../contexts/DownloadContext';
 import { useToast } from '../contexts/ToastContext';
+import { API_BASE_URL } from '../api/mediaApi';
 import type { AudioQuality } from '@/types';
 
 const MusicDownloader: React.FC = () => {
@@ -101,9 +106,10 @@ const MusicDownloader: React.FC = () => {
       setIsPlaying(false);
     } else {
       setIsAudioLoading(true);
-      const streamUrl = currentPreview.qualities[0]?.url;
-      if (streamUrl) {
-        audioRef.current.src = streamUrl;
+      // Ensure we use the direct mirror URL for the preview player
+      const mirrorUrl = currentPreview.qualities[0]?.url;
+      if (mirrorUrl) {
+        audioRef.current.src = mirrorUrl;
         audioRef.current.play()
           .then(() => setIsPlaying(true))
           .catch(() => {

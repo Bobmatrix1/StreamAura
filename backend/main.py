@@ -151,6 +151,9 @@ async def extract_info(request: ExtractRequest):
 
             formats = [{"quality": f.get("format_note") or "HQ", "format": f.get("ext", "mp3").upper(), "resolution": "Audio", "size": format_size(f.get('filesize') or f.get('filesize_approx')), "url": f.get("url")} for f in info.get("formats", []) if f.get("url")]
             
+            # Correctly map artist name for frontend
+            artist_name = info.get("uploader") or info.get("artist") or info.get("creator") or "Unknown Artist"
+            
             return {
                 "success": True, 
                 "data": {
@@ -159,7 +162,7 @@ async def extract_info(request: ExtractRequest):
                     "title": info.get("title", "Media"),
                     "thumbnail": info.get("thumbnail"),
                     "duration": f"{int(info.get('duration', 0)) // 60}m",
-                    "author": info.get("uploader") or info.get("artist") or "Artist",
+                    "author": artist_name,
                     "platform": platform,
                     "mediaType": "music",
                     "qualities": formats[:10]
