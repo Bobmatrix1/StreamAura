@@ -181,13 +181,7 @@ const MovieDownloader: React.FC = () => {
         selectedQuality.url, 
         selectedQuality.quality, 
         filename, 
-        selectedMovie.referer, 
-        selectedMovie.id,
-        searchType,
-        selectedSeason || undefined,
-        selectedEpisode || undefined,
-        selectedMovie.title,
-        selectedMovie.thumbnail
+        selectedMovie.referer
       );
       
       setIsDownloading(false);
