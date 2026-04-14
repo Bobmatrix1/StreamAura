@@ -98,38 +98,15 @@ async def try_cloud_mirror(video_id: str):
                 if resp.status_code == 200:
                     data = resp.json()
                     formats = []
-                    # Handle Piped API format
                     if "videoStreams" in data:
                         for s in data["videoStreams"]:
                             if not s.get("videoOnly"):
-                                formats.append({
-                                    "quality": s.get("quality", "HD"),
-                                    "format": "MP4",
-                                    "resolution": s.get("quality", "720p"),
-                                    "size": "Fast",
-                                    "url": s.get("url")
-                                })
-                    # Handle Invidious API format
+                                formats.append({"quality": s.get("quality", "HD"), "format": "MP4", "resolution": s.get("quality", "720p"), "size": "Fast", "url": s.get("url")})
                     elif "formatStreams" in data:
                         for s in data["formatStreams"]:
-                            formats.append({
-                                "quality": s.get("qualityLabel", "HD"),
-                                "format": "MP4",
-                                "resolution": s.get("resolution", "720p"),
-                                "size": s.get("size", "Fast"),
-                                "url": s.get("url")
-                            })
-                    
+                            formats.append({"quality": s.get("qualityLabel", "HD"), "format": "MP4", "resolution": s.get("resolution", "720p"), "size": s.get("size", "Fast"), "url": s.get("url")})
                     if formats:
-                        return {
-                            "id": video_id,
-                            "title": data.get("title", "YouTube Video"),
-                            "thumbnail": data.get("thumbnailUrl") or (data.get("videoThumbnails")[0]["url"] if data.get("videoThumbnails") else ""),
-                            "duration": "Mirror",
-                            "author": data.get("uploader", "Artist"),
-                            "platform": "YouTube Mirror",
-                            "qualities": formats[:10]
-                        }
+                        return {"id": video_id, "title": data.get("title", "YouTube Video"), "thumbnail": data.get("thumbnailUrl") or (data.get("videoThumbnails")[0]["url"] if data.get("videoThumbnails") else ""), "duration": "Mirror", "author": data.get("uploader", "Artist"), "platform": "YouTube Mirror", "qualities": formats[:10]}
             except: continue
     return None
 
@@ -140,6 +117,31 @@ async def try_cloud_mirror(video_id: str):
 @app.get("/")
 @app.head("/")
 async def root(): return {"status": "online", "service": "StreamAura"}
+
+@app.get("/api/analytics/country")
+async def get_visitor_country(request: Request):
+    country = request.headers.get("cf-ipcountry") or request.headers.get("x-vercel-ip-country") or "Unknown"
+    ua = request.headers.get("user-agent", "").lower()
+    device = "Mobile" if any(x in ua for x in ["iphone", "android", "mobile"]) else "Desktop"
+    return {"country": country, "device": device}
+
+@app.get("/api/stream")
+async def stream_media(url: str):
+    return RedirectResponse(url=url)
+
+@app.post("/api/admin/broadcast")
+async def broadcast_notification(request: Request):
+    if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Offline"})
+    try:
+        data = await request.json()
+        title, message = data.get('title'), data.get('message')
+        users = db_admin.collection('users').get()
+        for u in users:
+            notif_ref = db_admin.collection('users').document(u.id).collection('notifications').document()
+            notif_ref.set({"title": title, "message": message, "timestamp": firestore.SERVER_TIMESTAMP, "read": False, "type": "update"})
+            db_admin.collection('users').document(u.id).update({"unreadCount": firestore.Increment(1)})
+        return {"success": True, "data": {"delivered_to": len(users)}}
+    except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.post("/api/extract")
 async def extract_info(request: ExtractRequest):
@@ -159,15 +161,9 @@ async def extract_info(request: ExtractRequest):
         search_query = f"scsearch1:{url}"
         platform = "Audiomack"
 
-    # THE BOT BYPASS CONFIG
     ydl_opts = {
         'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'ios', 'mweb'],
-                'skip': ['hls', 'dash']
-            }
-        },
+        'extractor_args': {'youtube': {'player_client': ['android', 'ios', 'mweb'], 'skip': ['hls', 'dash']}},
         'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
     }
     
@@ -180,17 +176,13 @@ async def extract_info(request: ExtractRequest):
                     if not info['entries']: raise Exception("No matching mirrors found.")
                     info = info['entries'][0]
             except Exception as e:
-                # CRITICAL FALLBACK: If YouTube blocks Render, use the Cloud Mirror Sniper
                 if is_youtube or "ytsearch" in search_query:
-                    print("--- Bot Detected, launching Cloud Mirror Sniper ---")
                     video_id = ""
                     if "v=" in url: video_id = url.split("v=")[1].split("&")[0]
                     elif "youtu.be/" in url: video_id = url.split("youtu.be/")[1].split("?")[0]
-                    
                     if video_id:
                         mirror_data = await try_cloud_mirror(video_id)
-                        if mirror_data:
-                            return {"success": True, "data": mirror_data}
+                        if mirror_data: return {"success": True, "data": mirror_data}
                 raise e
 
             formats = [{"quality": f.get("format_note") or "HQ", "format": f.get("ext", "mp4").upper(), "resolution": "Audio" if f.get("vcodec") == "none" else f"{f.get('width','?')}x{f.get('height','?')}", "size": format_size(f.get('filesize') or f.get('filesize_approx')), "url": f.get("url")} for f in info.get("formats", []) if f.get("url")]
