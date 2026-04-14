@@ -19,7 +19,7 @@ interface DownloadContextType {
   addToQueue: (urls: string[]) => void;
   removeFromQueue: (id: string) => void;
   clearQueue: () => void;
-  startDownload: (id: string, quality: VideoQuality | AudioQuality) => Promise<void>;
+  startDownload: (id: string, quality?: VideoQuality | AudioQuality) => Promise<void>;
   downloadWithProgress: (
     url: string, 
     quality: string, 
@@ -53,7 +53,7 @@ export const useDownload = (): DownloadContextType => {
 };
 
 export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [queue] = useState<DownloadItem[]>([]);
+  const [queue, setQueue] = useState<DownloadItem[]>([]);
   const [history] = useState<HistoryItem[]>([]);
   const [currentPreview, setCurrentPreview] = useState<VideoInfo | MusicInfo | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
@@ -92,8 +92,6 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
     filename: string,
     referer?: string
   ): Promise<void> => {
-    // Basic implementation for build stability
-    // We can re-add full logic if needed, but keeping it clean for build
     setActiveDownloads(prev => prev + 1);
     setCurrentDownloadProgress(0);
     
@@ -147,6 +145,61 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   }, [showSuccess, showError]);
 
+  const addToQueue = useCallback((urls: string[]) => {
+    const newItems: DownloadItem[] = urls.map(url => ({
+      id: Math.random().toString(36).substring(7),
+      url,
+      status: 'waiting',
+      progress: 0,
+      timestamp: Date.now()
+    }));
+    setQueue(prev => [...prev, ...newItems]);
+    showSuccess(`Added ${urls.length} links to queue`);
+  }, [showSuccess]);
+
+  const removeFromQueue = useCallback((id: string) => {
+    setQueue(prev => prev.filter(item => item.id !== id));
+  }, []);
+
+  const clearQueue = useCallback(() => {
+    setQueue([]);
+  }, []);
+
+  const startDownload = useCallback(async (id: string, quality?: VideoQuality | AudioQuality) => {
+    const item = queue.find(q => q.id === id);
+    if (!item) return;
+
+    setQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'processing' } : q));
+
+    try {
+      const info = await getMediaInfo(item.url);
+      if (info) {
+        setQueue(prev => prev.map(q => q.id === id ? { 
+          ...q, 
+          status: 'downloading', 
+          mediaInfo: info 
+        } : q));
+
+        const selectedQ = quality || info.qualities[0];
+        const safeTitle = info.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        const ext = info.mediaType === 'music' ? 'mp3' : 'mp4';
+        
+        await downloadWithProgress(
+          selectedQ.url, 
+          selectedQ.quality, 
+          `${safeTitle}.${ext}`
+        );
+
+        setQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'completed', progress: 100 } : q));
+      } else {
+        throw new Error('Failed to fetch info');
+      }
+    } catch (err) {
+      setQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'error' } : q));
+      showError(`Failed to download: ${item.url}`);
+    }
+  }, [queue, getMediaInfo, downloadWithProgress, showError]);
+
   const cancelDownload = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -156,10 +209,10 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const value = {
     queue, 
-    addToQueue: () => {}, 
-    removeFromQueue: () => {}, 
-    clearQueue: () => {},
-    startDownload: async () => {}, 
+    addToQueue, 
+    removeFromQueue, 
+    clearQueue,
+    startDownload, 
     downloadWithProgress, 
     downloadAll: async () => {},
     cancelDownload, 

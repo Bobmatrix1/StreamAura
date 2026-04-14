@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useDownload } from '../contexts/DownloadContext';
 import { useToast } from '../contexts/ToastContext';
+import { API_BASE_URL } from '../api/mediaApi';
 import type { AudioQuality } from '@/types';
 
 const MusicDownloader: React.FC = () => {
@@ -103,17 +104,17 @@ const MusicDownloader: React.FC = () => {
       setIsPlaying(false);
     } else {
       setIsAudioLoading(true);
-      // Ensure we use the direct mirror URL for the preview player
-      const mirrorUrl = currentPreview.qualities[0]?.url;
-      if (mirrorUrl) {
-        audioRef.current.src = mirrorUrl;
-        audioRef.current.play()
-          .then(() => setIsPlaying(true))
-          .catch(() => {
-            setIsAudioLoading(false);
-            showError('Preview unavailable.');
-          });
-      }
+      // Use the stream endpoint which acts as a proxy to bypass CORS
+      const streamUrl = `${API_BASE_URL}/api/stream?url=${encodeURIComponent(currentPreview.qualities[0]?.url || currentPreview.url)}`;
+      
+      audioRef.current.src = streamUrl;
+      audioRef.current.play()
+        .then(() => setIsPlaying(true))
+        .catch((err) => {
+          console.error('Preview Play Error:', err);
+          setIsAudioLoading(false);
+          showError('Preview unavailable.');
+        });
     }
   };
 
@@ -143,7 +144,10 @@ const MusicDownloader: React.FC = () => {
         <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-br from-orange-500 to-pink-600 flex items-center justify-center shadow-lg">
           <Music className="w-10 h-10 text-white" />
         </div>
-        <h2 className="text-4xl font-bold gradient-text">Music Downloader</h2>
+        <h2 className="text-4xl font-bold gradient-text uppercase tracking-tighter">music Downloader</h2>
+        <p className="text-muted-foreground max-w-md mx-auto px-4">
+          Download high-quality songs from spotify, apple music, YouTube music, and more without watermarks.
+        </p>
       </div>
 
       <div className="glass-card p-3 flex flex-col md:flex-row gap-3">
@@ -268,6 +272,22 @@ const MusicDownloader: React.FC = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {!currentPreview && !isLoadingPreview && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="text-center py-20 glass-card bg-white/[0.02] mx-4 md:mx-0"
+        >
+          <div className="w-20 h-20 mx-auto mb-6 rounded-3xl bg-white/5 flex items-center justify-center border border-white/5">
+            <Music className="w-8 h-8 text-muted-foreground opacity-30" />
+          </div>
+          <h3 className="text-xl font-bold mb-2">Ready to Download</h3>
+          <p className="text-muted-foreground max-w-md mx-auto px-4">
+            Paste a music link above and we'll fetch all available qualities for you to choose from.
+          </p>
+        </motion.div>
+      )}
 
       <div className="p-4 rounded-2xl bg-orange-500/5 border border-orange-500/10 flex items-start gap-3">
         <AlertCircle className="w-5 h-5 text-orange-400 mt-0.5" />
