@@ -2,17 +2,15 @@
  * Music Downloader Component
  */
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Link2, 
   X, 
-  Download, 
   Play, 
   Pause,
   User,
   Music,
-  Check,
   Loader2,
   Volume2,
   ChevronDown,
@@ -22,7 +20,6 @@ import {
 } from 'lucide-react';
 import { useDownload } from '../contexts/DownloadContext';
 import { useToast } from '../contexts/ToastContext';
-import { API_BASE_URL } from '../api/mediaApi';
 import type { AudioQuality } from '@/types';
 
 const MusicDownloader: React.FC = () => {
