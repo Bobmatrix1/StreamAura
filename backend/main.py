@@ -159,10 +159,10 @@ async def extract_info(request: ExtractRequest):
                     "title": info.get("title", "Media"),
                     "thumbnail": info.get("thumbnail"),
                     "duration": f"{int(info.get('duration', 0)) // 60}m",
-                    "author": info.get("uploader", "Unknown"),
+                    "author": info.get("uploader") or info.get("artist") or "Artist",
                     "platform": platform,
                     "mediaType": "music",
-                    "qualities": formats[:15]
+                    "qualities": formats[:10]
                 }
             }
     except Exception as e:

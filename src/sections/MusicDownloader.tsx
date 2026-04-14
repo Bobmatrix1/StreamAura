@@ -190,7 +190,20 @@ const MusicDownloader: React.FC = () => {
                 <div className="flex-1 space-y-4">
                   <div>
                     <h3 className="text-xl font-bold line-clamp-2">{currentPreview.title}</h3>
-                    <p className="text-orange-400 text-xs font-black uppercase tracking-widest">{currentPreview.platform}</p>
+                    <a 
+                      href={currentPreview.url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-orange-400 text-xs font-black uppercase tracking-widest flex items-center gap-1 hover:underline w-fit group"
+                    >
+                      {currentPreview.platform}
+                      <ExternalLink size={10} className="opacity-50 group-hover:opacity-100 transition-opacity" />
+                    </a>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <div className="px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                      <User size={12} /> {currentPreview.author || "Unknown Artist"}
+                    </div>
                   </div>
                   {(isPlaying || previewProgress > 0) && (
                     <div className="space-y-2">
