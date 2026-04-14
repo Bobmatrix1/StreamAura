@@ -107,7 +107,7 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
       const response = await fetch(downloadUrl, { signal });
       
       if (!response.ok) {
-        throw new Error('Download server is currently busy. Please try again.');
+        throw new Error('The download server is currently busy. Please try again in 30 seconds.');
       }
 
       const reader = response.body?.getReader();

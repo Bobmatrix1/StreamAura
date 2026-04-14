@@ -117,14 +117,10 @@ const MovieDownloader: React.FC = () => {
       if (result.success && result.data) {
         setSelectedMovie(result.data);
         
-        // Auto-select first season/episode for series
-        if (searchType === 'series' && result.data.seasons && result.data.seasons.length > 0) {
-          const firstSeason = result.data.seasons[0];
-          setSelectedSeason(firstSeason.season);
-          if (firstSeason.episodes && firstSeason.episodes.length > 0) {
-            setSelectedEpisode(firstSeason.episodes[0]);
-            handleSelectEpisode(firstSeason.season, firstSeason.episodes[0], result.data);
-          }
+        if (result.data.qualities && result.data.qualities.length > 0) {
+          setSelectedQuality(result.data.qualities[0]);
+        } else {
+          showError('No high-speed download mirrors found for this title yet. Please try another movie.');
         }
       } else {
         showError(result.error || 'Failed to get details');
