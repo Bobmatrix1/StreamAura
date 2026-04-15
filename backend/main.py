@@ -112,66 +112,135 @@ async def broadcast_notification(request: Request):
 async def extract_info(request: ExtractRequest):
     url = request.url.strip()
     search_query = url
-    platform = "Music"
+    platform = "Unknown"
+    media_type = "video" # Default to video as it's more common for general links
+    
+    # Platform Detection
+    if "youtube.com" in url or "youtu.be" in url: platform = "YouTube"
+    elif "tiktok.com" in url: platform = "TikTok"
+    elif "instagram.com" in url: platform = "Instagram"
+    elif "facebook.com" in url or "fb.watch" in url: platform = "Facebook"
+    elif "twitter.com" in url or "x.com" in url: platform = "Twitter"
+    elif "soundcloud.com" in url: 
+        platform = "SoundCloud"
+        media_type = "music"
+    elif "spotify.com" in url:
+        platform = "Spotify"
+        media_type = "music"
+    elif "audiomack.com" in url:
+        platform = "Audiomack"
+        media_type = "music"
     
     # 1. SoundCloud Mirror Engine (Most Stable on Render)
-    if "spotify.com" in url or "audiomack.com" in url:
+    if platform in ["Spotify", "Audiomack"]:
         try:
-            if "spotify.com" in url and sp:
+            if platform == "Spotify" and sp:
                 track_id = url.split("track/")[1].split("?")[0]
                 track = sp.track(track_id)
                 search_query = f"scsearch1:{track['artists'][0]['name']} {track['name']} official"
-                platform = "Spotify"
             else:
                 search_query = f"scsearch1:{url}"
-                platform = "Audiomack"
         except Exception as e: 
-            print(f"Spotify/Audiomack search extraction failed: {str(e)}")
+            print(f"Platform search extraction failed: {str(e)}")
             search_query = f"scsearch1:{url}"
 
+    # For extraction (metadata only), we don't need to be strict about formats.
+    # We'll get all available formats and filter them later.
     ydl_opts = {
         'quiet': True, 
         'no_warnings': True, 
-        'nocheckcertificate': True, 
-        'format': 'bestaudio/best',
+        'nocheckcertificate': True,
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'en-US,en;q=0.9',
         }
     }
     
     try:
-        print(f"Extracting info for search query: {search_query}")
+        print(f"--- Extraction Start ---")
+        print(f"Platform: {platform}")
+        print(f"Media Type: {media_type}")
+        print(f"Query: {search_query}")
+        
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             loop = asyncio.get_event_loop()
+            # download=False is key here; we just want metadata
             info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
             
             if info and 'entries' in info:
-                if not info['entries']: raise Exception("No mirrors found. Please check the URL or try another track.")
+                if not info['entries']: raise Exception(f"No results found for this link on {platform}.")
                 info = info['entries'][0]
 
             if not info:
-                raise Exception("Failed to retrieve media information.")
+                raise Exception("Could not find any media info. The link might be private or restricted.")
 
-            formats = [{"quality": f.get("format_note") or "HQ", "format": f.get("ext", "mp3").upper(), "resolution": "Audio", "size": format_size(f.get('filesize') or f.get('filesize_approx')), "url": f.get("url")} for f in info.get("formats", []) if f.get("url")]
-            
+            print(f"Successfully extracted: {info.get('title')}")
+
+            # Process formats
+            raw_formats = info.get("formats", [])
+            formats = []
+            seen_qualities = set()
+
+            for f in raw_formats:
+                url_val = f.get("url")
+                if not url_val: continue
+                
+                # Basic quality info
+                res = f.get("resolution")
+                note = f.get("format_note")
+                ext = f.get("ext", "mp4").upper()
+                
+                # Determine if this format is suitable for the requested media type
+                is_audio = f.get('vcodec') == 'none' or 'audio only' in (note or '').lower()
+                
+                if media_type == "music" and not is_audio:
+                    continue # Skip video formats if we only want music
+                
+                quality = note or res or ("HQ Audio" if is_audio else "HD Video")
+                q_key = f"{quality}_{ext}"
+                if q_key in seen_qualities: continue
+                seen_qualities.add(q_key)
+                
+                formats.append({
+                    "quality": quality,
+                    "format": ext,
+                    "resolution": "Audio" if is_audio else "Video",
+                    "size": format_size(f.get('filesize') or f.get('filesize_approx')),
+                    "url": url_val
+                })
+
+            if not formats:
+                # Fallback: if no filtered formats found, just take the main URL
+                formats.append({
+                    "quality": "Standard",
+                    "format": info.get("ext", "MP4").upper(),
+                    "resolution": "Default",
+                    "size": "Unknown",
+                    "url": info.get("url")
+                })
+
             return {
                 "success": True, 
                 "data": {
                     "id": str(info.get("id")),
                     "url": url,
-                    "title": info.get("title", "Media"),
+                    "title": info.get("title", "Untitled Content"),
                     "thumbnail": info.get("thumbnail"),
                     "duration": f"{int(info.get('duration', 0)) // 60}m" if info.get("duration") else "0m",
-                    "author": info.get("uploader") or info.get("artist") or "Artist",
+                    "author": info.get("uploader") or info.get("artist") or platform,
                     "platform": platform,
-                    "mediaType": "music",
-                    "qualities": formats[:10]
+                    "mediaType": media_type,
+                    "qualities": formats[:15]
                 }
             }
     except Exception as e:
-        print(f"Extraction Error: {str(e)}")
-        traceback.print_exc()
-        return JSONResponse(status_code=400, content={"success": False, "error": f"Extraction failed: {str(e)}"})
+        print(f"!!! EXTRACTION ERROR !!!")
+        print(traceback.format_exc())
+        error_msg = str(e)
+        if "403" in error_msg:
+            error_msg = f"This {platform} link is protected or restricted in your region."
+        return JSONResponse(status_code=400, content={"success": False, "error": error_msg})
 
 @app.get("/api/download")
 async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):

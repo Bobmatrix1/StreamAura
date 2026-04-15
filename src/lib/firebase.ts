@@ -310,6 +310,7 @@ export const getUserHistory = async (userId: string, limitCount = 50): Promise<H
     // If index is missing, fallback to non-ordered query to keep app functional
     if (error?.message?.includes('index')) {
       console.warn('[Firebase] Query requires a composite index. Falling back to in-memory sort.');
+      console.warn('To fix this permanently, create the index using this link:', error.message);
       try {
         const historyRef = collection(db, 'downloads');
         const q = query(historyRef, where('userId', '==', userId), limit(limitCount));
