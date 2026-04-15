@@ -32,10 +32,11 @@ import {
   Timestamp,
   writeBatch,
   onSnapshot,
-  initializeFirestore
+  initializeFirestore,
+  increment
 } from 'firebase/firestore';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
-import type { User, GlobalHistoryItem } from '@/types';
+import type { User, GlobalHistoryItem, HistoryItem } from '@/types';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -285,13 +286,41 @@ export const getGlobalHistory = async (limitCount = 100): Promise<GlobalHistoryI
   } catch (error) { return []; }
 };
 
-export const logVisit = async (country: string, device: string = 'Unknown'): Promise<void> => {
+export const getUserHistory = async (userId: string, limitCount = 50): Promise<HistoryItem[]> => {
+  try {
+    const historyRef = collection(db, 'downloads');
+    const q = query(
+      historyRef, 
+      where('userId', '==', userId),
+      orderBy('downloadedAt', 'desc'), 
+      limit(limitCount)
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({
+      ...doc.data(),
+      id: doc.id
+    } as any));
+  } catch (error) { 
+    console.error('Error fetching user history:', error);
+    return []; 
+  }
+};
+
+export const logVisit = async (country: string, device: string = 'Unknown', userId?: string): Promise<void> => {
   try {
     const visitsRef = collection(db, 'visits');
     await addDoc(visitsRef, {
       country, device, timestamp: serverTimestamp(),
-      hour: new Date().getHours(), platform: navigator.platform
+      hour: new Date().getHours(), platform: navigator.platform,
+      userId: userId || 'anonymous'
     });
+
+    if (userId && userId !== 'anonymous') {
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        visitCount: increment(1)
+      });
+    }
   } catch (error) {}
 };
 
@@ -318,11 +347,18 @@ export const logSearch = async (queryText: string, type: 'movie' | 'video' | 'mu
     await addDoc(searchRef, {
       query: queryText, type, userId: userId || 'anonymous', timestamp: serverTimestamp()
     });
+
+    if (userId && userId !== 'anonymous') {
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        searchCount: increment(1)
+      });
+    }
   } catch (error) {}
 };
 
 export const logMediaInteraction = async (
-  item: { id: string; title: string; mediaType: string; platform: string }, 
+  item: { id: string; title: string; mediaType: string; platform: string },
   action: 'watch' | 'download',
   userId?: string
 ): Promise<void> => {
@@ -331,20 +367,36 @@ export const logMediaInteraction = async (
     await addDoc(interactionRef, {
       ...item, action, userId: userId || 'anonymous', timestamp: serverTimestamp()
     });
+
+    if (userId && userId !== 'anonymous') {
+      const userRef = doc(db, 'users', userId);
+      const updateData: any = {};
+      if (action === 'download') updateData.downloadCount = increment(1);
+      if (action === 'watch') updateData.watchCount = increment(1);
+
+      await updateDoc(userRef, updateData);
+    }
   } catch (error) {}
 };
-
 export const updateUserPresence = async (uid: string, device?: string): Promise<void> => {
   if (!uid) return;
   try {
     const userDocRef = doc(db, 'users', uid);
     await updateDoc(userDocRef, { 
       lastActive: serverTimestamp(),
-      lastDevice: device || 'Unknown'
+      lastDevice: device || 'Unknown',
+      totalTimeMinutes: increment(2)
     });
   } catch (error) {
     const userDocRef = doc(db, 'users', uid);
-    try { await setDoc(userDocRef, { lastActive: serverTimestamp(), createdAt: Date.now() }, { merge: true }); }
+    try { 
+      await setDoc(userDocRef, { 
+        lastActive: serverTimestamp(), 
+        createdAt: Date.now(),
+        totalTimeMinutes: 0,
+        visitCount: 1
+      }, { merge: true }); 
+    }
     catch (e) {}
   }
 };
@@ -411,9 +463,9 @@ export const getStatsSummary = async (): Promise<SystemStats> => {
           timeSpent: data.totalTimeMinutes || 0, 
           recentActivity: [...ui, ...uh].slice(0, 5) 
         };
-      }).filter(u => u.timeSpent > 0 || u.visits > 0),
+      }).filter(u => u.timeSpent > 0 || u.visits > 0).sort((a, b) => b.timeSpent - a.timeSpent),
       featureUsage: Object.entries(filteredMap(featuresSnapshot, 'feature')).map(([feature, count]) => ({ feature, count })).sort((a, b) => b.count - a.count),
-      topSearches: Object.entries(filteredMap(searchesSnapshot, 'query')).filter(([_, count]) => count >= 10).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 10),
+      topSearches: Object.entries(filteredMap(searchesSnapshot, 'query')).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 10),
       topMovies: Object.entries(interactionsSnapshot.docs.reduce((acc, d) => {
         const data = d.data();
         if (data.title) {
@@ -422,13 +474,14 @@ export const getStatsSummary = async (): Promise<SystemStats> => {
           if (data.action === 'download') acc[data.title].downloads += 1;
         }
         return acc;
-      }, {} as any)).filter(([_, s]: any) => (s.watches + s.downloads) >= 10).map(([title, s]: any) => ({ title, ...s })).sort((a, b) => (b.watches + b.downloads) - (a.watches + a.downloads)).slice(0, 10),
+      }, {} as any)).map(([title, s]: any) => ({ title, ...s })).sort((a, b) => (b.watches + b.downloads) - (a.watches + a.downloads)).slice(0, 10),
       peakHours: Object.entries(hoursMap).map(([hour, count]) => {
         const h = parseInt(hour);
         const ampm = h >= 12 ? 'PM' : 'AM';
-        return { hour: h, display: `${h % 12 || 12}:00 ${ampm}`, count };
+        const display = `${h % 12 || 12}${ampm}`;
+        return { hour: h, display, count };
       }).sort((a, b) => b.count - a.count).slice(0, 6),
-      topPlatforms: Object.entries(filteredMap(historySnapshot, 'platform')).filter(([p]) => p !== 'MovieBox').map(([platform, count]) => ({ platform, count })).sort((a, b) => b.count - a.count).slice(0, 8)
+      topPlatforms: Object.entries(filteredMap(historySnapshot, 'platform')).map(([platform, count]) => ({ platform, count })).sort((a, b) => b.count - a.count).slice(0, 8)
     };
   } catch (error) { throw new Error('Failed to fetch system statistics'); }
 };

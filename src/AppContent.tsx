@@ -48,14 +48,15 @@ export const AppContent: React.FC = () => {
           if (window.location.hostname === 'localhost') country = 'Localhost';
         }
         
-        await logVisit(country, device);
+        // Pass user uid if already authenticated
+        await logVisit(country, device, user?.uid);
       } catch (err) {
         console.warn('Analytics logging skipped');
       }
     };
     
     trackVisit();
-  }, []);
+  }, [user?.uid]);
 
   // 2. Real-time Presence, Badges, and Notifications
   useEffect(() => {

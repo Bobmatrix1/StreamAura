@@ -18,7 +18,6 @@ import {
   Tablet as TabletIcon,
   HelpCircle,
   RefreshCcw,
-  Settings,
   LineChart,
   Clock,
   TrendingUp,
@@ -335,10 +334,6 @@ const AdminDashboard: React.FC = () => {
     return latestB - latestA;
   });
 
-  const filteredTraffic = stats?.topCountries.filter(c => 
-    c.country.toLowerCase().includes(searchQuery.toLowerCase())
-  ) || [];
-
   const toggleShowAll = (id: string) => {
     setShowAllItems(prev => ({ ...prev, [id]: !prev[id] }));
   };
@@ -413,7 +408,7 @@ const AdminDashboard: React.FC = () => {
             <div className="flex flex-col items-center justify-center py-24"><Loader2 className="w-10 h-10 text-primary animate-spin mb-4" /><p className="text-muted-foreground font-medium tracking-widest text-xs uppercase">Syncing</p></div>
           ) : activeTab === 'users' ? (
             <Table>
-              <TableHeader><TableRow className="border-white/5 bg-white/[0.02] hover:bg-transparent"><TableHead className="text-muted-foreground font-bold">USER IDENTITY</TableHead><TableHead className="text-muted-foreground font-bold">DEVICE OS</TableHead><TableHead className="text-muted-foreground font-bold">JOINED</TableHead><TableHead className="text-right text-muted-foreground font-bold pr-10">CONTROLS</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow className="border-white/5 bg-white/[0.02] hover:bg-transparent"><TableHead className="text-muted-foreground font-bold">USER IDENTITY</TableHead><TableHead className="text-muted-foreground font-bold">DEVICE</TableHead><TableHead className="text-muted-foreground font-bold text-center">VISITS</TableHead><TableHead className="text-muted-foreground font-bold text-center">TIME</TableHead><TableHead className="text-muted-foreground font-bold text-center">HITS</TableHead><TableHead className="text-muted-foreground font-bold text-center">DLs</TableHead><TableHead className="text-muted-foreground font-bold">JOINED</TableHead><TableHead className="text-right text-muted-foreground font-bold pr-10">CONTROLS</TableHead></TableRow></TableHeader>
               <TableBody>
                 {filteredUsers.map(user => (
                   <TableRow key={user.uid} className="border-white/5 hover:bg-white/[0.03]">
@@ -423,7 +418,11 @@ const AdminDashboard: React.FC = () => {
                         <div className="flex flex-col"><span className="font-bold text-sm">{user.displayName || 'Anonymous'}</span><span className="text-[10px] text-muted-foreground uppercase">{user.email}</span></div>
                       </div>
                     </TableCell>
-                    <TableCell><div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-white/5 border border-white/5 w-fit">{getDeviceIcon((user as any).lastDevice)}<span className="text-[10px] font-black uppercase">{(user as any).lastDevice || 'Unknown'}</span></div></TableCell>
+                    <TableCell><div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-white/5 border border-white/5 w-fit">{getDeviceIcon((user as any).lastDevice)}<span className="text-[10px] font-black uppercase">{(user as any).lastDevice || '---'}</span></div></TableCell>
+                    <TableCell className="text-center font-bold text-sm">{formatNumber((user as any).visitCount)}</TableCell>
+                    <TableCell className="text-center font-bold text-sm text-blue-400">{formatTime((user as any).totalTimeMinutes)}</TableCell>
+                    <TableCell className="text-center font-bold text-sm text-purple-400">{formatNumber((user as any).searchCount)}</TableCell>
+                    <TableCell className="text-center font-bold text-sm text-green-400">{formatNumber((user as any).downloadCount)}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{new Date(user.createdAt).toLocaleDateString()}</TableCell>
                     <TableCell className="text-right pr-6">
                       <div className="flex items-center justify-end gap-2 relative z-[100]">
@@ -470,23 +469,47 @@ const AdminDashboard: React.FC = () => {
             </div>
           ) : activeTab === 'traffic' ? (
             <div className="space-y-6 p-4">
-              <div className="glass-card p-6 border-red-500/20 bg-red-500/[0.02]">
-                <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-                  <div className="flex items-center gap-4 text-center md:text-left">
-                    <div className="w-14 h-14 rounded-2xl bg-red-500/20 flex items-center justify-center text-red-400 shadow-lg shadow-red-500/10"><Settings className="w-8 h-8 animate-[spin_4s_linear_infinite]" /></div>
-                    <div><h3 className="text-lg font-bold text-foreground">System Maintenance</h3><p className="text-sm text-muted-foreground">Clear all visitor analytics and reset session tracking to zero.</p></div>
-                  </div>
-                  <button onClick={handleResetTrafficAction} className="w-full md:w-auto px-8 py-4 rounded-2xl bg-red-600 text-white font-black uppercase tracking-widest text-xs shadow-xl shadow-red-600/30 flex items-center justify-center gap-3 hover:bg-red-500 transition-all"><RefreshCcw className="w-4 h-4" />Reset Traffic Analytics</button>
-                </div>
+              <div className="flex items-center justify-between px-2">
+                <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-orange-400" /> Live System Activity
+                </h3>
+                <button onClick={loadStats} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-all">
+                  <RefreshCcw className="w-4 h-4 text-muted-foreground" />
+                </button>
               </div>
-              <Table>
-                <TableHeader><TableRow className="border-white/5 bg-white/[0.02]"><TableHead className="font-bold uppercase tracking-widest text-[10px]">Location / Origin</TableHead><TableHead className="text-right font-bold pr-6 uppercase tracking-widest text-[10px]">Sessions</TableHead></TableRow></TableHeader>
-                <TableBody>
-                  {filteredTraffic.map((item, idx) => (
-                    <TableRow key={idx} className="border-white/5 hover:bg-white/[0.03]"><TableCell><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center text-orange-400 border border-orange-500/20"><Globe className="w-4 h-4" /></div><span className="font-bold text-sm">{item.country}</span></div></TableCell><TableCell className="text-right pr-6"><span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-sm font-black tracking-tighter">{formatNumber(item.count)}</span></TableCell></TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+
+              <div className="grid gap-3">
+                {stats?.topUsers.flatMap(u => u.recentActivity.map(a => ({ ...a, user: u }))).sort((a, b) => b.timestamp - a.timestamp).slice(0, 30).map((act, idx) => (
+                  <div key={idx} className="glass-card p-4 flex items-center gap-4 border-white/5 hover:bg-white/[0.03] transition-all">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                      act.action === 'download' ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400'
+                    }`}>
+                      {act.action === 'download' ? <Download className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm truncate">{act.title}</span>
+                        <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-muted-foreground">
+                          {act.platform}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                        <span className="font-bold text-primary">{act.user.name}</span>
+                        <span>•</span>
+                        <span>{act.action === 'download' ? 'Downloaded' : 'Watched'}</span>
+                        <span>•</span>
+                        <span>{new Date(act.timestamp).toLocaleTimeString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {(!stats?.topUsers || stats.topUsers.length === 0) && (
+                  <div className="py-20 text-center opacity-50">
+                    <Activity className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                    <p className="text-sm font-bold uppercase tracking-widest">No recent activity detected</p>
+                  </div>
+                )}
+              </div>
             </div>
           ) : activeTab === 'messages' ? (
             <div className="p-8 max-w-2xl mx-auto space-y-8">

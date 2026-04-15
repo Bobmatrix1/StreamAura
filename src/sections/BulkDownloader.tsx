@@ -16,15 +16,17 @@ import {
 } from 'lucide-react';
 import { useDownload } from '../contexts/DownloadContext';
 import { useToast } from '../contexts/ToastContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useIsMobile } from '../hooks/use-mobile';
+import { logMediaInteraction } from '../lib/firebase';
 
 const BulkDownloader: React.FC = () => {
   const [inputUrls, setInputUrls] = useState('');
   const { queue, addToQueue, downloadWithProgress, getMediaInfo, removeFromQueue, clearQueue, cancelDownload } = useDownload();
   const { showError, showSuccess } = useToast();
+  const { user } = useAuth();
   const isMobile = useIsMobile();
   
-  // Track specific items that are currently being processed
   const [processingId, setProcessingId] = useState<string | null>(null);
 
   const handleAddUrls = async () => {
@@ -50,22 +52,26 @@ const BulkDownloader: React.FC = () => {
   const processItem = async (id: string, url: string) => {
     setProcessingId(id);
     try {
-      // 1. EXTRACTION FLOW (Exact same as Music Downloader)
       const info = await getMediaInfo(url);
       if (!info || !info.qualities || info.qualities.length === 0) {
         throw new Error('No working mirrors found for this link');
       }
 
-      // 2. DOWNLOAD FLOW
       const bestQuality = info.qualities[0];
       const safeTitle = info.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
       const ext = info.mediaType === 'music' ? 'mp3' : 'mp4';
       
-      // Use the resolved mirror URL found in Step 1
       await downloadWithProgress(
         bestQuality.url, 
         bestQuality.quality, 
         `${safeTitle}.${ext}`
+      );
+
+      // Log Interaction
+      logMediaInteraction(
+        { id: info.id, title: info.title, mediaType: info.mediaType, platform: info.platform },
+        'download',
+        user?.uid
       );
       
       showSuccess(`Completed: ${info.title}`);
@@ -83,7 +89,6 @@ const BulkDownloader: React.FC = () => {
       return;
     }
 
-    // Process one by one to ensure stability
     for (const item of waitingItems) {
       await processItem(item.id, item.url);
     }

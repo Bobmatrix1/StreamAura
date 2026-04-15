@@ -17,9 +17,12 @@ import {
 } from 'lucide-react';
 import { useDownload } from '../contexts/DownloadContext';
 import { useToast } from '../contexts/ToastContext';
+import { useAuth } from '../contexts/AuthContext';
+import { logMediaInteraction } from '../lib/firebase';
 import type { VideoQuality } from '../types';
 
 const VideoDownloader: React.FC = () => {
+  const { user } = useAuth();
   const [url, setUrl] = useState('');
   const [selectedQuality, setSelectedQuality] = useState<VideoQuality | null>(null);
   const [isDownloadingLocal, setIsDownloadingLocal] = useState(false);
@@ -99,6 +102,14 @@ const VideoDownloader: React.FC = () => {
       const safeTitle = currentPreview.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
       const filename = `${safeTitle}.mp4`;
       await downloadWithProgress(currentPreview.url, selectedQuality.quality, filename);
+      
+      // Log Interaction
+      logMediaInteraction(
+        { id: currentPreview.id, title: currentPreview.title, mediaType: 'video', platform: currentPreview.platform },
+        'download',
+        user?.uid
+      );
+
       setIsDownloadingLocal(false);
       handleClear();
     } catch (error) {

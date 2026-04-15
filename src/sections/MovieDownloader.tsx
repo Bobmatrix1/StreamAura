@@ -177,7 +177,21 @@ const MovieDownloader: React.FC = () => {
         selectedQuality.url, 
         selectedQuality.quality, 
         filename, 
-        selectedMovie.referer
+        selectedMovie.referer,
+        {
+          id: selectedMovie.id,
+          title: selectedMovie.title,
+          thumbnail: selectedMovie.thumbnail,
+          mediaType: searchType,
+          platform: 'MovieBox'
+        }
+      );
+
+      // Log Interaction
+      logMediaInteraction(
+        { id: selectedMovie.id, title: selectedMovie.title, mediaType: searchType, platform: 'MovieBox' },
+        'download',
+        user?.uid
       );
       
       setIsDownloading(false);
