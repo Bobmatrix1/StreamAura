@@ -126,34 +126,44 @@ async def get_visitor_country(request: Request):
 
 @app.get("/api/stream")
 async def stream_media(url: str, request: Request, range: Optional[str] = Header(None)):
-    """Advanced Media Proxy with Range Request support for instant playback."""
-    headers = {"User-Agent": "Mozilla/5.0"}
+    """Ultra-Robust passthrough proxy for media previews."""
+    headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.tiktok.com/"}
     if range: headers["Range"] = range
 
-    async def stream_generator():
-        async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
-            async with client.stream("GET", url, headers=headers) as resp:
+    client = httpx.AsyncClient(follow_redirects=True, timeout=None)
+    
+    # We don't use HEAD anymore, just start the GET request immediately
+    try:
+        req = client.build_request("GET", url, headers=headers)
+        resp = await client.send(req, stream=True)
+        
+        # Prepare response headers based on what the provider sent us
+        response_headers = {
+            "Accept-Ranges": "bytes",
+            "Access-Control-Allow-Origin": "*",
+            "Content-Type": resp.headers.get("Content-Type", "video/mp4"),
+        }
+        if "Content-Range" in resp.headers:
+            response_headers["Content-Range"] = resp.headers["Content-Range"]
+        if "Content-Length" in resp.headers:
+            response_headers["Content-Length"] = resp.headers["Content-Length"]
+
+        async def stream_generator():
+            try:
                 async for chunk in resp.aiter_bytes():
                     yield chunk
+            finally:
+                await resp.aclose()
+                await client.aclose()
 
-    # Pre-fetch headers to get content type and size
-    async with httpx.AsyncClient(follow_redirects=True) as client:
-        head_resp = await client.head(url, headers=headers)
-        
-    response_headers = {
-        "Content-Type": head_resp.headers.get("Content-Type", "video/mp4"),
-        "Accept-Ranges": "bytes",
-    }
-    if "Content-Range" in head_resp.headers:
-        response_headers["Content-Range"] = head_resp.headers["Content-Range"]
-    if "Content-Length" in head_resp.headers:
-        response_headers["Content-Length"] = head_resp.headers["Content-Length"]
-
-    return StreamingResponse(
-        stream_generator(), 
-        status_code=head_resp.status_code,
-        headers=response_headers
-    )
+        return StreamingResponse(
+            stream_generator(),
+            status_code=resp.status_code,
+            headers=response_headers
+        )
+    except Exception as e:
+        await client.aclose()
+        return RedirectResponse(url=url)
 
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):
