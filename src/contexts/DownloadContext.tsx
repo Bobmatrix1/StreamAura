@@ -86,9 +86,12 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
     if (user?.uid) {
       const fetchHistory = async () => {
         const firestoreHistory = await getUserHistory(user.uid);
-        if (firestoreHistory.length > 0) {
-          setHistory(firestoreHistory);
-        }
+        // Merge with local history, giving precedence to Firestore
+        setHistory(prevLocal => {
+          const combined = [...firestoreHistory, ...prevLocal];
+          const unique = Array.from(new Map(combined.map(item => [item.id, item])).values());
+          return unique.sort((a, b) => b.downloadedAt - a.downloadedAt).slice(0, MAX_HISTORY_ITEMS);
+        });
       };
       fetchHistory();
     }
