@@ -127,18 +127,32 @@ async def extract_info(request: ExtractRequest):
             else:
                 search_query = f"scsearch1:{url}"
                 platform = "Audiomack"
-        except: 
+        except Exception as e: 
+            print(f"Spotify/Audiomack search extraction failed: {str(e)}")
             search_query = f"scsearch1:{url}"
 
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 'format': 'bestaudio/best'}
+    ydl_opts = {
+        'quiet': True, 
+        'no_warnings': True, 
+        'nocheckcertificate': True, 
+        'format': 'bestaudio/best',
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+    }
+    
     try:
+        print(f"Extracting info for search query: {search_query}")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             loop = asyncio.get_event_loop()
             info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
             
             if info and 'entries' in info:
-                if not info['entries']: raise Exception("No mirrors found on SoundCloud.")
+                if not info['entries']: raise Exception("No mirrors found. Please check the URL or try another track.")
                 info = info['entries'][0]
+
+            if not info:
+                raise Exception("Failed to retrieve media information.")
 
             formats = [{"quality": f.get("format_note") or "HQ", "format": f.get("ext", "mp3").upper(), "resolution": "Audio", "size": format_size(f.get('filesize') or f.get('filesize_approx')), "url": f.get("url")} for f in info.get("formats", []) if f.get("url")]
             
@@ -149,7 +163,7 @@ async def extract_info(request: ExtractRequest):
                     "url": url,
                     "title": info.get("title", "Media"),
                     "thumbnail": info.get("thumbnail"),
-                    "duration": f"{int(info.get('duration', 0)) // 60}m",
+                    "duration": f"{int(info.get('duration', 0)) // 60}m" if info.get("duration") else "0m",
                     "author": info.get("uploader") or info.get("artist") or "Artist",
                     "platform": platform,
                     "mediaType": "music",
@@ -157,7 +171,9 @@ async def extract_info(request: ExtractRequest):
                 }
             }
     except Exception as e:
-        return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
+        print(f"Extraction Error: {str(e)}")
+        traceback.print_exc()
+        return JSONResponse(status_code=400, content={"success": False, "error": f"Extraction failed: {str(e)}"})
 
 @app.get("/api/download")
 async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):

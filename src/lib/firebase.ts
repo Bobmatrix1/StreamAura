@@ -289,18 +289,37 @@ export const getGlobalHistory = async (limitCount = 100): Promise<GlobalHistoryI
 export const getUserHistory = async (userId: string, limitCount = 50): Promise<HistoryItem[]> => {
   try {
     const historyRef = collection(db, 'downloads');
+    
+    // NOTE: This query REQUIRES a composite index in Firestore:
+    // Collection: downloads
+    // Fields: userId (Ascending), downloadedAt (Descending)
+    // You can create it in the Firebase Console.
     const q = query(
       historyRef, 
       where('userId', '==', userId),
       orderBy('downloadedAt', 'desc'), 
       limit(limitCount)
     );
+    
     const snapshot = await getDocs(q);
     return snapshot.docs.map(doc => ({
       ...doc.data(),
       id: doc.id
     } as any));
-  } catch (error) { 
+  } catch (error: any) { 
+    // If index is missing, fallback to non-ordered query to keep app functional
+    if (error?.message?.includes('index')) {
+      console.warn('[Firebase] Query requires a composite index. Falling back to in-memory sort.');
+      try {
+        const historyRef = collection(db, 'downloads');
+        const q = query(historyRef, where('userId', '==', userId), limit(limitCount));
+        const snapshot = await getDocs(q);
+        const results = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as any));
+        return results.sort((a, b) => (b.downloadedAt || 0) - (a.downloadedAt || 0));
+      } catch (innerError) {
+        return [];
+      }
+    }
     console.error('Error fetching user history:', error);
     return []; 
   }
