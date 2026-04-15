@@ -11,7 +11,7 @@ import random
 from typing import List, Optional, Union
 import firebase_admin
 from firebase_admin import credentials, messaging, firestore
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Query
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, RedirectResponse
 from pydantic import BaseModel
@@ -27,6 +27,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = FastAPI(title="StreamAura API Master")
+
+# Stealth Headers
+STEALTH_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+}
 
 # Initialize Firebase
 try:
@@ -51,7 +56,7 @@ try:
     else:
         firebase_admin.initialize_app()
     db_admin = firestore.client()
-except Exception as e:
+except:
     db_admin = None
 
 # Initialize Spotify
@@ -84,13 +89,10 @@ def format_size(size_bytes):
 # MIRROR ENGINE
 # =========================
 async def try_cloud_mirror(video_id: str):
-    """Bypasses YouTube bot checks by using a public Invidious/Piped mirror API."""
     mirrors = [
         f"https://pipedapi.kavin.rocks/streams/{video_id}",
         f"https://api.invidious.io/api/v1/videos/{video_id}",
-        f"https://inv.tux.rs/api/v1/videos/{video_id}"
     ]
-    
     async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
         for mirror_url in mirrors:
             try:
@@ -102,26 +104,8 @@ async def try_cloud_mirror(video_id: str):
                         for s in data["videoStreams"]:
                             if not s.get("videoOnly"):
                                 formats.append({"quality": s.get("quality", "HD"), "format": "MP4", "resolution": s.get("quality", "720p"), "size": "Fast", "url": s.get("url")})
-                    elif "formatStreams" in data:
-                        for s in data["formatStreams"]:
-                            formats.append({
-                                "quality": s.get("qualityLabel", "HD"),
-                                "format": "MP4",
-                                "resolution": s.get("resolution", "720p"),
-                                "size": s.get("size", "Fast"),
-                                "url": s.get("url")
-                            })
-                    
                     if formats:
-                        return {
-                            "id": video_id,
-                            "title": data.get("title", "YouTube Video"),
-                            "thumbnail": data.get("thumbnailUrl") or (data.get("videoThumbnails")[0]["url"] if data.get("videoThumbnails") else ""),
-                            "duration": "Mirror",
-                            "author": data.get("uploader", "Artist"),
-                            "platform": "YouTube Mirror",
-                            "qualities": formats[:10]
-                        }
+                        return {"id": video_id, "title": data.get("title", "YouTube Video"), "thumbnail": data.get("thumbnailUrl") or "", "duration": "Mirror", "author": data.get("uploader", "Artist"), "platform": "YouTube Mirror", "qualities": formats[:10]}
             except: continue
     return None
 
@@ -141,14 +125,35 @@ async def get_visitor_country(request: Request):
     return {"country": country, "device": device}
 
 @app.get("/api/stream")
-async def stream_media(url: str):
-    """Pipes media data directly to fix CORS and stuck previews."""
-    async def generate():
+async def stream_media(url: str, request: Request, range: Optional[str] = Header(None)):
+    """Advanced Media Proxy with Range Request support for instant playback."""
+    headers = {"User-Agent": "Mozilla/5.0"}
+    if range: headers["Range"] = range
+
+    async def stream_generator():
         async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
-            async with client.stream("GET", url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
+            async with client.stream("GET", url, headers=headers) as resp:
                 async for chunk in resp.aiter_bytes():
                     yield chunk
-    return StreamingResponse(generate(), media_type="video/mp4")
+
+    # Pre-fetch headers to get content type and size
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        head_resp = await client.head(url, headers=headers)
+        
+    response_headers = {
+        "Content-Type": head_resp.headers.get("Content-Type", "video/mp4"),
+        "Accept-Ranges": "bytes",
+    }
+    if "Content-Range" in head_resp.headers:
+        response_headers["Content-Range"] = head_resp.headers["Content-Range"]
+    if "Content-Length" in head_resp.headers:
+        response_headers["Content-Length"] = head_resp.headers["Content-Length"]
+
+    return StreamingResponse(
+        stream_generator(), 
+        status_code=head_resp.status_code,
+        headers=response_headers
+    )
 
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):
@@ -169,7 +174,6 @@ async def extract_info(request: ExtractRequest):
     url = request.url.strip()
     is_youtube = "youtube.com" in url or "youtu.be" in url
     
-    # FORCED MIRROR FOR YOUTUBE (Render IP is blocked)
     if is_youtube:
         video_id = ""
         if "v=" in url: video_id = url.split("v=")[1].split("&")[0]
@@ -178,35 +182,14 @@ async def extract_info(request: ExtractRequest):
             mirror_data = await try_cloud_mirror(video_id)
             if mirror_data: return {"success": True, "data": mirror_data}
 
-    # Standard Extraction for TikTok/Others
-    ydl_opts = {
-        'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
-        'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
-    }
-    
+    ydl_opts = {'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 'user_agent': 'Mozilla/5.0'}
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             loop = asyncio.get_event_loop()
             info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=False))
-            
             formats = [{"quality": f.get("format_note") or "HQ", "format": f.get("ext", "mp4").upper(), "resolution": f"{f.get('width','?')}x{f.get('height','?')}", "size": format_size(f.get('filesize') or f.get('filesize_approx')), "url": f.get("url")} for f in info.get("formats", []) if f.get("url")]
-            
-            return {
-                "success": True, 
-                "data": {
-                    "id": str(info.get("id")),
-                    "url": url,
-                    "title": info.get("title", "Media"),
-                    "thumbnail": info.get("thumbnail"),
-                    "duration": f"{int(info.get('duration', 0)) // 60}m",
-                    "author": info.get("uploader", "Artist"),
-                    "platform": info.get('extractor_key', 'Video'),
-                    "mediaType": "video",
-                    "qualities": formats[:15]
-                }
-            }
-    except Exception as e:
-        return JSONResponse(status_code=400, content={"success": False, "error": "This link is protected. Try a mirror site."})
+            return {"success": True, "data": {"id": str(info.get("id")), "url": url, "title": info.get("title", "Media"), "thumbnail": info.get("thumbnail"), "duration": f"{int(info.get('duration', 0)) // 60}m", "author": info.get("uploader", "Artist"), "platform": info.get('extractor_key', 'Video'), "mediaType": "video", "qualities": formats[:10]}}
+    except Exception as e: return JSONResponse(status_code=400, content={"success": False, "error": "Extraction failed"})
 
 @app.get("/api/download")
 async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):
