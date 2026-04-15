@@ -1,0 +1,7 @@
+backend/
+mobile/
+venv/
+.venv/
+node_modules/
+dist/
+downloads/
