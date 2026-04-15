@@ -104,9 +104,24 @@ async def try_cloud_mirror(video_id: str):
                                 formats.append({"quality": s.get("quality", "HD"), "format": "MP4", "resolution": s.get("quality", "720p"), "size": "Fast", "url": s.get("url")})
                     elif "formatStreams" in data:
                         for s in data["formatStreams"]:
-                            formats.append({"quality": s.get("qualityLabel", "HD"), "format": "MP4", "resolution": s.get("resolution", "720p"), "size": s.get("size", "Fast"), "url": s.get("url")})
+                            formats.append({
+                                "quality": s.get("qualityLabel", "HD"),
+                                "format": "MP4",
+                                "resolution": s.get("resolution", "720p"),
+                                "size": s.get("size", "Fast"),
+                                "url": s.get("url")
+                            })
+                    
                     if formats:
-                        return {"id": video_id, "title": data.get("title", "YouTube Video"), "thumbnail": data.get("thumbnailUrl") or (data.get("videoThumbnails")[0]["url"] if data.get("videoThumbnails") else ""), "duration": "Mirror", "author": data.get("uploader", "Artist"), "platform": "YouTube Mirror", "qualities": formats[:10]}
+                        return {
+                            "id": video_id,
+                            "title": data.get("title", "YouTube Video"),
+                            "thumbnail": data.get("thumbnailUrl") or (data.get("videoThumbnails")[0]["url"] if data.get("videoThumbnails") else ""),
+                            "duration": "Mirror",
+                            "author": data.get("uploader", "Artist"),
+                            "platform": "YouTube Mirror",
+                            "qualities": formats[:10]
+                        }
             except: continue
     return None
 
@@ -127,7 +142,13 @@ async def get_visitor_country(request: Request):
 
 @app.get("/api/stream")
 async def stream_media(url: str):
-    return RedirectResponse(url=url)
+    """Pipes media data directly to fix CORS and stuck previews."""
+    async def generate():
+        async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
+            async with client.stream("GET", url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
+                async for chunk in resp.aiter_bytes():
+                    yield chunk
+    return StreamingResponse(generate(), media_type="video/mp4")
 
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):
@@ -146,46 +167,29 @@ async def broadcast_notification(request: Request):
 @app.post("/api/extract")
 async def extract_info(request: ExtractRequest):
     url = request.url.strip()
-    search_query = url
     is_youtube = "youtube.com" in url or "youtu.be" in url
-    platform = "Video"
     
-    if "spotify.com" in url and sp:
-        try:
-            track_id = url.split("track/")[1].split("?")[0]
-            track = sp.track(track_id)
-            search_query = f"scsearch1:{track['artists'][0]['name']} {track['name']} official"
-            platform = "Spotify"
-        except: pass
-    elif "audiomack.com" in url:
-        search_query = f"scsearch1:{url}"
-        platform = "Audiomack"
+    # FORCED MIRROR FOR YOUTUBE (Render IP is blocked)
+    if is_youtube:
+        video_id = ""
+        if "v=" in url: video_id = url.split("v=")[1].split("&")[0]
+        elif "youtu.be/" in url: video_id = url.split("youtu.be/")[1].split("?")[0]
+        if video_id:
+            mirror_data = await try_cloud_mirror(video_id)
+            if mirror_data: return {"success": True, "data": mirror_data}
 
+    # Standard Extraction for TikTok/Others
     ydl_opts = {
         'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
-        'extractor_args': {'youtube': {'player_client': ['android', 'ios', 'mweb'], 'skip': ['hls', 'dash']}},
         'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
     }
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             loop = asyncio.get_event_loop()
-            try:
-                info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
-                if info and 'entries' in info:
-                    if not info['entries']: raise Exception("No matching mirrors found.")
-                    info = info['entries'][0]
-            except Exception as e:
-                if is_youtube or "ytsearch" in search_query:
-                    video_id = ""
-                    if "v=" in url: video_id = url.split("v=")[1].split("&")[0]
-                    elif "youtu.be/" in url: video_id = url.split("youtu.be/")[1].split("?")[0]
-                    if video_id:
-                        mirror_data = await try_cloud_mirror(video_id)
-                        if mirror_data: return {"success": True, "data": mirror_data}
-                raise e
-
-            formats = [{"quality": f.get("format_note") or "HQ", "format": f.get("ext", "mp4").upper(), "resolution": "Audio" if f.get("vcodec") == "none" else f"{f.get('width','?')}x{f.get('height','?')}", "size": format_size(f.get('filesize') or f.get('filesize_approx')), "url": f.get("url")} for f in info.get("formats", []) if f.get("url")]
+            info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=False))
+            
+            formats = [{"quality": f.get("format_note") or "HQ", "format": f.get("ext", "mp4").upper(), "resolution": f"{f.get('width','?')}x{f.get('height','?')}", "size": format_size(f.get('filesize') or f.get('filesize_approx')), "url": f.get("url")} for f in info.get("formats", []) if f.get("url")]
             
             return {
                 "success": True, 
@@ -195,14 +199,14 @@ async def extract_info(request: ExtractRequest):
                     "title": info.get("title", "Media"),
                     "thumbnail": info.get("thumbnail"),
                     "duration": f"{int(info.get('duration', 0)) // 60}m",
-                    "author": info.get("uploader") or info.get("artist") or "Artist",
-                    "platform": platform if platform != "Video" else info.get('extractor_key', 'Video'),
-                    "mediaType": "music" if platform in ["Spotify", "Audiomack"] else "video",
+                    "author": info.get("uploader", "Artist"),
+                    "platform": info.get('extractor_key', 'Video'),
+                    "mediaType": "video",
                     "qualities": formats[:15]
                 }
             }
     except Exception as e:
-        return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
+        return JSONResponse(status_code=400, content={"success": False, "error": "This link is protected. Try a mirror site."})
 
 @app.get("/api/download")
 async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):
