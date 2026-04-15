@@ -270,7 +270,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Support
 
-For support, email john@feelflytech.site or join our Discord server.
+For support, email john@feelflytech.site or join our telegram channel.
 
 ---
 
