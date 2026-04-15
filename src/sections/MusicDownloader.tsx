@@ -7,12 +7,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Link2, 
   X, 
-  Play, 
-  Pause,
   User,
   Music,
   Loader2,
-  Volume2,
   ChevronDown,
   ExternalLink,
   Square,
@@ -20,22 +17,17 @@ import {
 } from 'lucide-react';
 import { useDownload } from '../contexts/DownloadContext';
 import { useToast } from '../contexts/ToastContext';
-import { API_BASE_URL } from '../api/mediaApi';
 import type { AudioQuality } from '@/types';
 
 const MusicDownloader: React.FC = () => {
   const [url, setUrl] = useState('');
   const [selectedQuality, setSelectedQuality] = useState<AudioQuality | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isMatching, setIsMatching] = useState(false);
-  const [isAudioLoading, setIsAudioLoading] = useState(false);
-  const [previewProgress, setPreviewProgress] = useState(0);
-  const [isQualityDropdownOpen, setIsQualityDropdownOpen] = useState(false);
   const [isDownloadingLocal, setIsDownloadingLocal] = useState(false);
+  const [isMatching, setIsMatching] = useState(false);
+  const [isQualityDropdownOpen, setIsQualityDropdownOpen] = useState(false);
   
   const inputRef = useRef<HTMLInputElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const previewIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
   
   const { 
     getMediaInfo, 
@@ -47,25 +39,17 @@ const MusicDownloader: React.FC = () => {
     cancelDownload,
     activeDownloads
   } = useDownload();
-  const { showSuccess, showError } = useToast();
+  const { showSuccess } = useToast();
 
   const isDownloading = activeDownloads > 0 || isDownloadingLocal;
 
   useEffect(() => {
-    if (isPlaying && audioRef.current) {
-      previewIntervalRef.current = setInterval(() => {
-        if (audioRef.current) {
-          const progress = (audioRef.current.currentTime / audioRef.current.duration) * 100;
-          setPreviewProgress(isNaN(progress) ? 0 : progress);
-        }
+    if (currentPreview && !isLoadingPreview) {
+      setTimeout(() => {
+        previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
-    } else {
-      if (previewIntervalRef.current) clearInterval(previewIntervalRef.current);
     }
-    return () => {
-      if (previewIntervalRef.current) clearInterval(previewIntervalRef.current);
-    };
-  }, [isPlaying]);
+  }, [currentPreview, isLoadingPreview]);
 
   const handleFetch = async () => {
     if (!url.trim()) return;
@@ -74,8 +58,6 @@ const MusicDownloader: React.FC = () => {
       const info = await getMediaInfo(url);
       if (info) {
         setCurrentPreview(info);
-        setIsPlaying(false);
-        setPreviewProgress(0);
       }
     } finally {
       setIsMatching(false);
@@ -86,36 +68,9 @@ const MusicDownloader: React.FC = () => {
     setUrl('');
     setCurrentPreview(null);
     setSelectedQuality(null);
-    setIsPlaying(false);
     setIsMatching(false);
     setIsDownloadingLocal(false);
-    setPreviewProgress(0);
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
-    }
-  };
-
-  const togglePreview = () => {
-    if (!audioRef.current || !currentPreview) return;
-
-    if (isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-    } else {
-      setIsAudioLoading(true);
-      // Use the stream endpoint which acts as a proxy to bypass CORS
-      const streamUrl = `${API_BASE_URL}/api/stream?url=${encodeURIComponent(currentPreview.qualities[0]?.url || currentPreview.url)}`;
-      
-      audioRef.current.src = streamUrl;
-      audioRef.current.play()
-        .then(() => setIsPlaying(true))
-        .catch((err) => {
-          console.error('Preview Play Error:', err);
-          setIsAudioLoading(false);
-          showError('Preview unavailable.');
-        });
-    }
+    inputRef.current?.focus();
   };
 
   const handleDownload = async () => {
@@ -158,7 +113,7 @@ const MusicDownloader: React.FC = () => {
             type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="Paste Audiomack, Spotify, or SoundCloud link..."
+            placeholder="Paste music link here..."
             className="w-full glass-input pl-12 pr-12 py-4 rounded-xl outline-none"
           />
           {url && <button onClick={handleClear} className="absolute right-4 top-1/2 -translate-y-1/2"><X className="w-4 h-4 text-muted-foreground" /></button>}
@@ -181,17 +136,11 @@ const MusicDownloader: React.FC = () => {
 
       <AnimatePresence>
         {currentPreview && currentPreview.mediaType === 'music' && !isLoadingPreview && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+          <motion.div ref={previewRef} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
             <div className="glass-card p-6">
               <div className="flex flex-col md:flex-row gap-6">
-                <div className="relative w-full md:w-40 aspect-square rounded-xl overflow-hidden bg-black/50 shadow-2xl">
+                <div className="relative w-full md:w-40 aspect-square rounded-xl overflow-hidden bg-black/50 shadow-2xl flex-shrink-0">
                   {currentPreview.thumbnail && <img src={currentPreview.thumbnail} className="w-full h-full object-cover" />}
-                  <button onClick={togglePreview} className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/40 transition-all group">
-                    <div className="w-14 h-14 rounded-full bg-orange-500 flex items-center justify-center shadow-lg group-active:scale-95 transition-transform">
-                      {isAudioLoading ? <Loader2 className="w-6 h-6 text-white animate-spin" /> : isPlaying ? <Pause className="w-6 h-6 text-white" /> : <Play className="w-6 h-6 text-white fill-current ml-1" />}
-                    </div>
-                  </button>
-                  <audio ref={audioRef} onPlaying={() => setIsAudioLoading(false)} onEnded={() => setIsPlaying(false)} onCanPlay={() => setIsAudioLoading(false)} />
                 </div>
 
                 <div className="flex-1 space-y-4">
@@ -212,19 +161,6 @@ const MusicDownloader: React.FC = () => {
                       <User size={12} /> {currentPreview.author || "Unknown Artist"}
                     </div>
                   </div>
-                  {(isPlaying || previewProgress > 0) && (
-                    <div className="space-y-2">
-                      <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                        <motion.div animate={{ width: `${previewProgress}%` }} className="h-full bg-orange-500" />
-                      </div>
-                      <div className="flex justify-between text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                        <span className="flex items-center gap-1">
-                          <Volume2 size={10} /> {isPlaying ? 'Playing' : 'Paused'}
-                        </span>
-                        <span>{currentPreview.duration}</span>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>

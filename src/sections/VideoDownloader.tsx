@@ -7,30 +7,26 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Link2, 
   X, 
-  Play, 
   User,
   Loader2,
   ExternalLink,
   Video as VideoIcon,
   ChevronDown,
-  Square
+  Square,
+  AlertCircle
 } from 'lucide-react';
 import { useDownload } from '../contexts/DownloadContext';
 import { useToast } from '../contexts/ToastContext';
-import { API_BASE_URL } from '../api/mediaApi';
 import type { VideoQuality } from '../types';
 
 const VideoDownloader: React.FC = () => {
   const [url, setUrl] = useState('');
   const [selectedQuality, setSelectedQuality] = useState<VideoQuality | null>(null);
   const [isDownloadingLocal, setIsDownloadingLocal] = useState(false);
-  const [isPlayingPreview, setIsPlayingPreview] = useState(false);
-  const [isVideoLoading, setIsVideoLoading] = useState(false);
   const [isQualityDropdownOpen, setIsQualityDropdownOpen] = useState(false);
   
   const inputRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
   
   const { 
     getMediaInfo, 
@@ -60,11 +56,10 @@ const VideoDownloader: React.FC = () => {
     const pastedText = e.clipboardData.getData('text');
     if (pastedText && (pastedText.includes('http') || pastedText.includes('www'))) {
       setUrl(pastedText);
-      
       const info = await getMediaInfo(pastedText);
       if (info) {
         setCurrentPreview(info);
-        showSuccess('Video detected! Select a quality to download.');
+        showSuccess('Video detected!');
       }
     }
   }, [getMediaInfo, setCurrentPreview, showSuccess]);
@@ -74,7 +69,6 @@ const VideoDownloader: React.FC = () => {
       showError('Please enter a video URL');
       return;
     }
-
     const info = await getMediaInfo(url);
     if (info) {
       setCurrentPreview(info);
@@ -85,14 +79,8 @@ const VideoDownloader: React.FC = () => {
     setUrl('');
     setCurrentPreview(null);
     setSelectedQuality(null);
-    setIsPlayingPreview(false);
-    setIsVideoLoading(false);
     setIsQualityDropdownOpen(false);
     setIsDownloadingLocal(false);
-    if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.src = "";
-    }
     inputRef.current?.focus();
   };
 
@@ -101,36 +89,16 @@ const VideoDownloader: React.FC = () => {
     setIsQualityDropdownOpen(false);
   };
 
-  const handlePlayPreview = () => {
-    if (!currentPreview) return;
-    setIsPlayingPreview(true);
-    setIsVideoLoading(true);
-    
-    // Use the stream endpoint which acts as a proxy to bypass CORS
-    const streamUrl = `${API_BASE_URL}/api/stream?url=${encodeURIComponent(currentPreview.qualities[0]?.url || currentPreview.url)}`;
-    if (videoRef.current) {
-      videoRef.current.src = streamUrl;
-      videoRef.current.play().catch(() => {
-        setIsVideoLoading(false);
-        showError('Preview unavailable.');
-      });
-    }
-  };
-
   const handleDownload = async () => {
     if (!currentPreview || !selectedQuality) {
       showError('Please select a quality first');
       return;
     }
-
     setIsDownloadingLocal(true);
-    
     try {
       const safeTitle = currentPreview.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
       const filename = `${safeTitle}.mp4`;
-      
       await downloadWithProgress(currentPreview.url, selectedQuality.quality, filename);
-      
       setIsDownloadingLocal(false);
       handleClear();
     } catch (error) {
@@ -180,7 +148,7 @@ const VideoDownloader: React.FC = () => {
           <button
             onClick={handleFetch}
             disabled={!url.trim() || isLoadingPreview || isDownloading}
-            className="px-8 py-4 bg-blue-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 min-w-[120px] disabled:opacity-50"
+            className="px-8 py-4 bg-blue-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 min-w-[120px]"
           >
             {isLoadingPreview ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Fetch</span>}
           </button>
@@ -204,47 +172,14 @@ const VideoDownloader: React.FC = () => {
           >
             <div className="glass-card p-6">
               <div className="flex flex-col md:flex-row gap-6">
-                {/* Playable Video Preview */}
                 <div className="relative w-full md:w-80 flex-shrink-0">
                   <div className="aspect-video rounded-xl overflow-hidden bg-black shadow-inner flex items-center justify-center">
-                    {isPlayingPreview ? (
-                      <>
-                        {isVideoLoading && (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 z-10 backdrop-blur-sm">
-                            <Loader2 className="w-10 h-10 text-primary animate-spin mb-2" />
-                            <p className="text-xs text-white font-medium">Loading stream...</p>
-                          </div>
-                        )}
-                        <video 
-                          ref={videoRef}
-                          controls 
-                          autoPlay 
-                          playsInline
-                          crossOrigin="anonymous"
-                          onCanPlay={() => setIsVideoLoading(false)}
-                          className="w-full h-full object-contain"
-                        />
-                      </>
-                    ) : (
-                      <>
-                        {currentPreview.thumbnail && (
-                          <img
-                            src={currentPreview.thumbnail}
-                            alt={currentPreview.title}
-                            className="w-full h-full object-cover"
-                          />
-                        )}
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/20 group">
-                          <motion.button 
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            onClick={handlePlayPreview}
-                            className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center hover:bg-white/40 transition-colors shadow-lg"
-                          >
-                            <Play className="w-8 h-8 text-white fill-current ml-1" />
-                          </motion.button>
-                        </div>
-                      </>
+                    {currentPreview.thumbnail && (
+                      <img
+                        src={currentPreview.thumbnail}
+                        alt={currentPreview.title}
+                        className="w-full h-full object-cover"
+                      />
                     )}
                   </div>
                   <div className="absolute bottom-2 right-2 px-2 py-1 rounded-md bg-black/70 text-[10px] font-bold text-white backdrop-blur-sm uppercase tracking-tighter">
@@ -252,7 +187,6 @@ const VideoDownloader: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Info */}
                 <div className="flex-1 space-y-4">
                   <h3 className="text-xl font-bold line-clamp-2">{currentPreview.title}</h3>
                   <div className="flex flex-wrap items-center gap-3">
@@ -335,6 +269,13 @@ const VideoDownloader: React.FC = () => {
           </p>
         </motion.div>
       )}
+
+      <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex items-start gap-3">
+        <AlertCircle className="w-5 h-5 text-muted-foreground mt-0.5" />
+        <p className="text-[10px] text-muted-foreground leading-relaxed font-bold uppercase tracking-tight">
+          Note: If a direct link is blocked, we automatically find a high-quality mirror to ensure your download finishes.
+        </p>
+      </div>
     </div>
   );
 };
