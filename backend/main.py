@@ -20,6 +20,8 @@ import httpx
 from bs4 import BeautifulSoup
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
+from moviebox_api.v1.core import Search, Session, SubjectType
+from moviebox_api.v1 import MovieDetails, DownloadableMovieFilesDetail
 
 # Load environment
 from dotenv import load_dotenv
@@ -144,8 +146,9 @@ async def extract_info(request: ExtractRequest):
             print(f"Platform search extraction failed: {str(e)}")
             search_query = f"scsearch1:{url}"
 
-    # For extraction (metadata only), we don't need to be strict about formats.
-    # We'll get all available formats and filter them later.
+    # Format Selection: Try to be smart but allow fallbacks
+    format_opt = 'bestaudio/best' if media_type == "music" else 'bestvideo+bestaudio/best'
+    
     ydl_opts = {
         'quiet': True, 
         'no_warnings': True, 
@@ -154,28 +157,31 @@ async def extract_info(request: ExtractRequest):
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
             'Accept-Language': 'en-US,en;q=0.9',
-        }
+        },
+        'extract_flat': False,
+        'skip_download': True
     }
     
     try:
         print(f"--- Extraction Start ---")
-        print(f"Platform: {platform}")
-        print(f"Media Type: {media_type}")
+        print(f"Platform: {platform} | Media Type: {media_type}")
         print(f"Query: {search_query}")
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             loop = asyncio.get_event_loop()
-            # download=False is key here; we just want metadata
-            info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
+            try:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
+            except Exception as ydl_err:
+                # If specialized search fails, try raw URL as last resort
+                print(f"Primary extraction failed, trying raw URL: {str(ydl_err)}")
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=False))
             
             if info and 'entries' in info:
-                if not info['entries']: raise Exception(f"No results found for this link on {platform}.")
+                if not info['entries']: raise Exception(f"No results found.")
                 info = info['entries'][0]
 
             if not info:
-                raise Exception("Could not find any media info. The link might be private or restricted.")
-
-            print(f"Successfully extracted: {info.get('title')}")
+                raise Exception("Could not retrieve media info.")
 
             # Process formats
             raw_formats = info.get("formats", [])
@@ -186,19 +192,19 @@ async def extract_info(request: ExtractRequest):
                 url_val = f.get("url")
                 if not url_val: continue
                 
-                # Basic quality info
                 res = f.get("resolution")
                 note = f.get("format_note")
                 ext = f.get("ext", "mp4").upper()
+                vcodec = f.get('vcodec', 'none')
                 
-                # Determine if this format is suitable for the requested media type
-                is_audio = f.get('vcodec') == 'none' or 'audio only' in (note or '').lower()
+                is_audio = vcodec == 'none' or 'audio' in (note or '').lower() or 'audio' in (res or '').lower()
                 
+                # If we're strictly in music mode, we prefer audio-only formats
                 if media_type == "music" and not is_audio:
-                    continue # Skip video formats if we only want music
+                    continue 
                 
-                quality = note or res or ("HQ Audio" if is_audio else "HD Video")
-                q_key = f"{quality}_{ext}"
+                quality = note or res or ("HQ Audio" if is_audio else "Standard")
+                q_key = f"{quality}_{ext}_{'A' if is_audio else 'V'}"
                 if q_key in seen_qualities: continue
                 seen_qualities.add(q_key)
                 
@@ -210,13 +216,13 @@ async def extract_info(request: ExtractRequest):
                     "url": url_val
                 })
 
-            if not formats:
-                # Fallback: if no filtered formats found, just take the main URL
+            # If no formats found after filtering, provide at least one
+            if not formats and info.get('url'):
                 formats.append({
                     "quality": "Standard",
                     "format": info.get("ext", "MP4").upper(),
                     "resolution": "Default",
-                    "size": "Unknown",
+                    "size": "Fast",
                     "url": info.get("url")
                 })
 
@@ -225,8 +231,8 @@ async def extract_info(request: ExtractRequest):
                 "data": {
                     "id": str(info.get("id")),
                     "url": url,
-                    "title": info.get("title", "Untitled Content"),
-                    "thumbnail": info.get("thumbnail"),
+                    "title": info.get("title", "Media Content"),
+                    "thumbnail": info.get("thumbnail") or info.get('cover'),
                     "duration": f"{int(info.get('duration', 0)) // 60}m" if info.get("duration") else "0m",
                     "author": info.get("uploader") or info.get("artist") or platform,
                     "platform": platform,
@@ -252,6 +258,99 @@ async def download_media(url: str, background_tasks: BackgroundTasks, filename: 
         background_tasks.add_task(os.remove, temp_path)
         return FileResponse(path=temp_path, filename=filename)
     except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+# =========================
+# MOVIE ENDPOINTS
+# =========================
+
+@app.get("/api/movies/search")
+async def search_movies(query: str = Query(...), type: str = "movie"):
+    try:
+        client_session = Session()
+        subject_type = SubjectType.MOVIES if type == "movie" else SubjectType.TV_SHOWS
+        search = Search(client_session, query, subject_type=subject_type)
+        results = await search.get_content()
+        
+        items = results.get('items', [])
+        formatted_results = []
+        
+        for item in items:
+            # Map correctly from the actual API response structure
+            movie_id = str(item.get('subjectId'))
+            poster_data = item.get('cover') or {}
+            poster_url = poster_data.get('url') if isinstance(poster_data, dict) else None
+            
+            # Fallbacks
+            if not poster_url:
+                poster_url = item.get('poster') or item.get('thumbnail')
+
+            formatted_results.append({
+                "id": movie_id,
+                "title": item.get('title') or item.get('name') or "Unknown Title",
+                "thumbnail": poster_url,
+                "year": item.get('releaseDate', '').split('-')[0] if item.get('releaseDate') else "N/A",
+                "rating": str(item.get('imdbRatingValue', '0.0')),
+                "description": item.get('description', 'No description available.'),
+                "mediaType": type
+            })
+            
+        return {"success": True, "data": formatted_results}
+    except Exception as e:
+        print(f"Movie Search Error: {str(e)}")
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+@app.get("/api/movies/details")
+async def get_movie_details(subject_id: str = Query(...), type: str = "movie"):
+    try:
+        client_session = Session()
+        subject_type = SubjectType.MOVIES if type == "movie" else SubjectType.TV_SHOWS
+        search = Search(client_session, subject_id, subject_type=subject_type)
+        search_model = await search.get_content_model()
+        
+        target_item = None
+        if hasattr(search_model, 'items') and search_model.items:
+            target_item = search_model.items[0]
+        elif hasattr(search_model, 'list') and search_model.list:
+            target_item = search_model.list[0]
+            
+        if not target_item:
+            return JSONResponse(status_code=404, content={"success": False, "error": "Content not found"})
+
+        md_instance = MovieDetails(target_item, client_session)
+        details = await md_instance.get_content()
+        
+        md_model = await md_instance.get_content_model()
+        downloadable_files = DownloadableMovieFilesDetail(client_session, md_model)
+        files_data = await downloadable_files.get_content()
+        
+        qualities = []
+        raw_files = files_data.get('list', [])
+        for f in raw_files:
+            qualities.append({
+                "quality": f.get('quality', '720p'),
+                "format": "MP4",
+                "size": format_size(f.get('size')),
+                "url": f.get('path') or f.get('url')
+            })
+
+        return {
+            "success": True,
+            "data": {
+                "id": subject_id,
+                "title": details.get('name') or details.get('title'),
+                "description": details.get('description'),
+                "thumbnail": details.get('poster'),
+                "year": details.get('year'),
+                "rating": str(details.get('rating', '0.0')),
+                "qualities": qualities,
+                "mediaType": type
+            }
+        }
+    except Exception as e:
+        print(f"Movie Details Error: {str(e)}")
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 if __name__ == "__main__":
     import uvicorn

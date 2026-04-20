@@ -398,6 +398,7 @@ export const logMediaInteraction = async (
     }
   } catch (error) {}
 };
+
 export const updateUserPresence = async (uid: string, device?: string): Promise<void> => {
   if (!uid) return;
   try {
@@ -527,6 +528,115 @@ export const clearAllHistory = async (): Promise<void> => {
   const batch = writeBatch(db);
   snapshot.docs.forEach((doc) => batch.delete(doc.ref));
   await batch.commit();
+};
+
+// --- MOVIE CLOUD & PRE-ORDER SYSTEM ---
+
+export interface CloudMovie {
+  id: string;
+  title: string;
+  thumbnail: string;
+  description: string;
+  year: string;
+  rating: string;
+  streamUrl: string;
+  downloadUrl: string;
+  mediaType: 'movie' | 'series';
+  addedAt: number;
+}
+
+export interface PreOrder {
+  id: string;
+  userId: string;
+  userEmail: string;
+  userName: string;
+  movieId: string; // MovieBox ID
+  title: string;
+  thumbnail: string;
+  status: 'pending' | 'fulfilled';
+  requestedAt: number;
+}
+
+/**
+ * Check if a movie is already in our cloud library
+ */
+export const checkCloudMovie = async (movieId: string): Promise<CloudMovie | null> => {
+  try {
+    const docRef = doc(db, 'movies', movieId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) return docSnap.data() as CloudMovie;
+    return null;
+  } catch (error) { return null; }
+};
+
+/**
+ * Create a pre-order request for a movie
+ */
+export const createPreOrder = async (userId: string, userEmail: string, userName: string, movie: any): Promise<void> => {
+  try {
+    const preorderRef = collection(db, 'preorders');
+    // Check if user already preordered this to avoid duplicates
+    const q = query(preorderRef, where('userId', '==', userId), where('movieId', '==', movie.id || movie.subjectId));
+    const snap = await getDocs(q);
+    if (!snap.empty) return;
+
+    await addDoc(preorderRef, {
+      userId,
+      userEmail,
+      userName,
+      movieId: movie.id || movie.subjectId,
+      title: movie.title || movie.name,
+      thumbnail: movie.thumbnail || movie.poster,
+      status: 'pending',
+      requestedAt: Date.now()
+    });
+  } catch (error: any) { 
+    console.error('Pre-order Error:', error);
+    throw new Error('Failed to create pre-order: ' + (error.message || 'Unknown error')); 
+  }
+};
+
+/**
+ * Admin: Upload a movie to the cloud library
+ */
+export const uploadToCloud = async (movieData: CloudMovie): Promise<void> => {
+  try {
+    await setDoc(doc(db, 'movies', movieData.id), {
+      ...movieData,
+      addedAt: Date.now()
+    });
+  } catch (error) { throw new Error('Failed to upload movie'); }
+};
+
+/**
+ * Admin: Get all pending pre-orders
+ */
+export const getPreOrders = async (): Promise<PreOrder[]> => {
+  try {
+    const q = query(collection(db, 'preorders'), orderBy('requestedAt', 'desc'));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as PreOrder));
+  } catch (error) { return []; }
+};
+
+/**
+ * Admin: Notify user and mark pre-order as fulfilled
+ */
+export const fulfillPreOrder = async (preorderId: string, userId: string, movieTitle: string): Promise<void> => {
+  try {
+    // 1. Mark preorder as fulfilled
+    await updateDoc(doc(db, 'preorders', preorderId), { status: 'fulfilled' });
+    
+    // 2. Send notification to user
+    const notifRef = collection(db, 'users', userId, 'notifications');
+    await addDoc(notifRef, {
+      title: '🎥 Movie Ready!',
+      message: `The movie "${movieTitle}" you pre-ordered is now live! You can watch or download it now.`,
+      timestamp: serverTimestamp(),
+      read: false,
+      type: 'update'
+    });
+  } catch (error) { throw new Error('Failed to fulfill pre-order'); }
 };
 
 export default app;
