@@ -8,6 +8,8 @@ import Signup from '@/sections/Signup';
 import VideoDownloader from '@/sections/VideoDownloader';
 import MusicDownloader from '@/sections/MusicDownloader';
 import MovieDownloader from '@/sections/MovieDownloader';
+import CinemaRoom from '@/sections/CinemaRoom';
+import Wallet from '@/sections/Wallet';
 import BulkDownloader from '@/sections/BulkDownloader';
 import History from '@/sections/History';
 import AdminDashboard from '@/sections/AdminDashboard';
@@ -229,6 +231,8 @@ export const AppContent: React.FC = () => {
             {activeView === 'video' && <VideoDownloader />}
             {activeView === 'music' && <MusicDownloader />}
             {activeView === 'movie' && <MovieDownloader />}
+            {activeView === 'cinema' && <CinemaRoom />}
+            {activeView === 'wallet' && <Wallet />}
             {activeView === 'bulk' && <BulkDownloader />}
             {activeView === 'notifications' && <Notifications />}
             {activeView === 'history' && <History />}
