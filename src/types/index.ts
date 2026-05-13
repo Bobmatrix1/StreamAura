@@ -158,3 +158,50 @@ export interface GlobalHistoryItem extends HistoryItem {
   userEmail: string | null;
   userDisplayName: string | null;
 }
+
+// Store types
+export interface Vendor {
+  id: string;
+  name: string;
+  telegramGroupId: string;
+  logo?: string;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  slashPrice?: number;
+  image: string;
+  vendorId: string;
+  inStock: boolean;
+  quantity: number;
+  category: string;
+}
+
+export interface Partner {
+  id: string;
+  name: string;
+  logo: string;
+  url?: string;
+}
+
+export interface Order {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userPhone: string;
+  deliveryAddress: string;
+  items: {
+    productId: string;
+    name: string;
+    quantity: number;
+    price: number;
+  }[];
+  totalAmount: number;
+  vendorId: string;
+  status: 'pending' | 'accepted' | 'delivered' | 'cancelled';
+  createdAt: number;
+}

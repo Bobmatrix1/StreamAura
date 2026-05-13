@@ -35,8 +35,11 @@ import {
   initializeFirestore,
   increment
 } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
-import type { User, GlobalHistoryItem, HistoryItem } from '@/types';
+import type { User, GlobalHistoryItem, HistoryItem, Vendor, Product, Partner, Order } from '../types';
+
+export type { User, GlobalHistoryItem, HistoryItem, Vendor, Product, Partner, Order };
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -637,6 +640,78 @@ export const fulfillPreOrder = async (preorderId: string, userId: string, movieT
       type: 'update'
     });
   } catch (error) { throw new Error('Failed to fulfill pre-order'); }
+};
+
+/**
+ * Store Management
+ */
+
+// Vendors
+export const getVendors = async (): Promise<Vendor[]> => {
+  const snap = await getDocs(collection(db, 'vendors'));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as Vendor));
+};
+
+export const updateVendor = async (vendor: Vendor): Promise<void> => {
+  await setDoc(doc(db, 'vendors', vendor.id), vendor);
+};
+
+// Products
+export const getProducts = async (): Promise<Product[]> => {
+  const snap = await getDocs(collection(db, 'products'));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as Product));
+};
+
+export const addProduct = async (product: Omit<Product, 'id'>): Promise<void> => {
+  await addDoc(collection(db, 'products'), { ...product, createdAt: Date.now() });
+};
+
+export const updateProduct = async (id: string, product: Partial<Product>): Promise<void> => {
+  await updateDoc(doc(db, 'products', id), product);
+};
+
+export const deleteProduct = async (id: string): Promise<void> => {
+  await deleteDoc(doc(db, 'products', id));
+};
+
+// Partners
+export const getPartners = async (): Promise<Partner[]> => {
+  const snap = await getDocs(collection(db, 'partners'));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as Partner));
+};
+
+export const addPartner = async (partner: Omit<Partner, 'id'>): Promise<void> => {
+  await addDoc(collection(db, 'partners'), partner);
+};
+
+export const deletePartner = async (id: string): Promise<void> => {
+  await deleteDoc(doc(db, 'partners', id));
+};
+
+// Orders
+export const placeOrder = async (order: Omit<Order, 'id'>): Promise<string> => {
+  const docRef = await addDoc(collection(db, 'orders'), {
+    ...order,
+    status: 'pending',
+    createdAt: Date.now()
+  });
+  return docRef.id;
+};
+
+// Storage initialization
+export const storage = getStorage(app);
+
+/**
+ * Upload a file to Firebase Storage and return the download URL
+ */
+export const uploadFile = async (file: File, path: string): Promise<string> => {
+  const storageRef = ref(storage, `${path}/${Date.now()}_${file.name}`);
+  const snapshot = await uploadBytes(storageRef, file);
+  return await getDownloadURL(snapshot.ref);
+};
+
+export const deleteVendor = async (id: string): Promise<void> => {
+  await deleteDoc(doc(db, 'vendors', id));
 };
 
 export default app;

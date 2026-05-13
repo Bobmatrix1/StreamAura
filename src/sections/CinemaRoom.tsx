@@ -17,12 +17,14 @@ import {
   ShieldAlert,
   Video,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  ShoppingBag
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+import { CinemaStoreModal } from './CinemaStoreModal';
 
 interface Room {
   id: string;
@@ -59,10 +61,15 @@ const CinemaRoom: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'rooms' | 'trailers' | 'schedule'>('rooms');
   const [curtainsOpen, setCurtainsOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
 
   const dateInputRef = React.useRef<HTMLInputElement>(null);
   const timeInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleBuySnacks = () => {
+    setIsStoreOpen(true);
+  };
 
   // Admin Poster Slides (Carousel) - Expanded for verification
   const [slides] = useState<CinemaSlide[]>([
@@ -227,6 +234,10 @@ const CinemaRoom: React.FC = () => {
           <p className="text-muted-foreground mt-1">Experience movies together in virtual luxury.</p>
         </div>
         <div className="flex items-center gap-3">
+          <Button variant="outline" onClick={handleBuySnacks} className="gap-2 border-white/10 text-emerald-400 hover:text-emerald-300">
+            <ShoppingBag className="w-4 h-4" />
+            Buy Snacks
+          </Button>
           <Button variant="outline" className="gap-2 border-white/10">
             <Ticket className="w-4 h-4" />
             My Tickets
@@ -520,6 +531,13 @@ const CinemaRoom: React.FC = () => {
                   <button onClick={() => setIsCreateModalOpen(false)} className="p-2 rounded-full hover:bg-white/10 transition-colors">
                     <X className="w-5 h-5 text-muted-foreground hover:text-white" />
                   </button>
+                </div>
+
+                <div className="px-6 py-2 flex justify-end">
+                   <Button type="button" variant="outline" onClick={handleBuySnacks} className="gap-2 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 h-8 text-[10px] font-black uppercase">
+                      <ShoppingBag className="w-3 h-3" />
+                      Buy Snacks for Room
+                   </Button>
                 </div>
 
                 <form onSubmit={handleCreateRoom} className="p-6 space-y-8">
@@ -890,6 +908,8 @@ const CinemaRoom: React.FC = () => {
           </React.Fragment>
         )}
       </AnimatePresence>
+
+      <CinemaStoreModal isOpen={isStoreOpen} onClose={() => setIsStoreOpen(false)} />
     </div>
   );
 };

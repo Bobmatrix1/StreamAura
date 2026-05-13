@@ -27,7 +27,8 @@ import {
   Send,
   MessageSquare,
   Info,
-  Package
+  Package,
+  Store
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -53,12 +54,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PreOrderManager } from './PreOrderManager';
+import { StoreManager } from './StoreManager';
 
 const AdminDashboard: React.FC = () => {
   const { user: currentUser } = useAuth();
   const { showSuccess, showError } = useToast();
   
-  const [activeTab, setActiveTab] = useState<'users' | 'history' | 'preorders' | 'traffic' | 'insights' | 'messages'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'history' | 'preorders' | 'traffic' | 'insights' | 'messages' | 'store'>('users');
   const [users, setUsers] = useState<User[]>([]);
   const [history, setHistory] = useState<GlobalHistoryItem[]>([]);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
@@ -376,6 +378,7 @@ const AdminDashboard: React.FC = () => {
           <button onClick={() => setActiveTab('traffic')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'traffic' ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Globe className="w-4 h-4" />Traffic</button>
           <button onClick={() => setActiveTab('insights')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'insights' ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/25' : 'text-muted-foreground hover:text-foreground'}`}><LineChart className="w-4 h-4" />Insights</button>
           <button onClick={() => setActiveTab('messages')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'messages' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Send className="w-4 h-4" />Messages</button>
+          <button onClick={() => setActiveTab('store')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'store' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Store className="w-4 h-4" />Store</button>
         </div>
       </div>
 
@@ -412,6 +415,8 @@ const AdminDashboard: React.FC = () => {
             <div className="flex flex-col items-center justify-center py-24"><Loader2 className="w-10 h-10 text-primary animate-spin mb-4" /><p className="text-muted-foreground font-medium tracking-widest text-xs uppercase">Syncing</p></div>
           ) : activeTab === 'preorders' ? (
             <PreOrderManager />
+          ) : activeTab === 'store' ? (
+            <StoreManager />
           ) : activeTab === 'users' ? (
             <Table>
               <TableHeader><TableRow className="border-white/5 bg-white/[0.02] hover:bg-transparent"><TableHead className="text-muted-foreground font-bold">USER IDENTITY</TableHead><TableHead className="text-muted-foreground font-bold">DEVICE</TableHead><TableHead className="text-muted-foreground font-bold text-center">VISITS</TableHead><TableHead className="text-muted-foreground font-bold text-center">TIME</TableHead><TableHead className="text-muted-foreground font-bold text-center">HITS</TableHead><TableHead className="text-muted-foreground font-bold text-center">DLs</TableHead><TableHead className="text-muted-foreground font-bold">JOINED</TableHead><TableHead className="text-right text-muted-foreground font-bold pr-10">CONTROLS</TableHead></TableRow></TableHeader>

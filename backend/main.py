@@ -352,6 +352,77 @@ async def get_movie_details(subject_id: str = Query(...), type: str = "movie"):
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
+class OrderItem(BaseModel):
+    productId: str
+    name: str
+    quantity: int
+    price: float
+
+class OrderRequest(BaseModel):
+    orderId: str
+    vendorId: str
+    vendorName: str
+    telegramGroupId: Optional[str]
+    customerName: str
+    customerPhone: str
+    customerAddress: str
+    items: List[OrderItem]
+    total: float
+
+@app.post("/api/store/order")
+async def process_store_order(order: OrderRequest):
+    try:
+        bot_token = "8601644738:AAG5MMSgR0paQ_wI_ZHkCyy4ekeQL1Sus5Q"
+        
+        # Construct Message
+        items_text = "\n".join([f"• {item.name} x{item.quantity} (₦{item.price:,.0f})" for item in order.items])
+        
+        message = (
+            f"🛒 *New Order #{order.orderId}*\n\n"
+            f"*Customer:* {order.customerName}\n"
+            f"*Phone:* {order.customerPhone}\n"
+            f"*Address:* {order.customerAddress}\n\n"
+            f"*Items:*\n{items_text}\n\n"
+            f"*Total Paid:* ₦{order.total:,.0f}\n\n"
+            f"Sent only to {order.vendorName} group."
+        )
+        
+        # Inline Keyboard
+        keyboard = {
+            "inline_keyboard": [
+                [
+                    {"text": "✅ Accept Order", "callback_data": f"accept_{order.orderId}"},
+                    {"text": "🚚 Delivered", "callback_data": f"deliver_{order.orderId}"}
+                ],
+                [
+                    {"text": "❌ Cancelled", "callback_data": f"cancel_{order.orderId}"}
+                ]
+            ]
+        }
+        
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        payload = {
+            "chat_id": order.telegramGroupId,
+            "text": message,
+            "parse_mode": "Markdown",
+            "reply_markup": keyboard
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload)
+            response_data = response.json()
+            
+        if not response_data.get("ok"):
+            print(f"Telegram Error: {response_data}")
+            return JSONResponse(status_code=500, content={"success": False, "error": "Failed to send Telegram message"})
+            
+        return {"success": True, "message": "Order processed and notification sent"}
+        
+    except Exception as e:
+        print(f"Store Order Error: {str(e)}")
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
