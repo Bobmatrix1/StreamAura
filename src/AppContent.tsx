@@ -189,34 +189,6 @@ export const AppContent: React.FC = () => {
     );
   }
 
-  if (!isAuthenticated) {
-    return (
-      <AnimatePresence mode="wait">
-        {showLogin ? (
-          <motion.div
-            key="login"
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            className="min-h-screen flex items-center justify-center p-4 bg-background"
-          >
-            <Login onToggleView={toggleAuthView} />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="signup"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            className="min-h-screen flex items-center justify-center p-4 bg-background"
-          >
-            <Signup onToggleView={toggleAuthView} />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    );
-  }
-
   return (
     <>
       <Layout activeTab={activeView} onTabChange={handleTabChange}>
@@ -248,3 +220,4 @@ export const AppContent: React.FC = () => {
     </>
   );
 };
+

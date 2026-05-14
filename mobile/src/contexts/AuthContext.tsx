@@ -27,6 +27,40 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  /**
+   * Converts Firebase Auth error codes into user-friendly messages
+   */
+  const mapAuthError = (err: any): string => {
+    const code = err?.code || '';
+    
+    switch (code) {
+      case 'auth/invalid-credential':
+        return 'Invalid email or password. Please check your details and try again.';
+      case 'auth/user-not-found':
+        return 'No account found with this email. Would you like to sign up?';
+      case 'auth/wrong-password':
+        return 'Incorrect password. Please try again or reset your password.';
+      case 'auth/email-already-in-use':
+        return 'This email is already registered. Try signing in instead.';
+      case 'auth/weak-password':
+        return 'Your password is too weak. Please use at least 6 characters.';
+      case 'auth/invalid-email':
+        return 'Please enter a valid email address.';
+      case 'auth/operation-not-allowed':
+        return 'Sign-in method is currently disabled.';
+      case 'auth/too-many-requests':
+        return 'Too many failed attempts. Your account has been temporarily locked for security. Please try again later.';
+      case 'auth/network-request-failed':
+        return 'Network error. Please check your internet connection and try again.';
+      case 'auth/user-disabled':
+        return 'This account has been disabled. Please contact support.';
+      default:
+        return err.message?.includes('Firebase') 
+          ? 'An unexpected authentication error occurred. Please try again.' 
+          : (err.message || 'Authentication failed');
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthChange((updatedUser) => {
       setUser(updatedUser);
@@ -41,7 +75,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const newUser = await signUpWithEmail(email, password, displayName);
       setUser(newUser);
     } catch (error: any) {
-      throw new Error(error.message);
+      throw new Error(mapAuthError(error));
     }
   };
 
@@ -50,7 +84,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const existingUser = await signInWithEmail(email, password);
       setUser(existingUser);
     } catch (error: any) {
-      throw new Error(error.message);
+      throw new Error(mapAuthError(error));
     }
   };
 
@@ -67,7 +101,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       await firebaseResetPassword(email);
     } catch (error: any) {
-      throw new Error(error.message);
+      throw new Error(mapAuthError(error));
     }
   };
 

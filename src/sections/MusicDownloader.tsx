@@ -22,7 +22,7 @@ import { logMediaInteraction } from '../lib/firebase';
 import type { AudioQuality } from '@/types';
 
 const MusicDownloader: React.FC = () => {
-  const { user } = useAuth();
+  const { user, requireAuth } = useAuth();
   const [url, setUrl] = useState('');
   const [selectedQuality, setSelectedQuality] = useState<AudioQuality | null>(null);
   const [isDownloadingLocal, setIsDownloadingLocal] = useState(false);
@@ -55,16 +55,18 @@ const MusicDownloader: React.FC = () => {
   }, [currentPreview, isLoadingPreview]);
 
   const handleFetch = async () => {
-    if (!url.trim()) return;
-    setIsMatching(true);
-    try {
-      const info = await getMediaInfo(url);
-      if (info) {
-        setCurrentPreview(info);
+    requireAuth(async () => {
+      if (!url.trim()) return;
+      setIsMatching(true);
+      try {
+        const info = await getMediaInfo(url);
+        if (info) {
+          setCurrentPreview(info);
+        }
+      } finally {
+        setIsMatching(false);
       }
-    } finally {
-      setIsMatching(false);
-    }
+    });
   };
 
   const handleClear = () => {
@@ -77,25 +79,27 @@ const MusicDownloader: React.FC = () => {
   };
 
   const handleDownload = async () => {
-    if (!currentPreview || !selectedQuality) return;
-    setIsDownloadingLocal(true);
-    try {
-      const safeTitle = currentPreview.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      await downloadWithProgress(selectedQuality.url, selectedQuality.quality, `${safeTitle}.mp3`);
-      
-      // Log Interaction
-      logMediaInteraction(
-        { id: currentPreview.id, title: currentPreview.title, mediaType: 'music', platform: currentPreview.platform },
-        'download',
-        user?.uid
-      );
+    requireAuth(async () => {
+      if (!currentPreview || !selectedQuality) return;
+      setIsDownloadingLocal(true);
+      try {
+        const safeTitle = currentPreview.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        await downloadWithProgress(selectedQuality.url, selectedQuality.quality, `${safeTitle}.mp3`);
+        
+        // Log Interaction
+        logMediaInteraction(
+          { id: currentPreview.id, title: currentPreview.title, mediaType: 'music', platform: currentPreview.platform },
+          'download',
+          user?.uid
+        );
 
-      showSuccess('Download complete!');
-    } catch (error) {
-      // Error handled by context
-    } finally {
-      setIsDownloadingLocal(false);
-    }
+        showSuccess('Download complete!');
+      } catch (error) {
+        // Error handled by context
+      } finally {
+        setIsDownloadingLocal(false);
+      }
+    });
   };
 
   const handleCancel = () => {

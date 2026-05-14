@@ -6,14 +6,14 @@ import { AppContent } from './AppContent';
 
 export default function App() {
   return (
-    <AuthProvider>
-      <ThemeProvider defaultTheme="dark">
-        <ToastProvider>
+    <ToastProvider>
+      <AuthProvider>
+        <ThemeProvider defaultTheme="dark">
           <DownloadProvider>
             <AppContent />
           </DownloadProvider>
-        </ToastProvider>
-      </ThemeProvider>
-    </AuthProvider>
+        </ThemeProvider>
+      </AuthProvider>
+    </ToastProvider>
   );
 }

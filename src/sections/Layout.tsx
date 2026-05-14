@@ -64,7 +64,7 @@ const tabs: Tab[] = [
 ];
 
 const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, isAdmin, requireAuth, isAuthenticated } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { queue, activeDownloads } = useDownload();
   const isMobile = useIsMobile();
@@ -92,9 +92,15 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
   const handleLogout = async () => {
     try {
       await logout();
+      setIsUserMenuOpen(false);
     } catch (error) {
       console.error('Logout error:', error);
     }
+  };
+
+  const handleSignIn = () => {
+    requireAuth(() => {});
+    setIsUserMenuOpen(false);
   };
 
   const queueCount = queue.filter(item => item.status === 'waiting' || item.status === 'processing').length;
@@ -268,8 +274,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
                 </div>
               )}
               <div className="flex-1 text-left overflow-hidden">
-                <p className="text-sm font-medium text-foreground truncate">{user?.displayName || 'User'}</p>
-                <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                <p className="text-sm font-medium text-foreground truncate">{user?.displayName || 'Guest User'}</p>
+                <p className="text-xs text-muted-foreground truncate">{user?.email || 'Login to sync data'}</p>
               </div>
               <ChevronDown className={`w-4 h-4 transition-transform text-muted-foreground ${isUserMenuOpen ? 'rotate-180' : ''}`} />
             </button>
@@ -283,13 +289,23 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
                   exit={{ opacity: 0, y: -10 }}
                   className="absolute bottom-full left-0 right-0 mb-2 glass-card overflow-hidden"
                 >
-                  <button
-                    onClick={handleLogout}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 transition-colors"
-                  >
-                    <LogOut className="w-5 h-5" />
-                    <span className="font-medium">Sign Out</span>
-                  </button>
+                  {isAuthenticated ? (
+                    <button
+                      onClick={handleLogout}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 transition-colors"
+                    >
+                      <LogOut className="w-5 h-5" />
+                      <span className="font-medium">Sign Out</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleSignIn}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                    >
+                      <User className="w-5 h-5" />
+                      <span className="font-medium">Sign In</span>
+                    </button>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>

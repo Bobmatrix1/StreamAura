@@ -16,14 +16,13 @@ import {
   Clock,
   ShieldAlert,
   Video,
-  ChevronLeft,
-  ChevronRight,
   ShoppingBag
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { toast } from 'sonner';
+import { useToast } from '../contexts/ToastContext';
+import { useAuth } from '../contexts/AuthContext';
 import { CinemaStoreModal } from './CinemaStoreModal';
 
 interface Room {
@@ -58,6 +57,8 @@ interface CinemaSlide {
  * Enhanced Immersive cinema experience and advanced room creation.
  */
 const CinemaRoom: React.FC = () => {
+  const { requireAuth } = useAuth();
+  const { showError, showSuccess, showInfo } = useToast();
   const [activeTab, setActiveTab] = useState<'rooms' | 'trailers' | 'schedule'>('rooms');
   const [curtainsOpen, setCurtainsOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -67,8 +68,35 @@ const CinemaRoom: React.FC = () => {
   const dateInputRef = React.useRef<HTMLInputElement>(null);
   const timeInputRef = React.useRef<HTMLInputElement>(null);
 
+  // Auto-open curtains on load
+  useEffect(() => {
+    const timer = setTimeout(() => setCurtainsOpen(true), 800);
+    return () => clearTimeout(timer);
+  }, []);
+
   const handleBuySnacks = () => {
-    setIsStoreOpen(true);
+    requireAuth(() => {
+      setIsStoreOpen(true);
+    });
+  };
+
+  const handleJoinRoom = (room: Room) => {
+    requireAuth(() => {
+      // Mock join logic
+      showSuccess(`Joining ${room.title}...`);
+    });
+  };
+
+  const handleMyTickets = () => {
+    requireAuth(() => {
+       showInfo('No active tickets found.');
+    });
+  };
+
+  const handleOpenCreateModal = () => {
+    requireAuth(() => {
+      setIsCreateModalOpen(true);
+    });
   };
 
   // Admin Poster Slides (Carousel) - Expanded for verification
@@ -200,9 +228,9 @@ const CinemaRoom: React.FC = () => {
     e.preventDefault();
     if (roomType === 'private') {
       const cost = privateSeats * 1000;
-      toast.success(`Private Room Created! ₦${cost.toLocaleString()} deducted from wallet.`);
+      showSuccess(`Private Room Created! ₦${cost.toLocaleString()} deducted from wallet.`);
     } else {
-      toast.success('Room created successfully! Link copied to clipboard.');
+      showSuccess('Room created successfully! Link copied to clipboard.');
     }
     setIsCreateModalOpen(false);
   };
@@ -238,11 +266,11 @@ const CinemaRoom: React.FC = () => {
             <ShoppingBag className="w-4 h-4" />
             Buy Snacks
           </Button>
-          <Button variant="outline" className="gap-2 border-white/10">
+          <Button variant="outline" onClick={handleMyTickets} className="gap-2 border-white/10">
             <Ticket className="w-4 h-4" />
             My Tickets
           </Button>
-          <Button onClick={() => setIsCreateModalOpen(true)} className="gap-2 gradient-bg">
+          <Button onClick={handleOpenCreateModal} className="gap-2 gradient-bg">
             <Plus className="w-4 h-4" />
             Create Room
           </Button>
@@ -449,7 +477,7 @@ const CinemaRoom: React.FC = () => {
                     <span className="text-xs font-bold flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3" /> {room.startTime}</span>
                   </div>
                   {/* Join Room discovers if Paid/Free implicitly */}
-                  <Button size="sm" className="rounded-xl px-6 font-bold shadow-lg transition-transform hover:scale-105 gradient-bg">
+                  <Button onClick={() => handleJoinRoom(room)} size="sm" className="rounded-xl px-6 font-bold shadow-lg transition-transform hover:scale-105 gradient-bg">
                     Join Room
                   </Button>
                 </div>

@@ -19,7 +19,7 @@ import { logSearch, checkCloudMovie, createPreOrder, type CloudMovie } from '../
 import type { MovieInfo } from '../types';
 
 const MovieDownloader: React.FC = () => {
-  const { user } = useAuth();
+  const { user, requireAuth } = useAuth();
   const [query, setQuery] = useState('');
   const searchType = 'movie'; // Fixed to 'movie' since series functionality seems incomplete or moved
   const [isSearching, setIsSearching] = useState(false);
@@ -46,52 +46,56 @@ const MovieDownloader: React.FC = () => {
   }, [showPlayer, isLoadingDetails, selectedMovie, showPreOrderModal]);
 
   const handleSearch = async () => {
-    if (!query.trim()) return;
-    setIsSearching(true);
-    setSelectedMovie(null);
-    logSearch(query, searchType as any, user?.uid);
-    try {
-      const result = await mediaApi.searchMovies(query, searchType as 'movie' | 'series');
-      if (result.success && result.data) {
-        setSearchResults(result.data);
+    requireAuth(async () => {
+      if (!query.trim()) return;
+      setIsSearching(true);
+      setSelectedMovie(null);
+      logSearch(query, searchType as any, user?.uid);
+      try {
+        const result = await mediaApi.searchMovies(query, searchType as 'movie' | 'series');
+        if (result.success && result.data) {
+          setSearchResults(result.data);
+        }
+      } catch (err) {
+        showError('Search failed');
+      } finally {
+        setIsSearching(false);
       }
-    } catch (err) {
-      showError('Search failed');
-    } finally {
-      setIsSearching(false);
-    }
+    });
   };
 
   const handleSelectMovie = async (movie: MovieInfo) => {
-    setIsLoadingPreview(true);
-    setCloudData(null);
-    setPreOrderSuccess(false);
+    requireAuth(async () => {
+      setIsLoadingPreview(true);
+      setCloudData(null);
+      setPreOrderSuccess(false);
 
-    try {
-      // 1. Check Cloud Library first
-      const cloud = await checkCloudMovie(movie.id);
-      
-      if (cloud) {
-        // If in cloud, use cloud data for details and show details view
-        setCloudData(cloud);
-        setSelectedMovie({
-          ...movie,
-          title: cloud.title,
-          description: cloud.description,
-          thumbnail: cloud.thumbnail,
-          year: cloud.year,
-          rating: cloud.rating
-        });
-      } else {
-        // If NOT in cloud, STAY on search grid but show pre-order modal
-        setMovieToPreOrder(movie);
-        setShowPreOrderModal(true);
+      try {
+        // 1. Check Cloud Library first
+        const cloud = await checkCloudMovie(movie.id);
+        
+        if (cloud) {
+          // If in cloud, use cloud data for details and show details view
+          setCloudData(cloud);
+          setSelectedMovie({
+            ...movie,
+            title: cloud.title,
+            description: cloud.description,
+            thumbnail: cloud.thumbnail,
+            year: cloud.year,
+            rating: cloud.rating
+          });
+        } else {
+          // If NOT in cloud, STAY on search grid but show pre-order modal
+          setMovieToPreOrder(movie);
+          setShowPreOrderModal(true);
+        }
+      } catch (err) {
+        showError('Error checking library');
+      } finally {
+        setIsLoadingPreview(false);
       }
-    } catch (err) {
-      showError('Error checking library');
-    } finally {
-      setIsLoadingPreview(false);
-    }
+    });
   };
 
   const handlePreOrderRequest = async () => {
@@ -110,13 +114,17 @@ const MovieDownloader: React.FC = () => {
   };
 
   const handleWatchNow = () => {
-    if (!cloudData) return;
-    setShowPlayer(true);
+    requireAuth(() => {
+      if (!cloudData) return;
+      setShowPlayer(true);
+    });
   };
 
   const handleDownload = () => {
-    if (!cloudData) return;
-    window.open(cloudData.downloadUrl, '_blank');
+    requireAuth(() => {
+      if (!cloudData) return;
+      window.open(cloudData.downloadUrl, '_blank');
+    });
   };
 
   return (

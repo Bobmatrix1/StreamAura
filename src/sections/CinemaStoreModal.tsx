@@ -12,10 +12,8 @@ import {
   Mail, 
   ChevronRight,
   Store,
-  Tag,
   Star,
-  CheckCircle2,
-  Package
+  CheckCircle2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -44,7 +42,6 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
   const [products, setProducts] = useState<Product[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   
   // Cart State
   const [cart, setCart] = useState<{product: Product, quantity: number}[]>([]);
@@ -65,7 +62,6 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
   }, [isOpen]);
 
   const fetchData = async () => {
-    setIsLoading(true);
     try {
       const [p, pt, v] = await Promise.all([getProducts(), getPartners(), getVendors()]);
       setProducts(p.filter(prod => prod.inStock));
@@ -73,8 +69,6 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
       setVendors(v);
     } catch (error) {
       toast.error('Failed to load store');
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -145,8 +139,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
             price: item.product.price
           })),
           totalAmount: orderTotal,
-          vendorId: vendorId,
-          status: 'pending' as const
+          vendorId: vendorId
         };
 
         const orderId = await placeOrder(orderData);

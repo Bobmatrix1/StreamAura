@@ -197,7 +197,7 @@ export const signInWithGoogle = async (): Promise<User | null> => {
       return userData;
     }
     return { ...userDoc.data(), uid: user.uid } as User;
-  } catch (error) { throw new Error('Failed to sign in with Google'); }
+  } catch (error) { throw error; }
 };
 
 export const signUpWithEmail = async (email: string, password: string, displayName: string): Promise<User> => {
@@ -211,7 +211,7 @@ export const signUpWithEmail = async (email: string, password: string, displayNa
     };
     await setDoc(doc(db, 'users', user.uid), userData);
     return userData;
-  } catch (error: any) { throw new Error(error.message || 'Failed to sign up'); }
+  } catch (error: any) { throw error; }
 };
 
 export const signInWithEmail = async (email: string, password: string): Promise<User> => {
@@ -226,7 +226,7 @@ export const signInWithEmail = async (email: string, password: string): Promise<
     };
     await setDoc(doc(db, 'users', user.uid), userData);
     return userData;
-  } catch (error: any) { throw new Error(error.message || 'Failed to sign in'); }
+  } catch (error: any) { throw error; }
 };
 
 export const logOut = async (): Promise<void> => { await signOut(auth); };
@@ -689,7 +689,7 @@ export const deletePartner = async (id: string): Promise<void> => {
 };
 
 // Orders
-export const placeOrder = async (order: Omit<Order, 'id'>): Promise<string> => {
+export const placeOrder = async (order: Omit<Order, 'id' | 'createdAt' | 'status'>): Promise<string> => {
   const docRef = await addDoc(collection(db, 'orders'), {
     ...order,
     status: 'pending',

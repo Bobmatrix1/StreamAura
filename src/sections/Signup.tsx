@@ -13,6 +13,7 @@ import {
   Eye, 
   EyeOff, 
   ArrowRight,
+  ArrowLeft,
   User
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -20,6 +21,8 @@ import { useToast } from '../contexts/ToastContext';
 
 interface SignupProps {
   onToggleView: () => void;
+  onBack?: () => void;
+  isModal?: boolean;
 }
 
 const GoogleIcon = () => (
@@ -31,7 +34,7 @@ const GoogleIcon = () => (
   </svg>
 );
 
-const Signup: React.FC<SignupProps> = ({ onToggleView }) => {
+const Signup: React.FC<SignupProps> = ({ onToggleView, isModal, onBack }) => {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -103,25 +106,36 @@ const Signup: React.FC<SignupProps> = ({ onToggleView }) => {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-4 relative overflow-hidden">
+    <div className={`${isModal ? 'w-full' : 'min-h-screen w-full flex items-center justify-center p-4'} relative overflow-hidden`}>
       {/* Animated Background */}
-      <div className="absolute inset-0 animated-gradient" />
-      
-      {/* Floating Orbs */}
-      <div className="absolute top-20 right-10 w-72 h-72 bg-purple-500/20 rounded-full blur-[100px] float" />
-      <div className="absolute bottom-20 left-10 w-96 h-96 bg-blue-500/20 rounded-full blur-[100px] float" style={{ animationDelay: '-3s' }} />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-pink-500/10 rounded-full blur-[120px] float" style={{ animationDelay: '-1.5s' }} />
+      {!isModal && (
+        <>
+          <div className="absolute inset-0 animated-gradient" />
+          <div className="absolute top-20 right-10 w-72 h-72 bg-purple-500/20 rounded-full blur-[100px] float" />
+          <div className="absolute bottom-20 left-10 w-96 h-96 bg-blue-500/20 rounded-full blur-[100px] float" style={{ animationDelay: '-3s' }} />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-pink-500/10 rounded-full blur-[120px] float" style={{ animationDelay: '-1.5s' }} />
+        </>
+      )}
 
       {/* Signup Card */}
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
+        initial={isModal ? false : { opacity: 0, y: 20 }}
+        animate={isModal ? false : { opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="w-full max-w-md relative z-10"
+        className={`w-full ${isModal ? '' : 'max-w-md'} relative z-10`}
       >
-        <div className="glass-card p-8">
+        <div className={`${isModal ? 'p-6' : 'glass-card p-8'}`}>
           {/* Logo & Header */}
-          <div className="text-center mb-8">
+          <div className="text-center mb-8 relative">
+            {onBack && (
+              <button 
+                onClick={onBack}
+                className="absolute top-0 left-0 p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all group"
+              >
+                <ArrowLeft className="w-4 h-4 text-muted-foreground group-hover:text-white" />
+              </button>
+            )}
+
             <motion.div
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
@@ -134,7 +148,7 @@ const Signup: React.FC<SignupProps> = ({ onToggleView }) => {
               Create Account
             </h1>
             <p className="text-muted-foreground text-sm">
-              Sign up to start downloading
+              Sign up to start streaming
             </p>
           </div>
 
@@ -207,7 +221,7 @@ const Signup: React.FC<SignupProps> = ({ onToggleView }) => {
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
               >
-                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                {showPassword ? <Eye className="w-5 h-5 text-primary" /> : <EyeOff className="w-5 h-5" />}
               </button>
             </div>
 
@@ -229,7 +243,7 @@ const Signup: React.FC<SignupProps> = ({ onToggleView }) => {
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
               >
-                {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                {showConfirmPassword ? <Eye className="w-5 h-5 text-primary" /> : <EyeOff className="w-5 h-5" />}
               </button>
             </div>
 

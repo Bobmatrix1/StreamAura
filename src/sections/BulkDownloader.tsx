@@ -20,11 +20,23 @@ import { useAuth } from '../contexts/AuthContext';
 import { useIsMobile } from '../hooks/use-mobile';
 import { logMediaInteraction } from '../lib/firebase';
 
+import { LoginRequired } from '../components/LoginRequired';
+
 const BulkDownloader: React.FC = () => {
+  const { user, isAuthenticated } = useAuth();
+  
+  if (!isAuthenticated) {
+    return (
+      <LoginRequired 
+        title="Power Downloading"
+        description="Sign in to use the Bulk Downloader. Process multiple links at once and sync your queue across all your devices."
+        icon={List}
+      />
+    );
+  }
   const [inputUrls, setInputUrls] = useState('');
   const { queue, addToQueue, downloadWithProgress, getMediaInfo, removeFromQueue, clearQueue, cancelDownload } = useDownload();
   const { showError, showSuccess } = useToast();
-  const { user } = useAuth();
   const isMobile = useIsMobile();
   
   const [processingId, setProcessingId] = useState<string | null>(null);

@@ -22,8 +22,20 @@ import {
   type AppNotification 
 } from '../lib/firebase';
 
+import { LoginRequired } from '../components/LoginRequired';
+
 const Notifications: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
+  
+  if (!isAuthenticated) {
+    return (
+      <LoginRequired 
+        title="Stay Informed"
+        description="Sign in to view your personal notifications, system updates, and download alerts."
+        icon={Bell}
+      />
+    );
+  }
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);

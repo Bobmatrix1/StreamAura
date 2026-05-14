@@ -22,7 +22,7 @@ import { logMediaInteraction } from '../lib/firebase';
 import type { VideoQuality } from '../types';
 
 const VideoDownloader: React.FC = () => {
-  const { user } = useAuth();
+  const { user, requireAuth } = useAuth();
   const [url, setUrl] = useState('');
   const [selectedQuality, setSelectedQuality] = useState<VideoQuality | null>(null);
   const [isDownloadingLocal, setIsDownloadingLocal] = useState(false);
@@ -68,14 +68,16 @@ const VideoDownloader: React.FC = () => {
   }, [getMediaInfo, setCurrentPreview, showSuccess]);
 
   const handleFetch = async () => {
-    if (!url.trim()) {
-      showError('Please enter a video URL');
-      return;
-    }
-    const info = await getMediaInfo(url);
-    if (info) {
-      setCurrentPreview(info);
-    }
+    requireAuth(async () => {
+      if (!url.trim()) {
+        showError('Please enter a video URL');
+        return;
+      }
+      const info = await getMediaInfo(url);
+      if (info) {
+        setCurrentPreview(info);
+      }
+    });
   };
 
   const handleClear = () => {
@@ -93,28 +95,30 @@ const VideoDownloader: React.FC = () => {
   };
 
   const handleDownload = async () => {
-    if (!currentPreview || !selectedQuality) {
-      showError('Please select a quality first');
-      return;
-    }
-    setIsDownloadingLocal(true);
-    try {
-      const safeTitle = currentPreview.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      const filename = `${safeTitle}.mp4`;
-      await downloadWithProgress(currentPreview.url, selectedQuality.quality, filename);
-      
-      // Log Interaction
-      logMediaInteraction(
-        { id: currentPreview.id, title: currentPreview.title, mediaType: 'video', platform: currentPreview.platform },
-        'download',
-        user?.uid
-      );
+    requireAuth(async () => {
+      if (!currentPreview || !selectedQuality) {
+        showError('Please select a quality first');
+        return;
+      }
+      setIsDownloadingLocal(true);
+      try {
+        const safeTitle = currentPreview.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        const filename = `${safeTitle}.mp4`;
+        await downloadWithProgress(currentPreview.url, selectedQuality.quality, filename);
+        
+        // Log Interaction
+        logMediaInteraction(
+          { id: currentPreview.id, title: currentPreview.title, mediaType: 'video', platform: currentPreview.platform },
+          'download',
+          user?.uid
+        );
 
-      setIsDownloadingLocal(false);
-      handleClear();
-    } catch (error) {
-      setIsDownloadingLocal(false);
-    }
+        setIsDownloadingLocal(false);
+        handleClear();
+      } catch (error) {
+        setIsDownloadingLocal(false);
+      }
+    });
   };
 
   const handleCancel = () => {

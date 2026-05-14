@@ -18,8 +18,22 @@ import {
 import { useDownload } from '../contexts/DownloadContext';
 import { useToast } from '../contexts/ToastContext';
 
+import { useAuth } from '../contexts/AuthContext';
+import { LoginRequired } from '../components/LoginRequired';
+
 const History: React.FC = () => {
+  const { user, isAuthenticated } = useAuth();
   const { history, removeFromHistory, clearHistory } = useDownload();
+  
+  if (!isAuthenticated) {
+    return (
+      <LoginRequired 
+        title="Your Activity"
+        description="Sign in to sync your download history across all your devices and keep track of your media."
+        icon={Clock}
+      />
+    );
+  }
   const { showSuccess } = useToast();
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 

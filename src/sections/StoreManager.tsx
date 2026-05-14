@@ -5,7 +5,6 @@ import {
   deleteVendor,
   getProducts, 
   addProduct, 
-  updateProduct, 
   deleteProduct, 
   getPartners, 
   addPartner, 
@@ -16,7 +15,6 @@ import {
   type Partner
 } from '../lib/firebase';
 import { 
-  Store, 
   Users, 
   Package, 
   Handshake, 
@@ -26,10 +24,6 @@ import {
   Check, 
   X, 
   Upload,
-  Image as ImageIcon,
-  DollarSign,
-  Tag,
-  Box,
   Loader2,
   Camera
 } from 'lucide-react';
@@ -37,14 +31,13 @@ import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 
 export const StoreManager: React.FC = () => {
   const [activeSubTab, setActiveSubTab] = useState<'vendors' | 'products' | 'partners'>('vendors');
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
 
   // Form States
@@ -61,7 +54,6 @@ export const StoreManager: React.FC = () => {
   const partnerFileRef = useRef<HTMLInputElement>(null);
 
   const fetchData = async () => {
-    setIsLoading(true);
     try {
       const [v, p, pt] = await Promise.all([getVendors(), getProducts(), getPartners()]);
       
@@ -84,8 +76,6 @@ export const StoreManager: React.FC = () => {
       setPartners(pt);
     } catch (error) {
       toast.error('Failed to load store data');
-    } finally {
-      setIsLoading(false);
     }
   };
 

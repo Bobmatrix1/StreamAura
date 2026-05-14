@@ -43,8 +43,21 @@ interface TicketItem {
  * Financial hub for users and hosts with card-style balance and ticket-style bookings.
  * Enhanced with Naira, Paystack flow, and detailed ticket logic.
  */
+import { LoginRequired } from '../components/LoginRequired';
+import { Wallet as WalletIcon } from 'lucide-react';
+
 const Wallet: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
+  
+  if (!isAuthenticated) {
+    return (
+      <LoginRequired 
+        title="Secure Wallet"
+        description="Sign in to manage your funds, purchase movie tickets, and track your transactions securely."
+        icon={WalletIcon}
+      />
+    );
+  }
   const [activeTab, setActiveTab] = useState<'overview' | 'withdraw'>('overview');
   const [showFullId, setShowFullId] = useState(false);
   const [isAddingFunds, setIsAddingFunds] = useState(false);
