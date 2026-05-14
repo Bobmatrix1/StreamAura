@@ -10,7 +10,6 @@ import {
   db
 } from '../lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { ArrowLeft } from 'lucide-react';
 
 import Login from '../sections/Login';
 import Signup from '../sections/Signup';

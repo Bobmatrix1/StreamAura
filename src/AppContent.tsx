@@ -3,8 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Zap } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import Layout from '@/sections/Layout';
-import Login from '@/sections/Login';
-import Signup from '@/sections/Signup';
 import VideoDownloader from '@/sections/VideoDownloader';
 import MusicDownloader from '@/sections/MusicDownloader';
 import MovieDownloader from '@/sections/MovieDownloader';
@@ -29,7 +27,6 @@ import type { ViewType } from '@/types';
 export const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading, isAdmin, user } = useAuth();
   
-  const [showLogin, setShowLogin] = useState(true);
   const [activeView, setActiveView] = useState<ViewType>('video');
 
   // 1. Track Initial Visit

@@ -10,7 +10,6 @@ import {
   Film,
   Camera,
   Upload,
-  Link as LinkIcon,
   X,
   Info,
   Clock,
@@ -58,7 +57,7 @@ interface CinemaSlide {
  */
 const CinemaRoom: React.FC = () => {
   const { requireAuth } = useAuth();
-  const { showError, showSuccess, showInfo } = useToast();
+  const { showSuccess, showInfo } = useToast();
   const [activeTab, setActiveTab] = useState<'rooms' | 'trailers' | 'schedule'>('rooms');
   const [curtainsOpen, setCurtainsOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);

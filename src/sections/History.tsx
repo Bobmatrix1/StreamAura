@@ -22,7 +22,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { LoginRequired } from '../components/LoginRequired';
 
 const History: React.FC = () => {
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
   const { history, removeFromHistory, clearHistory } = useDownload();
   
   if (!isAuthenticated) {

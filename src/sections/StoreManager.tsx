@@ -101,8 +101,6 @@ export const StoreManager: React.FC = () => {
     }
   };
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
   // Vendor Handlers
   const handleCreateVendor = async () => {
     if (!newVendor.name.trim() || !newVendor.telegramGroupId.trim()) {
@@ -110,7 +108,6 @@ export const StoreManager: React.FC = () => {
       return;
     }
     
-    setIsSubmitting(true);
     try {
       const id = `vendor_${Date.now()}`;
       await updateVendor({ id, ...newVendor });
@@ -121,10 +118,6 @@ export const StoreManager: React.FC = () => {
     } catch (error: any) { 
       console.error('Create Vendor Error:', error);
       toast.error(error.message || 'Failed to create vendor'); 
-    } finally {
-      setIsSubmitting(true);
-      // Wait a bit to prevent double clicks then reset
-      setTimeout(() => setIsSubmitting(false), 500);
     }
   };
 
@@ -135,7 +128,6 @@ export const StoreManager: React.FC = () => {
       return;
     }
 
-    setIsSubmitting(true);
     try {
       await updateVendor(editingVendor);
       toast.success('Vendor updated successfully');
@@ -144,8 +136,6 @@ export const StoreManager: React.FC = () => {
     } catch (error: any) { 
       console.error('Update Vendor Error:', error);
       toast.error(error.message || 'Failed to update vendor'); 
-    } finally {
-      setTimeout(() => setIsSubmitting(false), 500);
     }
   };
 
