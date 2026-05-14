@@ -45,6 +45,7 @@ interface TicketItem {
  */
 import { LoginRequired } from '../components/LoginRequired';
 import { Wallet as WalletIcon } from 'lucide-react';
+import { SEO } from '../components/SEO';
 
 const Wallet: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
@@ -129,17 +130,20 @@ const Wallet: React.FC = () => {
   };
 
   const handleShareTicket = (ticket: TicketItem) => {
-    const shareText = `🎥 Join me for "${ticket.movie}" on StreamAura!\n📅 Date: ${ticket.date}\n⏰ Time: ${ticket.time}\n🎟️ Room: ${ticket.room}\n🔗 Room Code: ${ticket.roomCode}\n\nGet your ticket now on the app!`;
+    // Professional Share URL (Redirects via Backend to show rich meta tags on WhatsApp/etc)
+    const shareUrl = `${API_BASE_URL}/share?title=${encodeURIComponent(`StreamAura Ticket: ${ticket.movie}`)}&desc=${encodeURIComponent(`Join me in ${ticket.room} for a premium movie experience!`)}&img=${encodeURIComponent(ticket.thumbnail)}&target=${encodeURIComponent(`/?tab=wallet&ticket=${ticket.id}`)}`;
+    
+    const shareText = `🎥 Join me for "${ticket.movie}" on StreamAura!\n🎟️ Room: ${ticket.room}\n🔗 Access Link:`;
     
     if (navigator.share) {
       navigator.share({
         title: `StreamAura Ticket - ${ticket.movie}`,
         text: shareText,
-        url: window.location.origin
+        url: shareUrl
       }).catch(console.error);
     } else {
-      navigator.clipboard.writeText(shareText);
-      toast.success('Ticket details copied to clipboard!');
+      navigator.clipboard.writeText(`${shareText} ${shareUrl}`);
+      toast.success('Professional share link copied!');
     }
   };
 

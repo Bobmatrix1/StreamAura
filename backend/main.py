@@ -13,7 +13,7 @@ import firebase_admin
 from firebase_admin import credentials, messaging, firestore
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, RedirectResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, RedirectResponse, HTMLResponse
 from pydantic import BaseModel
 import yt_dlp
 import httpx
@@ -351,6 +351,48 @@ async def get_movie_details(subject_id: str = Query(...), type: str = "movie"):
         print(f"Movie Details Error: {str(e)}")
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+@app.get("/share", response_class=HTMLResponse)
+async def dynamic_share_preview(
+    title: str = "StreamAura", 
+    desc: str = "Your Premium Media Access", 
+    img: str = "https://streamaura.site/icons/icon-512x512.png",
+    target: str = "/"
+):
+    """
+    Serves a simple HTML page with dynamic OG tags for professional link previews.
+    Redirects the user to the actual app target.
+    """
+    # Ensure image is absolute
+    if img.startswith('/'):
+        img = f"https://streamaura.site{img}"
+        
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>{title}</title>
+        <meta property="og:title" content="{title}" />
+        <meta property="og:description" content="{desc}" />
+        <meta property="og:image" content="{img}" />
+        <meta property="og:type" content="website" />
+        <meta name="twitter:card" content="summary_large_image">
+        <meta name="twitter:title" content="{title}">
+        <meta name="twitter:description" content="{desc}">
+        <meta name="twitter:image" content="{img}">
+        <meta http-equiv="refresh" content="0; url=https://streamaura.site{target}">
+    </head>
+    <body style="background: #0f0f23; color: white; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif;">
+        <div style="text-align: center;">
+            <img src="https://streamaura.site/icons/icon-192x192.png" width="80" style="margin-bottom: 20px;">
+            <p>Entering StreamAura...</p>
+            <script>window.location.href = "https://streamaura.site{target}";</script>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
 
 class OrderItem(BaseModel):
     productId: str

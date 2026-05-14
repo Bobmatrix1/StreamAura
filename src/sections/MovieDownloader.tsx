@@ -16,6 +16,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import mediaApi from '../api/mediaApi';
 import { logSearch, checkCloudMovie, createPreOrder, type CloudMovie } from '../lib/firebase';
+import { SEO } from '../components/SEO';
 import type { MovieInfo } from '../types';
 
 const MovieDownloader: React.FC = () => {
@@ -129,6 +130,14 @@ const MovieDownloader: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-32 text-foreground">
+      {selectedMovie && (
+        <SEO 
+          title={selectedMovie.title}
+          description={selectedMovie.description || `Watch ${selectedMovie.title} on StreamAura Cinema.`}
+          image={selectedMovie.thumbnail}
+        />
+      )}
+      
       {/* Header */}
       <div className="text-center space-y-4">
         <motion.div

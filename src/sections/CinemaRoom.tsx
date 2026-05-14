@@ -16,14 +16,16 @@ import {
   ShieldAlert,
   Video,
   ShoppingBag,
-  ChevronDown
+  ChevronDown,
+  Share2
 } from 'lucide-react';
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Card } from '../components/ui/card';
+import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { CinemaStoreModal } from './CinemaStoreModal';
+import { API_BASE_URL } from '../api/mediaApi';
 
 interface Room {
   id: string;
@@ -233,6 +235,21 @@ const CinemaRoom: React.FC = () => {
       duration: '2:15'
     }
   ];
+
+  const handleShareRoom = (room: Room) => {
+    const shareUrl = `${API_BASE_URL}/share?title=${encodeURIComponent(`Live Cinema: ${room.title}`)}&desc=${encodeURIComponent(`Watching ${room.movie} with ${room.viewers} others. Join now!`)}&img=${encodeURIComponent(room.poster)}&target=${encodeURIComponent(`/?tab=cinema&room=${room.id}`)}`;
+    
+    if (navigator.share) {
+      navigator.share({
+        title: `Join StreamAura Cinema - ${room.title}`,
+        text: `🍿 I'm watching ${room.movie} on StreamAura! Come join the room.`,
+        url: shareUrl
+      }).catch(console.error);
+    } else {
+      navigator.clipboard.writeText(shareUrl);
+      showSuccess('Room link copied for sharing!');
+    }
+  };
 
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
@@ -470,6 +487,15 @@ const CinemaRoom: React.FC = () => {
                     <Users className="w-3.5 h-3.5" />
                     <span className="text-[10px] font-bold">{room.viewers} watching</span>
                   </div>
+                </div>
+
+                <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                   <button 
+                    onClick={(e) => { e.stopPropagation(); handleShareRoom(room); }}
+                    className="p-2 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white hover:bg-primary transition-all"
+                   >
+                     <Share2 className="w-4 h-4" />
+                   </button>
                 </div>
               </div>
               

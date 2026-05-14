@@ -9,6 +9,8 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 
+import { HelmetProvider } from 'react-helmet-async';
+
 // Register Service Worker for PWA and Notifications
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -21,6 +23,8 @@ if ('serviceWorker' in navigator) {
 // Mount React app
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <HelmetProvider>
+      <App />
+    </HelmetProvider>
   </React.StrictMode>
 );
