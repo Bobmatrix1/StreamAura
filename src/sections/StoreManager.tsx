@@ -195,23 +195,25 @@ export const StoreManager: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Sub Tabs */}
-      <div className="flex gap-2 p-1 bg-white/5 rounded-xl w-fit border border-white/10">
-        {[
-          { id: 'vendors', label: 'Vendors', icon: Users },
-          { id: 'products', label: 'Products', icon: Package },
-          { id: 'partners', label: 'Partners', icon: Handshake }
-        ].map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveSubTab(tab.id as any)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-              activeSubTab === tab.id ? 'bg-primary text-white shadow-lg' : 'text-muted-foreground hover:text-white'
-            }`}
-          >
-            <tab.icon className="w-3.5 h-3.5" />
-            {tab.label}
-          </button>
-        ))}
+      <div className="overflow-x-auto no-scrollbar -mx-2 px-2 pb-2">
+        <div className="flex gap-2 p-1 bg-white/5 rounded-xl min-w-max border border-white/10">
+          {[
+            { id: 'vendors', label: 'Vendors', icon: Users },
+            { id: 'products', label: 'Products', icon: Package },
+            { id: 'partners', label: 'Partners', icon: Handshake }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveSubTab(tab.id as any)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                activeSubTab === tab.id ? 'bg-primary text-white shadow-lg' : 'text-muted-foreground hover:text-white'
+              }`}
+            >
+              <tab.icon className="w-3.5 h-3.5" />
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Vendors Management */}

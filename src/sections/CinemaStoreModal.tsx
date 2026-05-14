@@ -55,6 +55,16 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Scroll Lock Effect
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isOpen]);
+
   useEffect(() => {
     if (isOpen) {
       fetchData();
@@ -223,28 +233,28 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
             </div>
 
             {/* Navigation Tabs */}
-            <div className="flex px-6 pt-4 gap-4 overflow-x-auto no-scrollbar">
+            <div className="flex px-6 pt-4 gap-4 overflow-x-auto no-scrollbar border-b border-white/5">
               <button 
                 onClick={() => setActiveTab('store')}
-                className={`pb-2 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeTab === 'store' ? 'text-primary' : 'text-muted-foreground hover:text-white'}`}
+                className={`pb-2 text-[9px] font-black uppercase tracking-widest transition-all relative whitespace-nowrap ${activeTab === 'store' ? 'text-primary' : 'text-muted-foreground hover:text-white'}`}
               >
                 Snacks Menu
-                {activeTab === 'store' && <motion.div layoutId="storeTab" className="absolute -bottom-1 left-0 right-0 h-1 bg-primary rounded-full" />}
+                {activeTab === 'store' && <motion.div layoutId="storeTab" className="absolute -bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />}
               </button>
               <button 
                 onClick={() => setActiveTab('cart')}
-                className={`pb-2 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeTab === 'cart' ? 'text-primary' : 'text-muted-foreground hover:text-white'}`}
+                className={`pb-2 text-[9px] font-black uppercase tracking-widest transition-all relative whitespace-nowrap ${activeTab === 'cart' ? 'text-primary' : 'text-muted-foreground hover:text-white'}`}
               >
                 Shopping Cart
-                {activeTab === 'cart' && <motion.div layoutId="storeTab" className="absolute -bottom-1 left-0 right-0 h-1 bg-primary rounded-full" />}
+                {activeTab === 'cart' && <motion.div layoutId="storeTab" className="absolute -bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />}
               </button>
               <button 
                 disabled={cart.length === 0}
                 onClick={() => setActiveTab('checkout')}
-                className={`pb-2 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeTab === 'checkout' ? 'text-primary' : 'text-muted-foreground hover:text-white'} disabled:opacity-30`}
+                className={`pb-2 text-[9px] font-black uppercase tracking-widest transition-all relative whitespace-nowrap ${activeTab === 'checkout' ? 'text-primary' : 'text-muted-foreground hover:text-white'} disabled:opacity-30`}
               >
                 Checkout
-                {activeTab === 'checkout' && <motion.div layoutId="storeTab" className="absolute -bottom-1 left-0 right-0 h-1 bg-primary rounded-full" />}
+                {activeTab === 'checkout' && <motion.div layoutId="storeTab" className="absolute -bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />}
               </button>
             </div>
 

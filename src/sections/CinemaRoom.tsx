@@ -15,7 +15,8 @@ import {
   Clock,
   ShieldAlert,
   Video,
-  ShoppingBag
+  ShoppingBag,
+  ChevronDown
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -97,6 +98,16 @@ const CinemaRoom: React.FC = () => {
       setIsCreateModalOpen(true);
     });
   };
+
+  // Scroll Lock Effect
+  useEffect(() => {
+    if (isCreateModalOpen || isStoreOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isCreateModalOpen, isStoreOpen]);
 
   // Admin Poster Slides (Carousel) - Expanded for verification
   const [slides] = useState<CinemaSlide[]>([
@@ -253,31 +264,32 @@ const CinemaRoom: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8 pb-20 relative">
+    <div className="space-y-6 md:space-y-8 pb-20 relative overflow-x-hidden">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Cinema Room</h1>
-          <p className="text-muted-foreground mt-1">Experience movies together in virtual luxury.</p>
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 px-1">
+        <div className="space-y-1">
+          <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tight gradient-text">Cinema Room</h1>
+          <p className="text-[10px] md:text-xs text-muted-foreground font-bold uppercase tracking-widest opacity-70">Experience movies together in virtual luxury.</p>
         </div>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={handleBuySnacks} className="gap-2 border-white/10 text-emerald-400 hover:text-emerald-300">
-            <ShoppingBag className="w-4 h-4" />
+        <div className="flex flex-wrap items-center gap-2 md:gap-3">
+          <Button variant="outline" onClick={handleBuySnacks} className="flex-1 md:flex-none h-10 gap-2 border-white/10 text-emerald-400 hover:text-emerald-300 rounded-xl text-[10px] font-black uppercase tracking-wider">
+            <ShoppingBag className="w-3.5 h-3.5" />
             Buy Snacks
           </Button>
-          <Button variant="outline" onClick={handleMyTickets} className="gap-2 border-white/10">
-            <Ticket className="w-4 h-4" />
+          <Button variant="outline" onClick={handleMyTickets} className="flex-1 md:flex-none h-10 gap-2 border-white/10 rounded-xl text-[10px] font-black uppercase tracking-wider">
+            <Ticket className="w-3.5 h-3.5" />
             My Tickets
           </Button>
-          <Button onClick={handleOpenCreateModal} className="gap-2 gradient-bg">
-            <Plus className="w-4 h-4" />
+          <Button onClick={handleOpenCreateModal} className="w-full md:w-auto h-10 gap-2 gradient-bg rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg shadow-primary/20">
+            <Plus className="w-3.5 h-3.5" />
             Create Room
           </Button>
         </div>
       </div>
 
       {/* Main Cinema Screen Area */}
-      <div className="relative aspect-video rounded-[2rem] overflow-hidden bg-black border border-white/10 shadow-[0_0_100px_rgba(0,0,0,0.8)]">
+      <div className="relative aspect-video rounded-[1.5rem] md:rounded-[2rem] overflow-hidden bg-black border border-white/10 shadow-2xl">
+        {/* ... slides and curtains remain same but ensure responsive rounding ... */}
         
         {/* Cinema Background (Poster Carousel - behind curtains) */}
         <div className="absolute inset-0 z-0">
@@ -381,8 +393,8 @@ const CinemaRoom: React.FC = () => {
       </div>
 
       {/* Enhanced Tab Navigation */}
-      <div className="flex justify-center md:justify-start">
-        <div className="p-1.5 rounded-[1.5rem] bg-white/5 border border-white/10 backdrop-blur-md inline-flex items-center gap-1">
+      <div className="flex justify-start lg:justify-start overflow-x-auto no-scrollbar pb-2 -mx-4 px-4 scroll-smooth active:cursor-grabbing">
+        <div className="p-1 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md flex items-center gap-1 min-w-max">
           {[
             { id: 'rooms', label: 'Active Rooms', icon: Tv, color: 'text-rose-500', bg: 'bg-rose-600' },
             { id: 'trailers', label: 'Trailers', icon: Camera, color: 'text-blue-500', bg: 'bg-blue-600' },
@@ -391,25 +403,25 @@ const CinemaRoom: React.FC = () => {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as 'rooms' | 'trailers' | 'schedule')}
-              className={`flex items-center gap-2.5 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all duration-300 relative overflow-hidden group ${
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all relative overflow-hidden group ${
                 activeTab === tab.id 
                   ? 'text-white' 
-                  : 'text-muted-foreground hover:text-white hover:bg-white/5'
+                  : 'text-muted-foreground hover:text-white'
               }`}
             >
               {activeTab === tab.id && (
                 <motion.div 
                   layoutId="activeTabPill"
-                  className={`absolute inset-0 ${tab.bg} shadow-[0_0_25px_rgba(0,0,0,0.3)]`}
-                  transition={{ type: 'spring', bounce: 0.15, duration: 0.5 }}
+                  className={`absolute inset-0 ${tab.bg} shadow-lg`}
+                  transition={{ type: 'spring', bounce: 0, duration: 0.3 }}
                 />
               )}
-              <tab.icon className={`w-4 h-4 relative z-10 transition-transform group-hover:scale-110 ${activeTab === tab.id ? 'text-white' : tab.color}`} />
-              <span className="relative z-10">{tab.label}</span>
+              <tab.icon className={`w-3.5 h-3.5 relative z-10 ${activeTab === tab.id ? 'text-white' : tab.color}`} />
+              <span className="relative z-10 whitespace-nowrap">{tab.label}</span>
               {tab.id === 'rooms' && (
-                 <span className={`relative z-10 flex h-2 w-2 ${activeTab === tab.id ? 'opacity-100' : 'opacity-50'}`}>
+                 <span className={`relative z-10 flex h-1.5 w-1.5 ${activeTab === tab.id ? 'opacity-100' : 'opacity-50'}`}>
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-rose-500"></span>
                  </span>
               )}
             </button>
@@ -609,116 +621,119 @@ const CinemaRoom: React.FC = () => {
                       </div>
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Genre</label>
-                        <select className="w-full bg-zinc-900 border border-white/10 rounded-xl py-3 px-4 text-sm outline-none focus:border-primary/50 appearance-none text-white">
-                          <option value="">Select Genre</option>
-                          <option value="Action">Action</option>
-                          <option value="Adventure">Adventure</option>
-                          <option value="Alternate History">Alternate History</option>
-                          <option value="Animation">Animation</option>
-                          <option value="Anime">Anime</option>
-                          <option value="Anthology">Anthology</option>
-                          <option value="Apocalyptic">Apocalyptic</option>
-                          <option value="Art House">Art House</option>
-                          <option value="Biography">Biography (Biopic)</option>
-                          <option value="Black Comedy">Black Comedy</option>
-                          <option value="Blaxploitation">Blaxploitation</option>
-                          <option value="Buddy Cop">Buddy Cop</option>
-                          <option value="Buddy Film">Buddy Film</option>
-                          <option value="Caper">Caper</option>
-                          <option value="Cartoon">Cartoon</option>
-                          <option value="Children's">Children’s</option>
-                          <option value="Chick Flick">Chick Flick</option>
-                          <option value="Christmas">Christmas</option>
-                          <option value="Classic">Classic</option>
-                          <option value="Comedy">Comedy</option>
-                          <option value="Coming-of-Age">Coming-of-Age</option>
-                          <option value="Concert Film">Concert Film</option>
-                          <option value="Crime">Crime</option>
-                          <option value="Cult">Cult</option>
-                          <option value="Cyberpunk">Cyberpunk</option>
-                          <option value="Dance">Dance</option>
-                          <option value="Dark Comedy">Dark Comedy</option>
-                          <option value="Disaster">Disaster</option>
-                          <option value="Documentary">Documentary</option>
-                          <option value="Docudrama">Docudrama</option>
-                          <option value="Drama">Drama</option>
-                          <option value="Dystopian">Dystopian</option>
-                          <option value="Educational">Educational</option>
-                          <option value="Epic">Epic</option>
-                          <option value="Erotic">Erotic</option>
-                          <option value="Experimental">Experimental</option>
-                          <option value="Fairy Tale">Fairy Tale</option>
-                          <option value="Family">Family</option>
-                          <option value="Fantasy">Fantasy</option>
-                          <option value="Film Noir">Film Noir</option>
-                          <option value="Found Footage">Found Footage</option>
-                          <option value="Gangster">Gangster</option>
-                          <option value="Ghost">Ghost</option>
-                          <option value="Gore">Gore</option>
-                          <option value="Gothic">Gothic</option>
-                          <option value="Grindhouse">Grindhouse</option>
-                          <option value="Heist">Heist</option>
-                          <option value="Historical">Historical</option>
-                          <option value="Historical Fiction">Historical Fiction</option>
-                          <option value="Holiday">Holiday</option>
-                          <option value="Horror">Horror</option>
-                          <option value="Independent">Independent (Indie)</option>
-                          <option value="Inspirational">Inspirational</option>
-                          <option value="Interactive">Interactive</option>
-                          <option value="Legal Drama">Legal Drama</option>
-                          <option value="Live Action">Live Action</option>
-                          <option value="Martial Arts">Martial Arts</option>
-                          <option value="Medical Drama">Medical Drama</option>
-                          <option value="Melodrama">Melodrama</option>
-                          <option value="Military">Military</option>
-                          <option value="Mockumentary">Mockumentary</option>
-                          <option value="Monster">Monster</option>
-                          <option value="Music">Music</option>
-                          <option value="Musical">Musical</option>
-                          <option value="Mystery">Mystery</option>
-                          <option value="Mythological">Mythological</option>
-                          <option value="Neo-Noir">Neo-Noir</option>
-                          <option value="Occult">Occult</option>
-                          <option value="Parody">Parody</option>
-                          <option value="Period Drama">Period Drama</option>
-                          <option value="Political Thriller">Political Thriller</option>
-                          <option value="Post-Apocalyptic">Post-Apocalyptic</option>
-                          <option value="Psychological Thriller">Psychological Thriller</option>
-                          <option value="Psychological Horror">Psychological Horror</option>
-                          <option value="Road Movie">Road Movie</option>
-                          <option value="Romance">Romance</option>
-                          <option value="Romantic Comedy">Romantic Comedy (Rom-Com)</option>
-                          <option value="Satire">Satire</option>
-                          <option value="Science Fiction">Science Fiction (Sci-Fi)</option>
-                          <option value="Screwball Comedy">Screwball Comedy</option>
-                          <option value="Short Film">Short Film</option>
-                          <option value="Silent Film">Silent Film</option>
-                          <option value="Slapstick">Slapstick</option>
-                          <option value="Slasher">Slasher</option>
-                          <option value="Slice of Life">Slice of Life</option>
-                          <option value="Soap Opera">Soap Opera</option>
-                          <option value="Space Opera">Space Opera</option>
-                          <option value="Sports">Sports</option>
-                          <option value="Spy">Spy</option>
-                          <option value="Steampunk">Steampunk</option>
-                          <option value="Stop Motion">Stop Motion</option>
-                          <option value="Superhero">Superhero</option>
-                          <option value="Supernatural">Supernatural</option>
-                          <option value="Survival">Survival</option>
-                          <option value="Suspense">Suspense</option>
-                          <option value="Sword and Sorcery">Sword and Sorcery</option>
-                          <option value="Teen">Teen</option>
-                          <option value="Tech Noir">Tech Noir</option>
-                          <option value="Thriller">Thriller</option>
-                          <option value="Time Travel">Time Travel</option>
-                          <option value="Tragedy">Tragedy</option>
-                          <option value="True Crime">True Crime</option>
-                          <option value="Vampire">Vampire</option>
-                          <option value="War">War</option>
-                          <option value="Western">Western</option>
-                          <option value="Whodunit">Whodunit</option>
-                          <option value="Zombie">Zombie</option>
-                        </select>
+                        <div className="relative">
+                          <select className="w-full bg-zinc-900/50 border border-white/10 rounded-xl py-3 px-4 text-[13px] outline-none focus:border-primary/50 appearance-none text-white font-medium">
+                            <option value="">Select Genre</option>
+                            <option value="Action">Action</option>
+                            <option value="Adventure">Adventure</option>
+                            <option value="Alternate History">Alternate History</option>
+                            <option value="Animation">Animation</option>
+                            <option value="Anime">Anime</option>
+                            <option value="Anthology">Anthology</option>
+                            <option value="Apocalyptic">Apocalyptic</option>
+                            <option value="Art House">Art House</option>
+                            <option value="Biography">Biography (Biopic)</option>
+                            <option value="Black Comedy">Black Comedy</option>
+                            <option value="Blaxploitation">Blaxploitation</option>
+                            <option value="Buddy Cop">Buddy Cop</option>
+                            <option value="Buddy Film">Buddy Film</option>
+                            <option value="Caper">Caper</option>
+                            <option value="Cartoon">Cartoon</option>
+                            <option value="Children's">Children’s</option>
+                            <option value="Chick Flick">Chick Flick</option>
+                            <option value="Christmas">Christmas</option>
+                            <option value="Classic">Classic</option>
+                            <option value="Comedy">Comedy</option>
+                            <option value="Coming-of-Age">Coming-of-Age</option>
+                            <option value="Concert Film">Concert Film</option>
+                            <option value="Crime">Crime</option>
+                            <option value="Cult">Cult</option>
+                            <option value="Cyberpunk">Cyberpunk</option>
+                            <option value="Dance">Dance</option>
+                            <option value="Dark Comedy">Dark Comedy</option>
+                            <option value="Disaster">Disaster</option>
+                            <option value="Documentary">Documentary</option>
+                            <option value="Docudrama">Docudrama</option>
+                            <option value="Drama">Drama</option>
+                            <option value="Dystopian">Dystopian</option>
+                            <option value="Educational">Educational</option>
+                            <option value="Epic">Epic</option>
+                            <option value="Erotic">Erotic</option>
+                            <option value="Experimental">Experimental</option>
+                            <option value="Fairy Tale">Fairy Tale</option>
+                            <option value="Family">Family</option>
+                            <option value="Fantasy">Fantasy</option>
+                            <option value="Film Noir">Film Noir</option>
+                            <option value="Found Footage">Found Footage</option>
+                            <option value="Gangster">Gangster</option>
+                            <option value="Ghost">Ghost</option>
+                            <option value="Gore">Gore</option>
+                            <option value="Gothic">Gothic</option>
+                            <option value="Grindhouse">Grindhouse</option>
+                            <option value="Heist">Heist</option>
+                            <option value="Historical">Historical</option>
+                            <option value="Historical Fiction">Historical Fiction</option>
+                            <option value="Holiday">Holiday</option>
+                            <option value="Horror">Horror</option>
+                            <option value="Independent">Independent (Indie)</option>
+                            <option value="Inspirational">Inspirational</option>
+                            <option value="Interactive">Interactive</option>
+                            <option value="Legal Drama">Legal Drama</option>
+                            <option value="Live Action">Live Action</option>
+                            <option value="Martial Arts">Martial Arts</option>
+                            <option value="Medical Drama">Medical Drama</option>
+                            <option value="Melodrama">Melodrama</option>
+                            <option value="Military">Military</option>
+                            <option value="Mockumentary">Mockumentary</option>
+                            <option value="Monster">Monster</option>
+                            <option value="Music">Music</option>
+                            <option value="Musical">Musical</option>
+                            <option value="Mystery">Mystery</option>
+                            <option value="Mythological">Mythological</option>
+                            <option value="Neo-Noir">Neo-Noir</option>
+                            <option value="Occult">Occult</option>
+                            <option value="Parody">Parody</option>
+                            <option value="Period Drama">Period Drama</option>
+                            <option value="Political Thriller">Political Thriller</option>
+                            <option value="Post-Apocalyptic">Post-Apocalyptic</option>
+                            <option value="Psychological Thriller">Psychological Thriller</option>
+                            <option value="Psychological Horror">Psychological Horror</option>
+                            <option value="Road Movie">Road Movie</option>
+                            <option value="Romance">Romance</option>
+                            <option value="Romantic Comedy">Romantic Comedy (Rom-Com)</option>
+                            <option value="Satire">Satire</option>
+                            <option value="Science Fiction">Science Fiction (Sci-Fi)</option>
+                            <option value="Screwball Comedy">Screwball Comedy</option>
+                            <option value="Short Film">Short Film</option>
+                            <option value="Silent Film">Silent Film</option>
+                            <option value="Slapstick">Slapstick</option>
+                            <option value="Slasher">Slasher</option>
+                            <option value="Slice of Life">Slice of Life</option>
+                            <option value="Soap Opera">Soap Opera</option>
+                            <option value="Space Opera">Space Opera</option>
+                            <option value="Sports">Sports</option>
+                            <option value="Spy">Spy</option>
+                            <option value="Steampunk">Steampunk</option>
+                            <option value="Stop Motion">Stop Motion</option>
+                            <option value="Superhero">Superhero</option>
+                            <option value="Supernatural">Supernatural</option>
+                            <option value="Survival">Survival</option>
+                            <option value="Suspense">Suspense</option>
+                            <option value="Sword and Sorcery">Sword and Sorcery</option>
+                            <option value="Teen">Teen</option>
+                            <option value="Tech Noir">Tech Noir</option>
+                            <option value="Thriller">Thriller</option>
+                            <option value="Time Travel">Time Travel</option>
+                            <option value="Tragedy">Tragedy</option>
+                            <option value="True Crime">True Crime</option>
+                            <option value="Vampire">Vampire</option>
+                            <option value="War">War</option>
+                            <option value="Western">Western</option>
+                            <option value="Whodunit">Whodunit</option>
+                            <option value="Zombie">Zombie</option>
+                          </select>
+                          <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                        </div>
                       </div>
                     </div>
 
@@ -732,14 +747,14 @@ const CinemaRoom: React.FC = () => {
                   </div>
 
                   {/* Scheduling & Capacity */}
-                  <div className="grid grid-cols-2 gap-6 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.05]">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.05]">
                     <div className="space-y-3">
                       <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Schedule</label>
                       <div className="flex gap-2">
-                        <button type="button" onClick={() => setIsLiveNow(true)} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all border ${isLiveNow ? 'bg-rose-500/10 border-rose-500/50 text-rose-500' : 'border-white/10 text-muted-foreground hover:bg-white/5'}`}>
+                        <button type="button" onClick={() => setIsLiveNow(true)} className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all border ${isLiveNow ? 'bg-rose-500/10 border-rose-500/50 text-rose-500' : 'border-white/10 text-muted-foreground hover:bg-white/5'}`}>
                           Live Now
                         </button>
-                        <button type="button" onClick={() => setIsLiveNow(false)} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all border ${!isLiveNow ? 'bg-primary/10 border-primary/50 text-primary' : 'border-white/10 text-muted-foreground hover:bg-white/5'}`}>
+                        <button type="button" onClick={() => setIsLiveNow(false)} className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all border ${!isLiveNow ? 'bg-primary/10 border-primary/50 text-primary' : 'border-white/10 text-muted-foreground hover:bg-white/5'}`}>
                           Later
                         </button>
                       </div>
@@ -749,9 +764,9 @@ const CinemaRoom: React.FC = () => {
                             className="relative group cursor-pointer"
                             onClick={() => dateInputRef.current?.showPicker()}
                           >
-                             <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10 group-hover:border-primary/50 transition-colors">
+                             <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white/5 border border-white/10 group-hover:border-primary/50 transition-colors">
                                 <Calendar className="w-4 h-4 text-primary" />
-                                <span className="text-xs font-bold text-white flex-1">{formatDisplayDate(scheduledDate)}</span>
+                                <span className="text-[11px] font-bold text-white flex-1">{formatDisplayDate(scheduledDate)}</span>
                              </div>
                              <input 
                               ref={dateInputRef}
@@ -765,9 +780,9 @@ const CinemaRoom: React.FC = () => {
                             className="relative group cursor-pointer"
                             onClick={() => timeInputRef.current?.showPicker()}
                           >
-                             <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10 group-hover:border-primary/50 transition-colors">
+                             <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white/5 border border-white/10 group-hover:border-primary/50 transition-colors">
                                 <Clock className="w-4 h-4 text-primary" />
-                                <span className="text-xs font-bold text-white flex-1">{formatDisplayTime(scheduledTime)}</span>
+                                <span className="text-[11px] font-bold text-white flex-1">{formatDisplayTime(scheduledTime)}</span>
                              </div>
                              <input 
                               ref={timeInputRef}
@@ -781,34 +796,36 @@ const CinemaRoom: React.FC = () => {
                       )}
                       <div className="flex items-start gap-2 mt-2">
                         <Info className="w-3 h-3 text-muted-foreground mt-0.5 flex-shrink-0" />
-                        <p className="text-[9px] text-muted-foreground leading-tight">Live rooms without active users will automatically delete after 24 hours.</p>
+                        <p className="text-[9px] text-muted-foreground leading-tight">Live rooms without users auto-delete after 24h.</p>
                       </div>
                     </div>
 
                     <div className="space-y-3">
                       <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Room Capacity</label>
                       <div className="flex gap-2">
-                        <button type="button" onClick={() => setIsUnlimited(true)} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all border ${isUnlimited ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-500' : 'border-white/10 text-muted-foreground hover:bg-white/5'}`}>
+                        <button type="button" onClick={() => setIsUnlimited(true)} className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all border ${isUnlimited ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-500' : 'border-white/10 text-muted-foreground hover:bg-white/5'}`}>
                           Unlimited
                         </button>
-                        <button type="button" onClick={() => setIsUnlimited(false)} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all border ${!isUnlimited ? 'bg-blue-500/10 border-blue-500/50 text-blue-500' : 'border-white/10 text-muted-foreground hover:bg-white/5'}`}>
+                        <button type="button" onClick={() => setIsUnlimited(false)} className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all border ${!isUnlimited ? 'bg-blue-500/10 border-blue-500/50 text-blue-500' : 'border-white/10 text-muted-foreground hover:bg-white/5'}`}>
                           Limited
                         </button>
                       </div>
                       {!isUnlimited && (
                         <div className="mt-2 relative">
-                          <input type="number" placeholder="Enter number of seats" className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-3 pr-10 text-xs outline-none focus:border-primary/50" />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-bold">Seats</span>
+                          <input type="number" placeholder="Seats" className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-3 pr-10 text-xs outline-none focus:border-primary/50" />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] text-muted-foreground font-bold">Seats</span>
                         </div>
                       )}
                       <div className="space-y-1 mt-3">
-                         <label className="text-[9px] font-bold text-muted-foreground uppercase">Auto-Start Condition</label>
-                         <select className="w-full bg-zinc-900 border border-white/10 rounded-lg py-1.5 px-2 text-xs outline-none text-white">
-                           <option value="none">Manual Start</option>
-                           <option value="5">When 5 users join</option>
-                           <option value="10">When 10 users join</option>
-                         </select>
-                         <p className="text-[8px] text-muted-foreground">Late entries sync to current timestamp.</p>
+                         <label className="text-[9px] font-bold text-muted-foreground uppercase">Auto-Start</label>
+                         <div className="relative">
+                            <select className="w-full bg-zinc-900/50 border border-white/10 rounded-xl py-2 px-3 text-[11px] outline-none text-white appearance-none focus:border-primary/50">
+                              <option value="none">Manual Start</option>
+                              <option value="5">When 5 users join</option>
+                              <option value="10">When 10 users join</option>
+                            </select>
+                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                         </div>
                       </div>
                     </div>
                   </div>
@@ -816,26 +833,28 @@ const CinemaRoom: React.FC = () => {
                   {/* Room Type & Privacy Logic */}
                   <div className="space-y-4 border-t border-white/10 pt-6">
                     <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Access Type</label>
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                       {[
-                        { id: 'free', label: 'Free', icon: Users, desc: 'Open to everyone', color: 'text-blue-500', active: 'bg-blue-500/10 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.2)]' },
-                        { id: 'paid', label: 'Paid', icon: Ticket, desc: 'Sell tickets', color: 'text-orange-500', active: 'bg-orange-500/10 border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.2)]' },
-                        { id: 'private', label: 'Private', icon: ShieldAlert, desc: 'Invite only', color: 'text-amber-500', active: 'bg-amber-500/10 border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.2)]' }
+                        { id: 'free', label: 'Free', icon: Users, desc: 'Open to everyone', color: 'text-blue-500', active: 'bg-blue-500/10 border-blue-500/50 shadow-lg' },
+                        { id: 'paid', label: 'Paid', icon: Ticket, desc: 'Sell tickets', color: 'text-orange-500', active: 'bg-orange-500/10 border-orange-500/50 shadow-lg' },
+                        { id: 'private', label: 'Private', icon: ShieldAlert, desc: 'Invite only', color: 'text-amber-500', active: 'bg-amber-500/10 border-amber-500/50 shadow-lg' }
                       ].map(type => (
                         <button
                           key={type.id}
                           type="button"
                           onClick={() => setRoomType(type.id as 'free' | 'paid' | 'private')}
-                          className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${
+                          className={`p-3 rounded-2xl border flex items-center md:flex-col gap-3 transition-all ${
                             roomType === type.id 
                               ? type.active
-                              : 'bg-white/5 border-white/10 hover:border-white/30 hover:bg-white/10'
+                              : 'bg-white/5 border-white/10 hover:border-white/30'
                           }`}
                         >
-                          <type.icon className={`w-5 h-5 ${roomType === type.id ? type.color : 'text-muted-foreground'}`} />
-                          <div className="text-center">
-                            <p className={`text-xs font-black ${roomType === type.id ? type.color : 'text-foreground'}`}>{type.label}</p>
-                            <p className="text-[8px] text-muted-foreground mt-0.5">{type.desc}</p>
+                          <div className={`p-2 rounded-xl ${roomType === type.id ? 'bg-white/10' : 'bg-white/5'}`}>
+                            <type.icon className={`w-5 h-5 ${roomType === type.id ? type.color : 'text-muted-foreground'}`} />
+                          </div>
+                          <div className="text-left md:text-center overflow-hidden">
+                            <p className={`text-xs font-black uppercase tracking-wider ${roomType === type.id ? type.color : 'text-foreground'}`}>{type.label}</p>
+                            <p className="text-[9px] text-muted-foreground mt-0.5 line-clamp-1">{type.desc}</p>
                           </div>
                         </button>
                       ))}
@@ -844,14 +863,14 @@ const CinemaRoom: React.FC = () => {
                     {/* Dynamic Logic Based on Room Type */}
                     <AnimatePresence mode="wait">
                       {roomType === 'free' && (
-                        <motion.div key="free-logic" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 flex gap-3 items-center">
+                        <motion.div key="free-logic" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 flex gap-3 items-center">
                           <Users className="w-5 h-5 text-blue-500 flex-shrink-0" />
-                          <p className="text-xs text-blue-200 font-medium">This room will be public. <span className="font-bold text-blue-400">Text and reactions</span> are available in this room.</p>
+                          <p className="text-[11px] text-blue-200 font-medium">This room will be public. <span className="font-bold text-blue-400">Text and reactions</span> are available.</p>
                         </motion.div>
                       )}
 
                       {roomType === 'paid' && (
-                        <motion.div key="paid-logic" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-4">
+                        <motion.div key="paid-logic" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
                            <div className="space-y-2">
                              <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Ticket Price</label>
                              <div className="relative">
@@ -861,55 +880,60 @@ const CinemaRoom: React.FC = () => {
                            </div>
                            <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/20 flex gap-3 items-center">
                             <Ticket className="w-5 h-5 text-orange-500 flex-shrink-0" />
-                            <p className="text-xs text-orange-200 font-medium">Users must buy a ticket. <span className="font-bold text-orange-400">Text, reaction, and voice chat</span> are available.</p>
+                            <p className="text-[11px] text-orange-200 font-medium">Users must buy a ticket. <span className="font-bold text-orange-400">Voice chat</span> enabled.</p>
                           </div>
                         </motion.div>
                       )}
 
                       {roomType === 'private' && (
-                        <motion.div key="private-logic" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-6">
+                        <motion.div key="private-logic" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
                            
-                           <div className="p-5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-4">
-                              <div className="flex justify-between items-start">
+                           <div className="p-4 md:p-5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-4">
+                              <div className="flex flex-col md:flex-row justify-between items-start gap-4">
                                 <div>
-                                  <h4 className="text-sm font-black text-amber-500">Private Screening</h4>
-                                  <p className="text-[10px] text-amber-200/70 mt-1 max-w-[250px]">Room is hidden from public lists. Access via unique deep link or QR code only. Includes Video Call feature.</p>
+                                  <h4 className="text-sm font-black text-amber-500 uppercase tracking-tight">Private Screening</h4>
+                                  <p className="text-[10px] text-amber-200/70 mt-1 max-w-[250px]">Hidden room. Access via unique link or QR. Premium features included.</p>
                                 </div>
-                                <div className="text-right">
-                                  <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Cost to create</p>
+                                <div className="md:text-right">
+                                  <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest">Cost</p>
                                   <p className="text-2xl font-black text-white">₦{(privateSeats * 1000).toLocaleString()}</p>
                                 </div>
                               </div>
 
-                              <div className="space-y-3 pt-4 border-t border-amber-500/20">
-                                 <label className="text-[10px] font-black uppercase tracking-widest text-amber-300">Number of Seats (₦1,000 / seat)</label>
-                                 <div className="flex items-center gap-4">
-                                   <Button type="button" variant="outline" size="icon" onClick={() => updatePrivateSeats(privateSeats - 1)} disabled={privateSeats <= 1} className="rounded-full border-amber-500/30 text-amber-500 hover:bg-amber-500/20">-</Button>
-                                   <span className="text-xl font-black w-8 text-center">{privateSeats}</span>
-                                   <Button type="button" variant="outline" size="icon" onClick={() => updatePrivateSeats(privateSeats + 1)} className="rounded-full border-amber-500/30 text-amber-500 hover:bg-amber-500/20">+</Button>
+                              <div className="space-y-4 pt-4 border-t border-amber-500/20">
+                                 <label className="text-[10px] font-black uppercase tracking-widest text-amber-300">Seats (₦1k/seat)</label>
+                                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                                   <div className="flex items-center gap-4 bg-black/20 p-1.5 rounded-2xl border border-white/5 w-fit">
+                                      <button type="button" onClick={() => updatePrivateSeats(privateSeats - 1)} disabled={privateSeats <= 1} className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-amber-500 hover:bg-white/10 disabled:opacity-50">-</button>
+                                      <span className="text-lg font-black w-6 text-center">{privateSeats}</span>
+                                      <button type="button" onClick={() => updatePrivateSeats(privateSeats + 1)} className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-amber-500 hover:bg-white/10">+</button>
+                                   </div>
                                    
-                                   <Badge variant="outline" className="ml-auto border-amber-500/50 bg-amber-500/20 text-amber-500 gap-1.5 px-3 py-1">
-                                     <Video className="w-3.5 h-3.5" /> Premium Video Calling
-                                   </Badge>
+                                   <div className="flex-1 flex items-center gap-2 p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                                     <div className="p-1.5 rounded-lg bg-amber-500/20">
+                                       <Video className="w-3.5 h-3.5 text-amber-500" />
+                                     </div>
+                                     <span className="text-[9px] font-black uppercase text-amber-500 tracking-tight">Premium Video Calling</span>
+                                   </div>
                                  </div>
-                                 <p className="text-[10px] text-amber-300 font-bold">{privateSeats === 2 ? 'Couple Special selected!' : ''}</p>
+                                 <p className="text-[9px] text-amber-300 font-bold uppercase tracking-widest">{privateSeats === 2 ? '❤️ Couple Special Active' : ''}</p>
                               </div>
                            </div>
 
                            <div className="space-y-3">
                              <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                               {privateSeats === 1 ? 'Invite Partner (Aura ID)' : 'Invite Private Guests (Aura IDs)'}
+                               {privateSeats === 1 ? 'Invite Partner (Aura ID)' : 'Invite Guests (Aura IDs)'}
                              </label>
-                             <div className="space-y-2">
+                             <div className="space-y-2 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
                                {privateGuests.map((guest, index) => (
                                  <div key={index} className="relative">
-                                   <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                   <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                                    <input 
                                      type="text" 
-                                     placeholder="Paste Aura ID here..." 
+                                     placeholder="Paste Aura ID..." 
                                      value={guest}
                                      onChange={(e) => handlePrivateGuestChange(index, e.target.value)}
-                                     className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none focus:border-amber-500/50" 
+                                     className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-9 pr-4 text-[11px] outline-none focus:border-amber-500/50" 
                                      required
                                    />
                                  </div>
