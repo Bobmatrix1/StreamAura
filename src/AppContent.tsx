@@ -95,8 +95,6 @@ export const AppContent: React.FC = () => {
     }
   }, [isAuthenticated, user?.uid]);
 
-  const toggleAuthView = () => setShowLogin(!showLogin);
-
   const handleTabChange = (tab: ViewType) => {
     setActiveView(tab);
     if (isAuthenticated && user?.uid) {
