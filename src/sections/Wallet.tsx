@@ -46,7 +46,6 @@ interface TicketItem {
  */
 import { LoginRequired } from '../components/LoginRequired';
 import { Wallet as WalletIcon } from 'lucide-react';
-import { SEO } from '../components/SEO';
 
 const Wallet: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
