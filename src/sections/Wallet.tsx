@@ -18,11 +18,12 @@ import {
   ChevronRight,
   Ticket
 } from 'lucide-react';
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { useAuth } from '@/contexts/AuthContext';
+import { Card } from '../components/ui/card';
+import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
+import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
+import { API_BASE_URL } from '../api/mediaApi';
 
 interface TicketItem {
   id: string;
