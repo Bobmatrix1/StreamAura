@@ -13,5 +13,5 @@ pydantic-settings
 boto3
 redis
 agora-token-builder
-websockets
+websockets==13.1
 wsproto
