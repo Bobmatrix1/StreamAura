@@ -14,8 +14,9 @@ from firebase_admin import firestore
 
 router = APIRouter()
 
-# Get Firestore db from firebase-admin
-db = firestore.client()
+# Get Firestore db from firebase-admin (Lazy initialization)
+def get_db():
+    return firestore.client()
 
 @router.get("/banks")
 async def fetch_bank_list():
@@ -74,6 +75,7 @@ async def pay_with_referral_balance(room_id: str, user: dict = Depends(get_curre
     """
     Pay for a room ticket using referral balance.
     """
+    db = get_db()
     room_doc = db.collection("cinema_rooms").document(room_id).get()
     if not room_doc.exists:
         raise HTTPException(status_code=404, detail="Room not found")
@@ -110,6 +112,7 @@ async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(ge
     """
     Creates a new cinema room. Supports referral balance payment for private rooms and season perks.
     """
+    db = get_db()
     room_id = f"room_{uuid.uuid4().hex[:12]}"
     
     # Handle Costs
@@ -174,6 +177,7 @@ async def init_room_payment(room_id: str, user: dict = Depends(get_current_user)
     """
     Initialize a Paystack payment for a paid room ticket.
     """
+    db = get_db()
     room_doc = db.collection("cinema_rooms").document(room_id).get()
     if not room_doc.exists:
         raise HTTPException(status_code=404, detail="Room not found")
@@ -198,7 +202,7 @@ async def init_room_payment(room_id: str, user: dict = Depends(get_current_user)
          raise HTTPException(status_code=400, detail="User email required for payment")
          
     try:
-        response = initialize_transaction(email, amount_in_kobo, reference, callback_url)
+        response = await initialize_transaction(email, amount_in_kobo, reference, callback_url)
         
         # Log pending transaction
         db.collection("transactions").document(reference).set({
@@ -218,8 +222,9 @@ async def verify_room_payment(room_id: str, reference: str, user: dict = Depends
     """
     Verify payment and grant access pass.
     """
+    db = get_db()
     try:
-        response = verify_transaction(reference)
+        response = await verify_transaction(reference)
         
         if response["data"]["status"] == "success":
             # Update transaction
@@ -268,6 +273,7 @@ async def get_agora_token(request: AgoraTokenRequest, user: dict = Depends(get_c
     """
     Generate Agora RTC token for voice/video chat in a specific room.
     """
+    db = get_db()
     # Quick check if user is allowed in room (e.g. check access pass for paid rooms)
     room_doc = db.collection("cinema_rooms").document(request.room_id).get()
     if not room_doc.exists:
