@@ -6,6 +6,9 @@ export interface User {
   photoURL: string | null;
   isAdmin: boolean;
   createdAt: number;
+  referralBalance: number;
+  referredCount: number;
+  referredBy: string | null;
 }
 
 // Media download types
@@ -103,7 +106,7 @@ export interface Toast {
 }
 
 // App state types
-export type ViewType = MediaType | 'bulk' | 'history' | 'admin' | 'notifications' | 'about' | 'privacy' | 'contact' | 'cinema' | 'wallet';
+export type ViewType = MediaType | 'home' | 'bulk' | 'history' | 'admin' | 'notifications' | 'about' | 'privacy' | 'contact' | 'cinema' | 'wallet' | 'referral';
 
 export interface AppState {
   isAuthenticated: boolean;

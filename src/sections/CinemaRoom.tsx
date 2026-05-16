@@ -17,7 +17,9 @@ import {
   Video,
   ShoppingBag,
   ChevronDown,
-  Share2
+  Share2,
+  Check,
+  Loader2
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -26,6 +28,10 @@ import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { CinemaStoreModal } from './CinemaStoreModal';
 import { API_BASE_URL } from '../api/mediaApi';
+import { uploadFile, auth, db } from '../lib/firebase';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { initializePaystackPayment, verifyPaymentOnBackend } from '../api/paymentApi';
+import { CinemaLiveRoom } from './CinemaLiveRoom';
 
 interface Room {
   id: string;
@@ -59,22 +65,116 @@ interface CinemaSlide {
  * Enhanced Immersive cinema experience and advanced room creation.
  */
 const CinemaRoom: React.FC = () => {
-  const { requireAuth } = useAuth();
-  const { showSuccess, showInfo } = useToast();
+  const { requireAuth, isAdmin } = useAuth();
+  const { showSuccess, showInfo, showError } = useToast();
+
   const [activeTab, setActiveTab] = useState<'rooms' | 'trailers' | 'schedule'>('rooms');
   const [curtainsOpen, setCurtainsOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
+  
+  // Live Room State
+  const [activeRoom, setActiveRoom] = useState<any | null>(null);
+  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
 
   const dateInputRef = React.useRef<HTMLInputElement>(null);
   const timeInputRef = React.useRef<HTMLInputElement>(null);
 
-  // Auto-open curtains on load
+  // URL Deep Link Logic
   useEffect(() => {
-    const timer = setTimeout(() => setCurtainsOpen(true), 800);
-    return () => clearTimeout(timer);
+    const params = new URLSearchParams(window.location.search);
+    const roomId = params.get('room');
+    const verifyRef = params.get('verify');
+
+    if (roomId) {
+      handleJoinRoomById(roomId);
+    }
+
+    if (verifyRef && roomId) {
+      handleVerifyPayment(roomId, verifyRef);
+    }
   }, []);
+
+  const handleJoinRoomById = async (roomId: string) => {
+    try {
+      const roomDoc = await getDoc(doc(db, 'cinema_rooms', roomId));
+      if (!roomDoc.exists()) {
+        showError('Room not found');
+        return;
+      }
+      const roomData = roomDoc.data();
+      
+      // If free, join immediately
+      if (roomData.room_type === 'free') {
+        setActiveRoom(roomData);
+        return;
+      }
+
+      // If paid/private, check for access pass
+      if (auth.currentUser) {
+        const passesRef = collection(db, 'room_access_passes');
+        const q = query(passesRef, where('room_id', '==', roomId), where('user_uid', '==', auth.currentUser.uid));
+        const passDocs = await getDocs(q);
+        
+        if (!passDocs.empty || roomData.host_uid === auth.currentUser.uid || isAdmin) {
+          setActiveRoom(roomData);
+        } else {
+          // Trigger Payment Flow
+          handlePaymentPrompt(roomData);
+        }
+      } else {
+        requireAuth(() => handleJoinRoomById(roomId));
+      }
+    } catch (err) {
+      showError('Failed to join room');
+    }
+  };
+
+  const handlePaymentPrompt = (room: any) => {
+    requireAuth(async () => {
+      const email = auth.currentUser?.email;
+      if (!email) return;
+
+      initializePaystackPayment(
+        email,
+        room.ticket_price,
+        { room_id: room.id, user_uid: auth.currentUser?.uid },
+        async (reference) => {
+          handleVerifyPayment(room.id, reference);
+        },
+        () => {
+          showInfo('Payment cancelled');
+        }
+      );
+    });
+  };
+
+  const handleVerifyPayment = async (roomId: string, reference: string) => {
+    setIsVerifyingPayment(true);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) throw new Error('Not authenticated');
+
+      const result = await verifyPaymentOnBackend(roomId, reference, token);
+      if (result.success) {
+        showSuccess('Payment verified! Enjoy the movie.');
+        // Remove verify param from URL without reloading
+        const url = new URL(window.location.href);
+        url.searchParams.delete('verify');
+        window.history.replaceState({}, '', url);
+        
+        // Join room
+        handleJoinRoomById(roomId);
+      } else {
+        showError('Payment verification failed');
+      }
+    } catch (err) {
+      showError('Error verifying payment');
+    } finally {
+      setIsVerifyingPayment(false);
+    }
+  };
 
   const handleBuySnacks = () => {
     requireAuth(() => {
@@ -164,6 +264,22 @@ const CinemaRoom: React.FC = () => {
   const [privateGuests, setPrivateGuests] = useState<string[]>(['']);
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
+  
+  // New Form Fields
+  const [roomName, setRoomName] = useState('');
+  const [movieTitle, setMovieTitle] = useState('');
+  const [movieGenre, setMovieGenre] = useState('');
+  const [movieDescription, setMovieDescription] = useState('');
+  const [ticketPrice, setTicketPrice] = useState('');
+  const [movieFile, setMovieFile] = useState<File | null>(null);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [trailerFile, setTrailerFile] = useState<File | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // File Refs
+  const movieFileRef = React.useRef<HTMLInputElement>(null);
+  const coverFileRef = React.useRef<HTMLInputElement>(null);
+  const trailerFileRef = React.useRef<HTMLInputElement>(null);
 
   const formatDisplayDate = (dateStr: string) => {
     if (!dateStr) return 'Set Date';
@@ -251,15 +367,109 @@ const CinemaRoom: React.FC = () => {
     }
   };
 
-  const handleCreateRoom = (e: React.FormEvent) => {
+  const [isGenreDropdownOpen, setIsGenreDropdownOpen] = useState(false);
+  const genreRef = React.useRef<HTMLDivElement>(null);
+
+  const genres = [
+    "Action", "Adventure", "Alternate History", "Animation", "Anime", "Anthology", "Apocalyptic", "Art House", 
+    "Biography", "Black Comedy", "Blaxploitation", "Buddy Cop", "Buddy Film", "Caper", "Cartoon", "Children's", 
+    "Chick Flick", "Christmas", "Classic", "Comedy", "Coming-of-Age", "Concert Film", "Crime", "Cult", 
+    "Cyberpunk", "Dance", "Dark Comedy", "Disaster", "Documentary", "Docudrama", "Drama", "Dystopian", 
+    "Educational", "Epic", "Erotic", "Experimental", "Fairy Tale", "Family", "Fantasy", "Film Noir", 
+    "Found Footage", "Gangster", "Ghost", "Gore", "Gothic", "Grindhouse", "Heist", "Historical", 
+    "Historical Fiction", "Holiday", "Horror", "Independent", "Inspirational", "Interactive", "Legal Drama", 
+    "Live Action", "Martial Arts", "Medical Drama", "Melodrama", "Military", "Mockumentary", "Monster", 
+    "Music", "Musical", "Mystery", "Mythological", "Neo-Noir", "Occult", "Parody", "Period Drama", 
+    "Political Thriller", "Post-Apocalyptic", "Psychological Thriller", "Psychological Horror", "Road Movie", 
+    "Romance", "Romantic Comedy", "Satire", "Science Fiction", "Screwball Comedy", "Short Film", "Silent Film", 
+    "Slapstick", "Slasher", "Slice of Life", "Soap Opera", "Space Opera", "Sports", "Spy", "Steampunk", 
+    "Stop Motion", "Superhero", "Supernatural", "Survival", "Suspense", "Sword and Sorcery", "Teen", 
+    "Tech Noir", "Thriller", "Time Travel", "Tragedy", "True Crime", "Vampire", "War", "Western", 
+    "Whodunit", "Zombie"
+  ];
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (genreRef.current && !genreRef.current.contains(event.target as Node)) {
+        setIsGenreDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (roomType === 'private') {
-      const cost = privateSeats * 1000;
-      showSuccess(`Private Room Created! ₦${cost.toLocaleString()} deducted from wallet.`);
-    } else {
-      showSuccess('Room created successfully! Link copied to clipboard.');
+    if (!roomName.trim() || !movieTitle.trim() || !movieFile || !coverFile || !movieGenre) {
+      showError('Please fill all required fields, select a genre and upload media.');
+      return;
     }
-    setIsCreateModalOpen(false);
+
+    if (roomType === 'paid' && (!ticketPrice || parseFloat(ticketPrice) <= 0)) {
+       showError('Please enter a valid ticket price for paid rooms.');
+       return;
+    }
+
+    setIsSubmitting(true);
+    
+    try {
+      // 1. Upload cover image to assets bucket
+      const coverUrl = await uploadFile(coverFile, 'cinema/covers', 'assets');
+      
+      // 2. Upload movie file to movies bucket
+      const movieUrl = await uploadFile(movieFile, 'cinema/movies', 'movies');
+
+      // 3. Upload trailer if present
+      let trailerUrl = null;
+      if (trailerFile) {
+        trailerUrl = await uploadFile(trailerFile, 'cinema/trailers', 'assets');
+      }
+
+      // 4. Prepare payload
+      const payload = {
+        room_name: roomName,
+        room_type: roomType,
+        movie_title: movieTitle,
+        movie_cover_image: coverUrl,
+        movie_file: movieUrl,
+        trailer_url: trailerUrl,
+        description: movieDescription,
+        max_seats: isUnlimited ? null : (roomType === 'private' ? privateSeats : 100),
+        category: movieGenre,
+        scheduled_start_time: isLiveNow ? null : new Date(`${scheduledDate}T${scheduledTime}`).getTime(),
+        text_chat_enabled: true,
+        voice_enabled: roomType !== 'free',
+        camera_enabled: roomType === 'private',
+        ticket_price: roomType === 'paid' ? parseFloat(ticketPrice) : null,
+        invite_only: roomType === 'private'
+      };
+
+      const token = await auth.currentUser?.getIdToken();
+      const response = await fetch(`${API_BASE_URL}/api/cinema/rooms/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) throw new Error('Failed to create room on server.');
+      
+      const result = await response.json();
+
+      if (roomType === 'private') {
+        const cost = privateSeats * 1000;
+        showSuccess(`Private Room Created! ₦${cost.toLocaleString()} deducted. Link: ${result.invite_link}`);
+      } else {
+        showSuccess('Room created successfully!');
+      }
+      setIsCreateModalOpen(false);
+    } catch (err: any) {
+      showError(err.message || 'Error creating room.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handlePrivateGuestChange = (index: number, value: string) => {
@@ -272,6 +482,14 @@ const CinemaRoom: React.FC = () => {
     if (val < 1) return;
     setPrivateSeats(val);
     const newGuests = [...privateGuests];
+    
+    // Ensure first slot is always the current user for private rooms
+    if (newGuests.length > 0) {
+      newGuests[0] = auth.currentUser?.uid || '';
+    } else {
+      newGuests.push(auth.currentUser?.uid || '');
+    }
+
     if (val > newGuests.length) {
       newGuests.push(...Array(val - newGuests.length).fill(''));
     } else if (val < newGuests.length) {
@@ -280,15 +498,28 @@ const CinemaRoom: React.FC = () => {
     setPrivateGuests(newGuests);
   };
 
+  if (activeRoom) {
+    return <CinemaLiveRoom roomId={activeRoom.id} roomData={activeRoom} onLeave={() => setActiveRoom(null)} />;
+  }
+
   return (
     <div className="space-y-6 md:space-y-8 pb-20 relative overflow-x-hidden">
+      {isVerifyingPayment && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="w-12 h-12 text-primary animate-spin" />
+            <p className="text-white font-black uppercase tracking-widest text-sm">Verifying Payment...</p>
+          </div>
+        </div>
+      )}
+      
       {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 px-1">
-        <div className="space-y-1">
-          <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tight gradient-text">Cinema Room</h1>
+      <div className="flex flex-col items-center text-center gap-6 px-1 mb-4">
+        <div className="space-y-2">
+          <h1 className="text-3xl md:text-4xl font-black uppercase tracking-tight gradient-text">Cinema Room</h1>
           <p className="text-[10px] md:text-xs text-muted-foreground font-bold uppercase tracking-widest opacity-70">Experience movies together in virtual luxury.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 md:gap-3">
+        <div className="flex flex-wrap justify-center items-center gap-2 md:gap-3">
           <Button variant="outline" onClick={handleBuySnacks} className="flex-1 md:flex-none h-10 gap-2 border-white/10 text-emerald-400 hover:text-emerald-300 rounded-xl text-[10px] font-black uppercase tracking-wider">
             <ShoppingBag className="w-3.5 h-3.5" />
             Buy Snacks
@@ -336,7 +567,7 @@ const CinemaRoom: React.FC = () => {
         <div className="absolute top-4 right-4 w-6 h-6 rounded-full bg-white shadow-[0_0_30px_white,0_0_60px_white,0_0_100px_white] z-50 pointer-events-none border border-white/50" />
 
         {/* Curtains Layer with "Shut" entry and exit animations */}
-        <AnimatePresence>
+        <AnimatePresence initial={false}>
           {!curtainsOpen && (
             <React.Fragment key="curtains-fragment">
               <motion.div 
@@ -373,7 +604,7 @@ const CinemaRoom: React.FC = () => {
 
         {/* Intro Text Overlay (Only visible when curtains are closed) */}
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-8 text-center pointer-events-none">
-          <AnimatePresence mode="wait">
+          <AnimatePresence mode="wait" initial={false}>
             {!curtainsOpen && (
               <motion.div 
                 key="theater-intro"
@@ -588,14 +819,32 @@ const CinemaRoom: React.FC = () => {
               className="fixed left-1/2 top-1/2 w-full max-w-2xl max-h-[90vh] overflow-y-auto z-[101] p-4"
             >
               <Card className="glass-card border-white/10 shadow-2xl overflow-hidden relative">
-                <div className="sticky top-0 bg-background/80 backdrop-blur-xl border-b border-white/10 p-6 flex items-center justify-between z-20">
-                  <div>
-                    <h2 className="text-2xl font-black tracking-tight">Create Cinema Room</h2>
-                    <p className="text-xs text-muted-foreground font-medium mt-1">Host a movie experience for friends or the public.</p>
-                  </div>
-                  <button onClick={() => setIsCreateModalOpen(false)} className="p-2 rounded-full hover:bg-white/10 transition-colors">
-                    <X className="w-5 h-5 text-muted-foreground hover:text-white" />
+                <div className="sticky top-0 bg-background/90 backdrop-blur-xl border-b border-white/10 p-8 flex flex-col items-center text-center z-20 relative">
+                  <button 
+                    type="button"
+                    onClick={() => setIsCreateModalOpen(false)} 
+                    className="absolute right-6 top-6 p-2 rounded-full hover:bg-white/10 transition-all hover:rotate-90 group"
+                  >
+                    <X className="w-5 h-5 text-muted-foreground group-hover:text-white" />
                   </button>
+                  
+                  <div className="w-14 h-14 rounded-[1.25rem] bg-primary/10 flex items-center justify-center mb-5 border border-primary/20 shadow-[0_0_30px_rgba(225,29,72,0.15)] relative group">
+                    <div className="absolute inset-0 bg-primary/20 rounded-[1.25rem] blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <Tv className="w-7 h-7 text-primary relative z-10" />
+                  </div>
+                  
+                  <h2 className="text-3xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-br from-white via-white to-white/40 uppercase">
+                    Create Cinema Room
+                  </h2>
+                  <p className="text-[10px] md:text-xs text-muted-foreground font-black uppercase tracking-[0.25em] mt-3 opacity-60 max-w-[80%] mx-auto leading-relaxed">
+                    Host a movie experience for friends or the public
+                  </p>
+                  
+                  <div className="flex items-center gap-3 mt-6">
+                    <div className="h-[1px] w-12 bg-gradient-to-r from-transparent to-primary/40" />
+                    <div className="w-1.5 h-1.5 rounded-full bg-primary shadow-[0_0_10px_#e11d48]" />
+                    <div className="h-[1px] w-12 bg-gradient-to-l from-transparent to-primary/40" />
+                  </div>
                 </div>
 
                 <div className="px-6 py-2 flex justify-end">
@@ -610,24 +859,66 @@ const CinemaRoom: React.FC = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Movie Art Cover</label>
-                      <div className="aspect-[3/4] rounded-2xl border-2 border-dashed border-white/10 bg-white/5 flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group">
-                        <Upload className="w-8 h-8 text-muted-foreground group-hover:text-primary transition-colors mb-2" />
-                        <span className="text-xs font-bold text-muted-foreground group-hover:text-primary">Upload Poster</span>
+                      <div 
+                        onClick={() => coverFileRef.current?.click()}
+                        className={`aspect-[3/4] rounded-2xl border-2 border-dashed ${coverFile ? 'border-primary bg-primary/5' : 'border-white/10 bg-white/5'} flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group relative overflow-hidden`}
+                      >
+                        {coverFile ? (
+                           <div className="absolute inset-0">
+                             <img src={URL.createObjectURL(coverFile)} className="w-full h-full object-cover opacity-60" />
+                             <div className="absolute inset-0 flex flex-col items-center justify-center">
+                               <Check className="w-8 h-8 text-primary mb-2" />
+                               <span className="text-xs font-bold text-white shadow-black drop-shadow-md">Cover Selected</span>
+                             </div>
+                           </div>
+                        ) : (
+                           <>
+                            <Upload className="w-8 h-8 text-muted-foreground group-hover:text-primary transition-colors mb-2" />
+                            <span className="text-xs font-bold text-muted-foreground group-hover:text-primary">Upload Poster</span>
+                           </>
+                        )}
+                        <input type="file" ref={coverFileRef} onChange={(e) => setCoverFile(e.target.files?.[0] || null)} className="hidden" accept="image/*" />
                       </div>
                     </div>
                     <div className="space-y-4">
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Movie File</label>
-                        <div className="h-24 rounded-2xl border-2 border-dashed border-white/10 bg-white/5 flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group">
-                           <Film className="w-5 h-5 text-muted-foreground group-hover:text-primary mb-1" />
-                           <span className="text-xs font-bold text-muted-foreground">Upload Video</span>
+                        <div 
+                           onClick={() => movieFileRef.current?.click()}
+                           className={`h-24 rounded-2xl border-2 border-dashed ${movieFile ? 'border-primary bg-primary/5' : 'border-white/10 bg-white/5'} flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group`}
+                        >
+                           {movieFile ? (
+                             <>
+                               <Check className="w-5 h-5 text-primary mb-1" />
+                               <span className="text-xs font-bold text-white truncate max-w-[90%]">{movieFile.name}</span>
+                             </>
+                           ) : (
+                             <>
+                               <Film className="w-5 h-5 text-muted-foreground group-hover:text-primary mb-1" />
+                               <span className="text-xs font-bold text-muted-foreground">Upload Video</span>
+                             </>
+                           )}
+                           <input type="file" ref={movieFileRef} onChange={(e) => setMovieFile(e.target.files?.[0] || null)} className="hidden" accept="video/*" />
                         </div>
                       </div>
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Trailer Video</label>
-                        <div className="h-24 rounded-2xl border-2 border-dashed border-white/10 bg-white/5 flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group">
-                           <Camera className="w-5 h-5 text-muted-foreground group-hover:text-primary mb-1" />
-                           <span className="text-xs font-bold text-muted-foreground">Upload Trailer</span>
+                        <div 
+                           onClick={() => trailerFileRef.current?.click()}
+                           className={`h-24 rounded-2xl border-2 border-dashed ${trailerFile ? 'border-primary bg-primary/5' : 'border-white/10 bg-white/5'} flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group relative`}
+                        >
+                           {trailerFile ? (
+                             <>
+                               <Check className="w-5 h-5 text-primary mb-1" />
+                               <span className="text-xs font-bold text-white truncate max-w-[90%]">{trailerFile.name}</span>
+                             </>
+                           ) : (
+                             <>
+                               <Camera className="w-5 h-5 text-muted-foreground group-hover:text-primary mb-1" />
+                               <span className="text-xs font-bold text-muted-foreground">Upload Trailer</span>
+                             </>
+                           )}
+                           <input type="file" ref={trailerFileRef} onChange={(e) => setTrailerFile(e.target.files?.[0] || null)} className="hidden" accept="video/*" />
                         </div>
                       </div>
                     </div>
@@ -637,138 +928,67 @@ const CinemaRoom: React.FC = () => {
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Room Name</label>
-                      <input type="text" required placeholder="e.g. Midnight Watch Party" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-primary/50" />
+                      <input type="text" required value={roomName} onChange={e => setRoomName(e.target.value)} placeholder="e.g. Midnight Watch Party" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-primary/50" />
                     </div>
                     
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Movie Title</label>
-                        <input type="text" required placeholder="Movie Name" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm outline-none focus:border-primary/50" />
+                        <input type="text" required value={movieTitle} onChange={e => setMovieTitle(e.target.value)} placeholder="Movie Name" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm outline-none focus:border-primary/50" />
                       </div>
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Genre</label>
-                        <div className="relative">
-                          <select className="w-full bg-zinc-900/50 border border-white/10 rounded-xl py-3 px-4 text-[13px] outline-none focus:border-primary/50 appearance-none text-white font-medium">
-                            <option value="">Select Genre</option>
-                            <option value="Action">Action</option>
-                            <option value="Adventure">Adventure</option>
-                            <option value="Alternate History">Alternate History</option>
-                            <option value="Animation">Animation</option>
-                            <option value="Anime">Anime</option>
-                            <option value="Anthology">Anthology</option>
-                            <option value="Apocalyptic">Apocalyptic</option>
-                            <option value="Art House">Art House</option>
-                            <option value="Biography">Biography (Biopic)</option>
-                            <option value="Black Comedy">Black Comedy</option>
-                            <option value="Blaxploitation">Blaxploitation</option>
-                            <option value="Buddy Cop">Buddy Cop</option>
-                            <option value="Buddy Film">Buddy Film</option>
-                            <option value="Caper">Caper</option>
-                            <option value="Cartoon">Cartoon</option>
-                            <option value="Children's">Children’s</option>
-                            <option value="Chick Flick">Chick Flick</option>
-                            <option value="Christmas">Christmas</option>
-                            <option value="Classic">Classic</option>
-                            <option value="Comedy">Comedy</option>
-                            <option value="Coming-of-Age">Coming-of-Age</option>
-                            <option value="Concert Film">Concert Film</option>
-                            <option value="Crime">Crime</option>
-                            <option value="Cult">Cult</option>
-                            <option value="Cyberpunk">Cyberpunk</option>
-                            <option value="Dance">Dance</option>
-                            <option value="Dark Comedy">Dark Comedy</option>
-                            <option value="Disaster">Disaster</option>
-                            <option value="Documentary">Documentary</option>
-                            <option value="Docudrama">Docudrama</option>
-                            <option value="Drama">Drama</option>
-                            <option value="Dystopian">Dystopian</option>
-                            <option value="Educational">Educational</option>
-                            <option value="Epic">Epic</option>
-                            <option value="Erotic">Erotic</option>
-                            <option value="Experimental">Experimental</option>
-                            <option value="Fairy Tale">Fairy Tale</option>
-                            <option value="Family">Family</option>
-                            <option value="Fantasy">Fantasy</option>
-                            <option value="Film Noir">Film Noir</option>
-                            <option value="Found Footage">Found Footage</option>
-                            <option value="Gangster">Gangster</option>
-                            <option value="Ghost">Ghost</option>
-                            <option value="Gore">Gore</option>
-                            <option value="Gothic">Gothic</option>
-                            <option value="Grindhouse">Grindhouse</option>
-                            <option value="Heist">Heist</option>
-                            <option value="Historical">Historical</option>
-                            <option value="Historical Fiction">Historical Fiction</option>
-                            <option value="Holiday">Holiday</option>
-                            <option value="Horror">Horror</option>
-                            <option value="Independent">Independent (Indie)</option>
-                            <option value="Inspirational">Inspirational</option>
-                            <option value="Interactive">Interactive</option>
-                            <option value="Legal Drama">Legal Drama</option>
-                            <option value="Live Action">Live Action</option>
-                            <option value="Martial Arts">Martial Arts</option>
-                            <option value="Medical Drama">Medical Drama</option>
-                            <option value="Melodrama">Melodrama</option>
-                            <option value="Military">Military</option>
-                            <option value="Mockumentary">Mockumentary</option>
-                            <option value="Monster">Monster</option>
-                            <option value="Music">Music</option>
-                            <option value="Musical">Musical</option>
-                            <option value="Mystery">Mystery</option>
-                            <option value="Mythological">Mythological</option>
-                            <option value="Neo-Noir">Neo-Noir</option>
-                            <option value="Occult">Occult</option>
-                            <option value="Parody">Parody</option>
-                            <option value="Period Drama">Period Drama</option>
-                            <option value="Political Thriller">Political Thriller</option>
-                            <option value="Post-Apocalyptic">Post-Apocalyptic</option>
-                            <option value="Psychological Thriller">Psychological Thriller</option>
-                            <option value="Psychological Horror">Psychological Horror</option>
-                            <option value="Road Movie">Road Movie</option>
-                            <option value="Romance">Romance</option>
-                            <option value="Romantic Comedy">Romantic Comedy (Rom-Com)</option>
-                            <option value="Satire">Satire</option>
-                            <option value="Science Fiction">Science Fiction (Sci-Fi)</option>
-                            <option value="Screwball Comedy">Screwball Comedy</option>
-                            <option value="Short Film">Short Film</option>
-                            <option value="Silent Film">Silent Film</option>
-                            <option value="Slapstick">Slapstick</option>
-                            <option value="Slasher">Slasher</option>
-                            <option value="Slice of Life">Slice of Life</option>
-                            <option value="Soap Opera">Soap Opera</option>
-                            <option value="Space Opera">Space Opera</option>
-                            <option value="Sports">Sports</option>
-                            <option value="Spy">Spy</option>
-                            <option value="Steampunk">Steampunk</option>
-                            <option value="Stop Motion">Stop Motion</option>
-                            <option value="Superhero">Superhero</option>
-                            <option value="Supernatural">Supernatural</option>
-                            <option value="Survival">Survival</option>
-                            <option value="Suspense">Suspense</option>
-                            <option value="Sword and Sorcery">Sword and Sorcery</option>
-                            <option value="Teen">Teen</option>
-                            <option value="Tech Noir">Tech Noir</option>
-                            <option value="Thriller">Thriller</option>
-                            <option value="Time Travel">Time Travel</option>
-                            <option value="Tragedy">Tragedy</option>
-                            <option value="True Crime">True Crime</option>
-                            <option value="Vampire">Vampire</option>
-                            <option value="War">War</option>
-                            <option value="Western">Western</option>
-                            <option value="Whodunit">Whodunit</option>
-                            <option value="Zombie">Zombie</option>
-                          </select>
-                          <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                        <div className="relative" ref={genreRef}>
+                          <button
+                            type="button"
+                            onClick={() => setIsGenreDropdownOpen(!isGenreDropdownOpen)}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-[13px] outline-none focus:border-primary/50 flex items-center justify-between transition-all"
+                          >
+                            <span className={movieGenre ? 'text-white font-bold' : 'text-muted-foreground'}>
+                              {movieGenre || 'Select Genre'}
+                            </span>
+                            <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${isGenreDropdownOpen ? 'rotate-180' : ''}`} />
+                          </button>
+
+                          <AnimatePresence>
+                            {isGenreDropdownOpen && (
+                              <motion.div
+                                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                className="absolute left-0 right-0 top-full mt-2 z-50 bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden max-h-[300px] overflow-y-auto custom-scrollbar"
+                              >
+                                <div className="p-2 grid grid-cols-1 gap-1">
+                                  {genres.map((genre) => (
+                                    <button
+                                      key={genre}
+                                      type="button"
+                                      onClick={() => {
+                                        setMovieGenre(genre);
+                                        setIsGenreDropdownOpen(false);
+                                      }}
+                                      className={`w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                                        movieGenre === genre 
+                                          ? 'bg-primary text-white shadow-lg shadow-primary/20' 
+                                          : 'text-muted-foreground hover:bg-white/5 hover:text-white'
+                                      }`}
+                                    >
+                                      {genre}
+                                    </button>
+                                  ))}
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </div>
                       </div>
                     </div>
-
                     <div className="space-y-2">
                       <div className="flex justify-between items-end">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Description</label>
                         <span className="text-[10px] text-muted-foreground">Max 200 words</span>
                       </div>
-                      <textarea rows={3} placeholder="What is this room about?" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm outline-none focus:border-primary/50 resize-none" />
+                      <textarea required value={movieDescription} onChange={e => setMovieDescription(e.target.value)} rows={3} placeholder="What is this room about?" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm outline-none focus:border-primary/50 resize-none" />
                     </div>
                   </div>
 
@@ -901,7 +1121,7 @@ const CinemaRoom: React.FC = () => {
                              <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Ticket Price</label>
                              <div className="relative">
                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground">₦</span>
-                               <input type="number" placeholder="0.00" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-9 pr-4 text-sm font-bold outline-none focus:border-primary/50" />
+                               <input type="number" required={roomType === 'paid'} value={ticketPrice} onChange={e => setTicketPrice(e.target.value)} placeholder="0.00" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-9 pr-4 text-sm font-bold outline-none focus:border-primary/50" />
                              </div>
                            </div>
                            <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/20 flex gap-3 items-center">
@@ -953,15 +1173,25 @@ const CinemaRoom: React.FC = () => {
                              <div className="space-y-2 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
                                {privateGuests.map((guest, index) => (
                                  <div key={index} className="relative">
-                                   <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                                   <Users className={`absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${index === 0 ? 'text-primary' : 'text-muted-foreground'}`} />
                                    <input 
                                      type="text" 
-                                     placeholder="Paste Aura ID..." 
+                                     placeholder={index === 0 ? "Your Aura ID" : "Paste Aura ID..."}
                                      value={guest}
+                                     readOnly={index === 0}
                                      onChange={(e) => handlePrivateGuestChange(index, e.target.value)}
-                                     className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-9 pr-4 text-[11px] outline-none focus:border-amber-500/50" 
+                                     className={`w-full border border-white/10 rounded-xl py-2.5 pl-9 pr-4 text-[11px] outline-none transition-all ${
+                                       index === 0 
+                                         ? 'bg-primary/5 border-primary/20 text-primary font-bold cursor-default' 
+                                         : 'bg-white/5 focus:border-amber-500/50'
+                                     }`} 
                                      required
                                    />
+                                   {index === 0 && (
+                                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] font-black uppercase text-primary tracking-widest bg-primary/10 px-2 py-0.5 rounded-full">
+                                       You (Host)
+                                     </span>
+                                   )}
                                  </div>
                                ))}
                              </div>
@@ -973,10 +1203,19 @@ const CinemaRoom: React.FC = () => {
                   
                   {/* Submit Action */}
                   <div className="pt-4 border-t border-white/10 flex justify-end gap-3 sticky bottom-0 bg-background p-4 -m-6 mt-0 shadow-[0_-20px_40px_rgba(0,0,0,0.8)]">
-                     <Button type="button" variant="ghost" onClick={() => setIsCreateModalOpen(false)}>Cancel</Button>
-                     <Button type="submit" className="gradient-bg px-8 font-black gap-2">
-                       {roomType === 'private' ? `Pay ₦${(privateSeats * 1000).toLocaleString()} & Create` : 'Create Room'} 
-                       <Plus className="w-4 h-4" />
+                     <Button type="button" variant="ghost" onClick={() => setIsCreateModalOpen(false)} disabled={isSubmitting}>Cancel</Button>
+                     <Button type="submit" disabled={isSubmitting} className="gradient-bg px-8 font-black gap-2 disabled:opacity-50">
+                       {isSubmitting ? (
+                         <>
+                           <Loader2 className="w-4 h-4 animate-spin" />
+                           Creating...
+                         </>
+                       ) : (
+                         <>
+                           {roomType === 'private' ? `Pay ₦${(privateSeats * 1000).toLocaleString()} & Create` : 'Create Room'} 
+                           <Plus className="w-4 h-4" />
+                         </>
+                       )}
                      </Button>
                   </div>
                 </form>

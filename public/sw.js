@@ -37,6 +37,10 @@ self.addEventListener('fetch', (event) => {
     url.hostname.includes('firebase') ||
     url.hostname.includes('google') ||
     url.hostname.includes('googleapis') ||
+    url.hostname.includes('paystack') ||
+    url.hostname.includes('agora') ||
+    url.hostname.includes('sd-rtn') || // Agora edge nodes
+    url.hostname.includes('unsplash') ||
     url.pathname.startsWith('/api') ||
     url.port === '1578' ||
     url.href.includes('hot-update')

@@ -3,11 +3,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Zap } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import Layout from '@/sections/Layout';
+import Home from '@/sections/Home';
 import VideoDownloader from '@/sections/VideoDownloader';
 import MusicDownloader from '@/sections/MusicDownloader';
 import MovieDownloader from '@/sections/MovieDownloader';
 import CinemaRoom from '@/sections/CinemaRoom';
 import Wallet from '@/sections/Wallet';
+import Referral from '@/sections/Referral';
 import BulkDownloader from '@/sections/BulkDownloader';
 import History from '@/sections/History';
 import AdminDashboard from '@/sections/AdminDashboard';
@@ -27,7 +29,27 @@ import type { ViewType } from '@/types';
 export const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading, isAdmin, user } = useAuth();
   
-  const [activeView, setActiveView] = useState<ViewType>('video');
+  const [activeView, setActiveView] = useState<ViewType>('home');
+
+  // URL Parameter Sync
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab') as ViewType;
+    if (tab && ['home', 'video', 'music', 'movie', 'cinema', 'wallet', 'bulk', 'admin', 'notifications', 'history', 'referral'].includes(tab)) {
+      setActiveView(tab);
+    }
+
+    // Handle Referral Code
+    const refCode = params.get('ref');
+    if (refCode) {
+      localStorage.setItem('aura_referral_code', refCode);
+    }
+  }, []);
+
+  // Scroll to top on navigation
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [activeView]);
 
   // 1. Track Initial Visit
   useEffect(() => {
@@ -195,12 +217,14 @@ export const AppContent: React.FC = () => {
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
           >
+            {activeView === 'home' && <Home onNavigate={handleTabChange} />}
             {activeView === 'video' && <VideoDownloader />}
             {activeView === 'music' && <MusicDownloader />}
             {activeView === 'movie' && <MovieDownloader />}
             {activeView === 'cinema' && <CinemaRoom />}
             {activeView === 'wallet' && <Wallet />}
             {activeView === 'bulk' && <BulkDownloader />}
+            {activeView === 'referral' && <Referral />}
             {activeView === 'notifications' && <Notifications />}
             {activeView === 'history' && <History />}
             {activeView === 'about' && <About />}

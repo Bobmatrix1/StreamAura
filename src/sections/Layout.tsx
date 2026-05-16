@@ -25,7 +25,9 @@ import {
   Info,
   HelpCircle,
   Tv,
-  Wallet
+  Wallet,
+  Share2,
+  Home
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -49,11 +51,13 @@ interface Tab {
 }
 
 const tabs: Tab[] = [
+  { id: 'home', label: 'Home', icon: Home, color: 'indigo' },
   { id: 'video', label: 'Video', icon: Video, color: 'blue' },
   { id: 'music', label: 'Music', icon: Music, color: 'orange' },
   { id: 'movie', label: 'Movies', icon: Film, color: 'cyan' },
   { id: 'cinema', label: 'Cinema Room', icon: Tv, color: 'purple' },
   { id: 'wallet', label: 'Wallet', icon: Wallet, color: 'emerald' },
+  { id: 'referral', label: 'Refer & Earn', icon: Share2, color: 'orange' },
   { id: 'bulk', label: 'Bulk Download', icon: List, color: 'purple' },
   { id: 'notifications', label: 'Notifications', icon: Bell, color: 'rose' },
   { id: 'history', label: 'History', icon: History, color: 'indigo' },

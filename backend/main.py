@@ -29,6 +29,13 @@ load_dotenv()
 
 app = FastAPI(title="StreamAura API Master")
 
+# Cinema Routers
+from routers import cinema as cinema_router
+from websockets import room_sync as websocket_router
+
+app.include_router(cinema_router.router, prefix="/api/cinema", tags=["cinema"])
+app.include_router(websocket_router.router, prefix="/api/ws/cinema", tags=["cinema-ws"])
+
 # Initialize Firebase
 try:
     if os.getenv("FIREBASE_PRIVATE_KEY"):
@@ -54,6 +61,13 @@ try:
     db_admin = firestore.client()
 except:
     db_admin = None
+
+# Cinema Routers (Must be imported after Firebase init)
+from routers import cinema as cinema_router
+from websockets import room_sync as websocket_router
+
+app.include_router(cinema_router.router, prefix="/api/cinema", tags=["cinema"])
+app.include_router(websocket_router.router, prefix="/api/ws/cinema", tags=["cinema-ws"])
 
 # Initialize Spotify
 sp = None
@@ -467,4 +481,4 @@ async def process_store_order(order: OrderRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, ws="wsproto")

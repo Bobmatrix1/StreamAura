@@ -35,7 +35,6 @@ import {
   initializeFirestore,
   increment
 } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import type { User, GlobalHistoryItem, HistoryItem, Vendor, Product, Partner, Order } from '../types';
 
@@ -189,11 +188,23 @@ export const signInWithGoogle = async (): Promise<User | null> => {
     const userDocRef = doc(db, 'users', user.uid);
     const userDoc = await getDoc(userDocRef);
     if (!userDoc.exists()) {
+      const referralCode = localStorage.getItem('aura_referral_code');
       const userData: User = {
         uid: user.uid, email: user.email, displayName: user.displayName,
-        photoURL: user.photoURL, isAdmin: false, createdAt: Date.now()
+        photoURL: user.photoURL, isAdmin: false, createdAt: Date.now(),
+        referralBalance: 0, referredCount: 0, referredBy: referralCode || null
       };
       await setDoc(userDocRef, userData);
+      
+      // Credit Referrer
+      if (referralCode && referralCode !== user.uid) {
+        const referrerRef = doc(db, 'users', referralCode);
+        await updateDoc(referrerRef, {
+          referralBalance: increment(100),
+          referredCount: increment(1)
+        });
+        localStorage.removeItem('aura_referral_code');
+      }
       return userData;
     }
     return { ...userDoc.data(), uid: user.uid } as User;
@@ -205,11 +216,25 @@ export const signUpWithEmail = async (email: string, password: string, displayNa
     const result = await createUserWithEmailAndPassword(auth, email, password);
     const user = result.user;
     await updateProfile(user, { displayName });
+    
+    const referralCode = localStorage.getItem('aura_referral_code');
     const userData: User = {
       uid: user.uid, email: user.email, displayName: displayName,
-      photoURL: null, isAdmin: false, createdAt: Date.now()
+      photoURL: null, isAdmin: false, createdAt: Date.now(),
+      referralBalance: 0, referredCount: 0, referredBy: referralCode || null
     };
     await setDoc(doc(db, 'users', user.uid), userData);
+
+    // Credit Referrer
+    if (referralCode && referralCode !== user.uid) {
+      const referrerRef = doc(db, 'users', referralCode);
+      await updateDoc(referrerRef, {
+        referralBalance: increment(100),
+        referredCount: increment(1)
+      });
+      localStorage.removeItem('aura_referral_code');
+    }
+
     return userData;
   } catch (error: any) { throw error; }
 };
@@ -222,7 +247,8 @@ export const signInWithEmail = async (email: string, password: string): Promise<
     if (userDoc.exists()) return { ...userDoc.data(), uid: user.uid } as User;
     const userData: User = {
       uid: user.uid, email: user.email, displayName: user.displayName,
-      photoURL: user.photoURL, isAdmin: false, createdAt: Date.now()
+      photoURL: user.photoURL, isAdmin: false, createdAt: Date.now(),
+      referralBalance: 0, referredCount: 0, referredBy: null
     };
     await setDoc(doc(db, 'users', user.uid), userData);
     return userData;
@@ -698,16 +724,50 @@ export const placeOrder = async (order: Omit<Order, 'id' | 'createdAt' | 'status
   return docRef.id;
 };
 
-// Storage initialization
-export const storage = getStorage(app);
-
 /**
- * Upload a file to Firebase Storage and return the download URL
+ * Upload a file to Cloudflare R2 via backend presigned URL
  */
-export const uploadFile = async (file: File, path: string): Promise<string> => {
-  const storageRef = ref(storage, `${path}/${Date.now()}_${file.name}`);
-  const snapshot = await uploadBytes(storageRef, file);
-  return await getDownloadURL(snapshot.ref);
+export const uploadFile = async (file: File, _path: string, bucketType: 'assets' | 'movies' = 'assets'): Promise<string> => {
+  if (!auth.currentUser) throw new Error("Must be logged in to upload files.");
+  
+  const token = await auth.currentUser.getIdToken();
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+  // 1. Get presigned URL from backend
+  const response = await fetch(`${API_URL}/api/cinema/presigned-url`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      file_name: file.name,
+      content_type: file.type,
+      bucket_type: bucketType
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to get upload URL');
+  }
+
+  const { upload_url, public_url } = await response.json();
+
+  // 2. Upload file directly to R2
+  const uploadResponse = await fetch(upload_url, {
+    method: 'PUT',
+    body: file,
+    headers: {
+      'Content-Type': file.type
+    }
+  });
+
+  if (!uploadResponse.ok) {
+    throw new Error('Failed to upload file to storage');
+  }
+
+  // 3. Return the public URL
+  return public_url;
 };
 
 export const deleteVendor = async (id: string): Promise<void> => {

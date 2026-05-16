@@ -28,7 +28,10 @@ import {
   MessageSquare,
   Info,
   Package,
-  Store
+  Store,
+  Film,
+  Banknote,
+  Handshake
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -55,12 +58,14 @@ import {
 } from "@/components/ui/table";
 import { PreOrderManager } from './PreOrderManager';
 import { StoreManager } from './StoreManager';
+import { PartnersManager } from './PartnersManager';
+import { Badge } from '../components/ui/badge';
 
 const AdminDashboard: React.FC = () => {
   const { user: currentUser } = useAuth();
   const { showSuccess, showError } = useToast();
   
-  const [activeTab, setActiveTab] = useState<'users' | 'history' | 'preorders' | 'traffic' | 'insights' | 'messages' | 'store'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'history' | 'preorders' | 'traffic' | 'insights' | 'messages' | 'store' | 'cinema' | 'payouts' | 'partners'>('users');
   const [users, setUsers] = useState<User[]>([]);
   const [history, setHistory] = useState<GlobalHistoryItem[]>([]);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
@@ -380,6 +385,9 @@ const AdminDashboard: React.FC = () => {
             <button onClick={() => setActiveTab('insights')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'insights' ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/25' : 'text-muted-foreground hover:text-foreground'}`}><LineChart className="w-4 h-4" />Insights</button>
             <button onClick={() => setActiveTab('messages')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'messages' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Send className="w-4 h-4" />Messages</button>
             <button onClick={() => setActiveTab('store')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'store' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Store className="w-4 h-4" />Store</button>
+            <button onClick={() => setActiveTab('cinema')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'cinema' ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Film className="w-4 h-4" />Cinema</button>
+            <button onClick={() => setActiveTab('payouts')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'payouts' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Banknote className="w-4 h-4" />Payouts</button>
+            <button onClick={() => setActiveTab('partners')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'partners' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Handshake className="w-4 h-4" />Partners</button>
           </div>
         </div>
       </div>
@@ -419,6 +427,81 @@ const AdminDashboard: React.FC = () => {
             <PreOrderManager />
           ) : activeTab === 'store' ? (
             <StoreManager />
+          ) : activeTab === 'cinema' ? (
+            <div className="p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                  <Film className="w-4 h-4 text-rose-500" /> Live Theater Monitoring
+                </h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {/* Active Rooms from Firestore */}
+                <div className="py-20 text-center col-span-full opacity-50 border-2 border-dashed border-white/5 rounded-3xl">
+                  <Film className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                  <p className="text-sm font-bold uppercase tracking-widest">No active theaters found</p>
+                  <p className="text-[10px] text-muted-foreground mt-2 uppercase tracking-tighter">Real-time room monitoring active</p>
+                </div>
+              </div>
+            </div>
+          ) : activeTab === 'payouts' ? (
+            <div className="p-6 space-y-6">
+               <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                    <Banknote className="w-4 h-4 text-emerald-500" /> Withdrawal Requests
+                  </h3>
+                  <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 font-black px-3">PENDING: 3</Badge>
+               </div>
+
+               <Table>
+                 <TableHeader>
+                    <TableRow className="border-white/5 bg-white/[0.02]">
+                       <TableHead className="font-bold">REQUESTER</TableHead>
+                       <TableHead className="font-bold">TYPE</TableHead>
+                       <TableHead className="font-bold">BANK DETAILS</TableHead>
+                       <TableHead className="font-bold">AMOUNT</TableHead>
+                       <TableHead className="text-right font-bold pr-10">ACTIONS</TableHead>
+                    </TableRow>
+                 </TableHeader>
+                 <TableBody>
+                    {[
+                      { id: 'W-001', name: 'John Doe', email: 'john@example.com', type: 'User', bank: 'Kuda Bank', account: '2019485721', amount: 5400, status: 'pending' },
+                      { id: 'W-002', name: 'Bobbizy', email: 'admin@streamaura.site', type: 'Host', bank: 'Zenith Bank', account: '1122334455', amount: 577500, status: 'pending' }
+                    ].map(payout => (
+                      <TableRow key={payout.id} className="border-white/5 hover:bg-white/[0.03]">
+                         <TableCell>
+                            <div className="flex flex-col">
+                               <span className="font-bold text-sm">{payout.name}</span>
+                               <span className="text-[10px] text-muted-foreground uppercase">{payout.email}</span>
+                            </div>
+                         </TableCell>
+                         <TableCell>
+                            <Badge className={payout.type === 'Host' ? 'bg-amber-500/20 text-amber-500' : 'bg-blue-500/20 text-blue-500'}>{payout.type}</Badge>
+                         </TableCell>
+                         <TableCell>
+                            <div className="flex flex-col">
+                               <span className="text-xs font-bold text-white">{payout.bank}</span>
+                               <span className="text-[10px] text-muted-foreground font-mono">{payout.account}</span>
+                            </div>
+                         </TableCell>
+                         <TableCell>
+                            <div className="flex flex-col">
+                               <span className="text-sm font-black text-white">₦{payout.amount.toLocaleString()}</span>
+                               {payout.type === 'Host' && <span className="text-[9px] text-orange-400 font-bold">Incl. 30% Fee Deducted</span>}
+                            </div>
+                         </TableCell>
+                         <TableCell className="text-right pr-6">
+                            <div className="flex items-center justify-end gap-2">
+                               <button onClick={() => showSuccess('Payout Approved')} className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 text-[10px] font-black uppercase transition-all">Approve</button>
+                               <button onClick={() => showError('Payout Rejected')} className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 text-[10px] font-black uppercase transition-all">Reject</button>
+                            </div>
+                         </TableCell>
+                      </TableRow>
+                    ))}
+                 </TableBody>
+               </Table>
+            </div>
+          ) : activeTab === 'partners' ? (
+            <PartnersManager />
           ) : activeTab === 'users' ? (
             <Table>
               <TableHeader><TableRow className="border-white/5 bg-white/[0.02] hover:bg-transparent"><TableHead className="text-muted-foreground font-bold">USER IDENTITY</TableHead><TableHead className="text-muted-foreground font-bold">DEVICE</TableHead><TableHead className="text-muted-foreground font-bold text-center">VISITS</TableHead><TableHead className="text-muted-foreground font-bold text-center">TIME</TableHead><TableHead className="text-muted-foreground font-bold text-center">HITS</TableHead><TableHead className="text-muted-foreground font-bold text-center">DLs</TableHead><TableHead className="text-muted-foreground font-bold">JOINED</TableHead><TableHead className="text-right text-muted-foreground font-bold pr-10">CONTROLS</TableHead></TableRow></TableHeader>

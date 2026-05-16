@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, X, Share, PlusSquare, Smartphone } from 'lucide-react';
+import { Download, X, Share, PlusSquare, ShieldCheck, Zap } from 'lucide-react';
 
 const InstallPWA: React.FC = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -27,12 +27,13 @@ const InstallPWA: React.FC = () => {
     const handler = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      setShowInstallBanner(true);
+      // Wait 2 seconds before showing for better UX
+      setTimeout(() => setShowInstallBanner(true), 2000);
     };
 
     window.addEventListener('beforeinstallprompt', handler);
 
-    // For iOS, we show the banner manually after a short delay since it doesn't support the event
+    // For iOS, we show the banner manually after a short delay
     if (/iphone|ipad|ipod/.test(ua) && !(window.navigator as any).standalone) {
       const timer = setTimeout(() => {
         setShowInstallBanner(true);
@@ -44,11 +45,7 @@ const InstallPWA: React.FC = () => {
   }, []);
 
   const handleInstallClick = async () => {
-    if (platform === 'ios') {
-      // iOS just shows instructions, handled via state below
-      return;
-    }
-
+    if (platform === 'ios') return;
     if (!deferredPrompt) return;
 
     deferredPrompt.prompt();
@@ -62,79 +59,103 @@ const InstallPWA: React.FC = () => {
 
   const dismissBanner = () => {
     setShowInstallBanner(false);
-    // Removed localStorage.setItem to ensure it shows again on refresh
   };
 
   if (isStandalone || !showInstallBanner) return null;
 
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ y: 100, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: 100, opacity: 0 }}
-        className="fixed bottom-6 left-4 right-4 z-[1000] md:left-auto md:right-6 md:w-96"
-      >
-        <div className="glass-card p-5 border-white/10 bg-slate-900/90 backdrop-blur-2xl shadow-2xl relative overflow-hidden">
-          {/* Background Decor */}
-          <div className={`absolute -top-10 -right-10 w-32 h-32 rounded-full blur-[50px] opacity-20 ${platform === 'ios' ? 'bg-purple-500' : 'bg-cyan-500'}`} />
-          
-          <button 
+      {showInstallBanner && (
+        <div className="fixed inset-0 z-[1000] flex items-end justify-center md:items-center md:justify-end pointer-events-none">
+          {/* Backdrop (Close on click) */}
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             onClick={dismissBanner}
-            className="absolute top-3 right-3 text-muted-foreground hover:text-white transition-colors"
+            className="absolute inset-0 bg-black/20 backdrop-blur-[2px] pointer-events-auto"
+          />
+
+          <motion.div
+            initial={{ y: 100, opacity: 0, scale: 0.95 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: 100, opacity: 0, scale: 0.95 }}
+            className="relative bottom-6 left-4 right-4 md:left-auto md:right-6 md:w-[400px] pointer-events-auto"
           >
-            <X className="w-4 h-4" />
-          </button>
+            <div className="glass-card p-6 border-white/10 bg-zinc-950/95 backdrop-blur-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative overflow-hidden group">
+              {/* Animated Glow Effect */}
+              <div className="absolute -top-20 -left-20 w-40 h-40 bg-primary/20 rounded-full blur-[80px] group-hover:bg-primary/30 transition-all duration-700" />
+              <div className="absolute -bottom-20 -right-20 w-40 h-40 bg-indigo-500/10 rounded-full blur-[80px]" />
+              
+              <button 
+                onClick={dismissBanner}
+                className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-white/10 text-white/40 hover:text-white transition-all z-10"
+              >
+                <X className="w-4 h-4" />
+              </button>
 
-          <div className="flex gap-4">
-            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-lg ${
-              platform === 'ios' ? 'bg-gradient-to-br from-purple-500 to-indigo-600' : 'bg-gradient-to-br from-cyan-500 to-blue-600'
-            }`}>
-              <Smartphone className="w-6 h-6 text-white" />
-            </div>
-            
-            <div className="flex-1 space-y-1">
-              <h3 className="font-bold text-white leading-tight">Install StreamAura</h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                {platform === 'ios' 
-                  ? 'Add to Home Screen for the full app experience and offline access.' 
-                  : 'Get our fast & lightweight app on your home screen for instant access.'}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 space-y-3">
-            {platform === 'ios' ? (
-              <div className="space-y-3 bg-white/5 p-3 rounded-xl border border-white/5">
-                <div className="flex items-center gap-3 text-[11px] text-slate-300">
-                  <div className="w-6 h-6 rounded bg-white/10 flex items-center justify-center">
-                    <Share className="w-3.5 h-3.5 text-white" />
+              <div className="flex items-start gap-5 relative z-10">
+                {/* App Logo */}
+                <div className="relative shrink-0">
+                  <div className="w-16 h-16 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center p-2.5 shadow-2xl overflow-hidden relative group-hover:scale-105 transition-transform duration-500">
+                      <img src="/logo.png" alt="StreamAura" className="w-full h-full object-contain scale-110" />
                   </div>
-                  <span>1. Tap the <strong>Share</strong> button in your browser menu</span>
+                  <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 rounded-full border-4 border-zinc-950 flex items-center justify-center shadow-lg">
+                      <ShieldCheck className="w-3 h-3 text-white" />
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 text-[11px] text-slate-300">
-                  <div className="w-6 h-6 rounded bg-white/10 flex items-center justify-center">
-                    <PlusSquare className="w-3.5 h-3.5 text-white" />
+                
+                <div className="flex-1 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-black text-white uppercase tracking-tighter text-lg leading-none">StreamAura</h3>
+                    <span className="px-1.5 py-0.5 rounded-md bg-white/5 border border-white/5 text-[8px] font-black text-white/40 uppercase tracking-widest">Official</span>
                   </div>
-                  <span>2. Scroll down and tap <strong>Add to Home Screen</strong></span>
+                  <p className="text-xs text-zinc-400 font-medium leading-relaxed mt-1">
+                    {platform === 'ios' 
+                      ? 'Install the official StreamAura app for an immersive cinema and downloader experience.' 
+                      : 'Get the native experience with faster loading and offline streaming capabilities.'}
+                  </p>
                 </div>
               </div>
-            ) : (
-              <button
-                onClick={handleInstallClick}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white text-sm font-bold shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
-              >
-                <Download className="w-4 h-4" />
-                Install Now
-              </button>
-            )}
-            
-            <p className="text-[10px] text-center text-slate-500 uppercase tracking-widest font-medium">
-              Free • Secure • 2MB
-            </p>
-          </div>
+
+              <div className="mt-6 space-y-4 relative z-10">
+                {platform === 'ios' ? (
+                  <div className="space-y-3 bg-white/5 p-4 rounded-2xl border border-white/5 shadow-inner">
+                    <div className="flex items-center gap-4 text-[11px] font-bold text-zinc-300">
+                      <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center border border-white/10">
+                        <Share className="w-4 h-4 text-white" />
+                      </div>
+                      <span>Tap <span className="text-white">Share</span> in browser menu</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-[11px] font-bold text-zinc-300">
+                      <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center border border-white/10">
+                        <PlusSquare className="w-4 h-4 text-white" />
+                      </div>
+                      <span>Select <span className="text-white font-black">Add to Home Screen</span></span>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleInstallClick}
+                    className="w-full h-14 rounded-2xl bg-gradient-to-r from-primary to-indigo-600 text-white text-xs font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-3 group"
+                  >
+                    <Download className="w-5 h-5 group-hover:animate-bounce" />
+                    Install Application
+                  </button>
+                )}
+                
+                <div className="flex items-center justify-between px-2">
+                  <div className="flex items-center gap-1.5">
+                      <Zap className="w-3 h-3 text-amber-500 fill-current" />
+                      <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Lite & Fast</span>
+                  </div>
+                  <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">v1.2.0 • Verified</span>
+                </div>
+              </div>
+            </div>
+          </motion.div>
         </div>
-      </motion.div>
+      )}
     </AnimatePresence>
   );
 };
