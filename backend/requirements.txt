@@ -1,5 +1,5 @@
 fastapi
-uvicorn
+uvicorn==0.30.6
 yt-dlp
 httpx
 python-multipart
@@ -13,5 +13,4 @@ pydantic-settings
 boto3
 redis
 agora-token-builder
-websockets==13.1
 wsproto
