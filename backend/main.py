@@ -27,16 +27,9 @@ from moviebox_api.v1 import MovieDetails, DownloadableMovieFilesDetail
 from dotenv import load_dotenv
 load_dotenv()
 
-app = FastAPI(title="StreamAura API Master")
-
-# Cinema Routers
-from routers import cinema as cinema_router
-from websockets import room_sync as websocket_router
-
-app.include_router(cinema_router.router, prefix="/api/cinema", tags=["cinema"])
-app.include_router(websocket_router.router, prefix="/api/ws/cinema", tags=["cinema-ws"])
-
-# Initialize Firebase
+# =========================
+# INITIALIZE FIREBASE FIRST
+# =========================
 try:
     if os.getenv("FIREBASE_PRIVATE_KEY"):
         firebase_creds = {
@@ -59,10 +52,16 @@ try:
     else:
         firebase_admin.initialize_app()
     db_admin = firestore.client()
-except:
+except Exception as e:
+    print(f"Firebase Init Error: {e}")
     db_admin = None
 
-# Cinema Routers (Must be imported after Firebase init)
+# =========================
+# APP INITIALIZATION
+# =========================
+app = FastAPI(title="StreamAura API Master")
+
+# Cinema Routers (Must be imported AFTER Firebase init because they call firestore.client() at module level)
 from routers import cinema as cinema_router
 from websockets import room_sync as websocket_router
 

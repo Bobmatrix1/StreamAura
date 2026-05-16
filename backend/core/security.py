@@ -5,18 +5,9 @@ import firebase_admin
 from firebase_admin import auth, credentials
 import json
 
-# Ensure Firebase Admin is initialized
-try:
-    if not firebase_admin._apps:
-        # Load from serviceAccountKey.json if present (from previous setup)
-        if os.path.exists("serviceAccountKey.json"):
-            cred = credentials.Certificate("serviceAccountKey.json")
-            firebase_admin.initialize_app(cred)
-        else:
-            # Fallback to application default credentials if not found locally
-            firebase_admin.initialize_app()
-except ValueError:
-    pass
+# Firebase initialization is now handled in main.py to ensure correct credentials from env vars.
+# We just need references here.
+from firebase_admin import auth
 
 security = HTTPBearer()
 
