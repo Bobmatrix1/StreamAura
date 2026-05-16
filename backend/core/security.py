@@ -47,8 +47,8 @@ async def get_current_admin(user: dict = Depends(get_current_user)):
         return user
     
     # Optional: fallback to Firestore lookup if claims aren't configured yet
-    from google.cloud import firestore
-    db = firestore.Client()
+    from firebase_admin import firestore
+    db = firestore.client()
     user_doc = db.collection('users').document(user['uid']).get()
     if user_doc.exists and user_doc.to_dict().get('isAdmin', False):
         return user

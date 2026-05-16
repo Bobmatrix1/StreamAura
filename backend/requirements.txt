@@ -9,8 +9,9 @@ firebase-admin
 beautifulsoup4
 moviebox-api>=0.4.0
 pydantic>=2.0.0
+pydantic-settings
 boto3
 redis
 agora-token-builder
 websockets
-paystackapi
+wsproto
