@@ -110,39 +110,51 @@ async def pay_with_referral_balance(room_id: str, user: dict = Depends(get_curre
 @router.post("/rooms/create")
 async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(get_current_user)):
     """
-    Creates a new cinema room. Supports referral balance payment for private rooms and season perks.
+    Creates a new cinema room. Supports referral balance payment for private rooms and series episodes.
     """
     db = get_db()
     room_id = f"room_{uuid.uuid4().hex[:12]}"
+    uid = user['uid']
     
-    # Handle Costs
-    user_ref = db.collection("users").document(user["uid"])
-    user_data = user_ref.get().to_dict()
+    # --- COST CALCULATION & DEDUCTIONS ---
+    normal_to_deduct = 0
+    referral_to_deduct = 0
+
+    # 1. Series/Episode Cost
+    if request.content_type == "series" and request.episodes:
+        ep_count = len(request.episodes)
+        if request.payment_wallet_episodes == "referral":
+            referral_to_deduct += (ep_count * 50)
+        else:
+            normal_to_deduct += (ep_count * 100)
     
+    # 2. Private Room Cost
     if request.room_type == "private":
         seats = request.max_seats or 1
-        # Normal cost: ₦1000 per seat. Referral cost: ₦2500 per seat.
-        referral_cost = seats * 2500
-        normal_cost = seats * 1000
-        
-        # In a real scenario, the frontend would pass the chosen payment method.
-        # For now, let's check referral balance first if it covers it.
-        if user_data.get("referralBalance", 0) >= referral_cost:
-             user_ref.update({"referralBalance": firestore.Increment(-referral_cost)})
-             payment_info = {"method": "referral", "amount": referral_cost}
+        if request.payment_wallet_private == "referral":
+            referral_to_deduct += (seats * 2500)
         else:
-             # Check main wallet (room_wallets)
-             wallet_ref = db.collection("room_wallets").document(user["uid"])
-             wallet = wallet_ref.get()
-             if not wallet.exists or wallet.to_dict().get("balance", 0) < normal_cost:
-                  raise HTTPException(status_code=400, detail=f"Insufficient funds to create private room. Need ₦{normal_cost} in wallet or ₦{referral_cost} in rewards.")
-             wallet_ref.update({"balance": firestore.Increment(-normal_cost)})
-             payment_info = {"method": "wallet", "amount": normal_cost}
+            normal_to_deduct += (seats * 1000)
+
+    # --- PERFORM DEDUCTIONS ---
+    if referral_to_deduct > 0:
+        user_ref = db.collection("users").document(uid)
+        user_doc = user_ref.get()
+        if not user_doc.exists or user_doc.to_dict().get("referralBalance", 0) < referral_to_deduct:
+            raise HTTPException(status_code=400, detail="Insufficient referral balance.")
+        user_ref.update({"referralBalance": firestore.Increment(-referral_to_deduct)})
+
+    if normal_to_deduct > 0:
+        wallet_ref = db.collection("room_wallets").document(uid)
+        wallet_doc = wallet_ref.get()
+        if not wallet_doc.exists or wallet_doc.to_dict().get("balance", 0) < normal_to_deduct:
+            raise HTTPException(status_code=400, detail="Insufficient wallet balance.")
+        wallet_ref.update({"balance": firestore.Increment(-normal_to_deduct)})
     
     room_data = request.dict()
     room_data.update({
         "id": room_id,
-        "host_uid": user['uid'],
+        "host_uid": uid,
         "host_name": user.get('name', 'Host'),
         "created_at": firestore.SERVER_TIMESTAMP,
         "status": "upcoming" if request.scheduled_start_time else "live",
@@ -164,8 +176,9 @@ async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(ge
     initial_state = {
         "status": "waiting" if request.scheduled_start_time else "playing",
         "movie_time": 0.0,
-        "host_uid": user['uid'],
-        "muted_all": False
+        "host_uid": uid,
+        "muted_all": False,
+        "current_episode_index": 0
     }
     await set_room_state(room_id, initial_state)
     

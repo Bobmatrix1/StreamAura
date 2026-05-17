@@ -20,7 +20,8 @@ import {
   ChevronDown,
   Share2,
   Check,
-  Loader2
+  Loader2,
+  Wallet as WalletIcon
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -309,6 +310,34 @@ const CinemaRoom: React.FC = () => {
     { number: 1, title: '', file: null }
   ]);
   const [paymentWallet, setPaymentWallet] = useState<'normal' | 'referral'>('normal');
+  const [privateWallet, setPrivateWallet] = useState<'normal' | 'referral'>('normal');
+  const [userBalances, setUserBalances] = useState({ normal: 0, referral: 0 });
+  const [insufficientFunds, setInsufficientFunds] = useState<{ show: boolean; type: 'normal' | 'referral'; required: number } | null>(null);
+
+  // Fetch Balances when modal opens
+  useEffect(() => {
+    if (isCreateModalOpen && auth.currentUser) {
+      fetchUserBalances();
+    }
+  }, [isCreateModalOpen, auth.currentUser?.uid]);
+
+  const fetchUserBalances = async () => {
+    try {
+      // 1. Normal Wallet
+      const walletRef = doc(db, 'room_wallets', auth.currentUser!.uid);
+      const walletDoc = await getDoc(walletRef);
+      const normalBal = walletDoc.exists() ? (walletDoc.data().balance || 0) : 0;
+
+      // 2. Referral Balance
+      const userRef = doc(db, 'users', auth.currentUser!.uid);
+      const userDoc = await getDoc(userRef);
+      const referralBal = userDoc.exists() ? (userDoc.data().referralBalance || 0) : 0;
+
+      setUserBalances({ normal: normalBal, referral: referralBal });
+    } catch (err) {
+      console.error('Error fetching balances:', err);
+    }
+  };
 
   const [isAutoStartDropdownOpen, setIsAutoStartDropdownOpen] = useState(false);
   const [autoStartValue, setAutoStartValue] = useState('none');
@@ -325,20 +354,24 @@ const CinemaRoom: React.FC = () => {
 
   // Combined Total Calculation
   const calculateTotalCost = () => {
-    let total = 0;
+    let normalRequired = 0;
+    let referralRequired = 0;
     
     // 1. Episode Cost (if series)
     if (contentType === 'series') {
       const perEp = paymentWallet === 'referral' ? 50 : 100;
-      total += (episodes.length * perEp);
+      if (paymentWallet === 'referral') referralRequired += (episodes.length * perEp);
+      else normalRequired += (episodes.length * perEp);
     }
     
-    // 2. Private Room Cost (1k per seat)
+    // 2. Private Room Cost
     if (roomType === 'private') {
-      total += (privateSeats * 1000);
+      const perSeat = privateWallet === 'referral' ? 2500 : 1000;
+      if (privateWallet === 'referral') referralRequired += (privateSeats * perSeat);
+      else normalRequired += (privateSeats * perSeat);
     }
     
-    return total;
+    return { normal: normalRequired, referral: referralRequired, total: normalRequired + referralRequired };
   };
 
   // Pre-filled states from Deep Links
@@ -473,7 +506,19 @@ const CinemaRoom: React.FC = () => {
   const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validations
+    const costs = calculateTotalCost();
+
+    // 1. Balance Verification
+    if (costs.normal > userBalances.normal) {
+      setInsufficientFunds({ show: true, type: 'normal', required: costs.normal });
+      return;
+    }
+    if (costs.referral > userBalances.referral) {
+      setInsufficientFunds({ show: true, type: 'referral', required: costs.referral });
+      return;
+    }
+
+    // 2. Standard Validations
     const hasCover = coverFile || preFilledCoverUrl;
     if (!roomName.trim() || !movieTitle.trim() || !hasCover || !movieGenre) {
       showError('Please fill all required fields and upload a cover poster.');
@@ -487,7 +532,6 @@ const CinemaRoom: React.FC = () => {
         return;
       }
     } else {
-      // Series Validations
       if (episodes.length === 0) {
         showError('Please add at least one episode.');
         return;
@@ -521,6 +565,13 @@ const CinemaRoom: React.FC = () => {
         if (movieFile) {
           movieUrl = await uploadFile(movieFile, 'cinema/movies', 'movies');
         }
+        // Even for single movie, we store it as a single element in episodes for the sync engine
+        episodesData.push({
+          number: 1,
+          title: movieTitle,
+          url: movieUrl,
+          watched: false
+        });
       } else {
         // Handle Episodes Uploads
         for (const ep of episodes) {
@@ -551,7 +602,7 @@ const CinemaRoom: React.FC = () => {
         movie_title: movieTitle,
         movie_cover_image: coverUrl,
         movie_file: contentType === 'movie' ? movieUrl : null,
-        episodes: contentType === 'series' ? episodesData : null,
+        episodes: episodesData,
         trailer_url: trailerUrl,
         description: movieDescription,
         max_seats: isUnlimited ? null : (roomType === 'private' ? privateSeats : 100),
@@ -562,7 +613,8 @@ const CinemaRoom: React.FC = () => {
         camera_enabled: roomType === 'private',
         ticket_price: roomType === 'paid' ? parseFloat(ticketPrice) : null,
         invite_only: roomType === 'private',
-        payment_wallet: contentType === 'series' || roomType === 'private' ? paymentWallet : 'normal',
+        payment_wallet_episodes: contentType === 'series' ? paymentWallet : 'normal',
+        payment_wallet_private: roomType === 'private' ? privateWallet : 'normal',
         auto_start_at: autoStartValue !== 'none' ? parseInt(autoStartValue) : null
       };
 
@@ -582,19 +634,19 @@ const CinemaRoom: React.FC = () => {
       }
       
       const result = await response.json();
-
-      const totalPaid = calculateTotalCost();
-      if (totalPaid > 0) {
-        showSuccess(`Room Created! ₦${totalPaid.toLocaleString()} deducted from ${paymentWallet} wallet.${result.invite_link ? ` Link: ${result.invite_link}` : ''}`);
-      } else {
-        showSuccess('Room created successfully!');
-      }
+      showSuccess(`Cinema Room Created!${result.invite_link ? ` Invite: ${result.invite_link}` : ''}`);
       setIsCreateModalOpen(false);
     } catch (err: any) {
       showError(err.message || 'Error creating room.');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleGoToWallet = () => {
+    setInsufficientFunds(null);
+    setIsCreateModalOpen(false);
+    window.location.href = '/?tab=wallet';
   };
 
   const handlePrivateGuestChange = (index: number, value: string) => {
@@ -1440,20 +1492,47 @@ const CinemaRoom: React.FC = () => {
                         {roomType === 'private' && (
                           <motion.div key="private-logic" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
                              
-                             <div className="p-4 md:p-5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-4">
-                                <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+                             <div className="p-4 md:p-5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-4 relative overflow-hidden">
+                                <div className="absolute top-0 right-0 p-2 opacity-10">
+                                   <ShieldAlert className="w-20 h-20" />
+                                </div>
+
+                                <div className="flex flex-col md:flex-row justify-between items-start gap-4 relative z-10">
                                   <div>
                                     <h4 className="text-sm font-black text-amber-500 uppercase tracking-tight">Private Screening</h4>
                                     <p className="text-[10px] text-amber-200/70 mt-1 max-w-[250px]">Hidden room. Access via unique link or QR. Premium features included.</p>
                                   </div>
                                   <div className="md:text-right">
-                                    <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest">Cost</p>
-                                    <p className="text-2xl font-black text-white">₦{(privateSeats * 1000).toLocaleString()}</p>
+                                    <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest">Seat Cost</p>
+                                    <p className="text-2xl font-black text-white">₦{(privateSeats * (privateWallet === 'referral' ? 2500 : 1000)).toLocaleString()}</p>
                                   </div>
                                 </div>
 
-                                <div className="space-y-4 pt-4 border-t border-amber-500/20">
-                                   <label className="text-[10px] font-black uppercase tracking-widest text-amber-300">Seats (₦1k/seat)</label>
+                                <div className="space-y-4 pt-4 border-t border-amber-500/20 relative z-10">
+                                   <div className="flex justify-between items-center">
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-amber-300">Seats ({privateWallet === 'referral' ? '₦2.5k' : '₦1k'}/seat)</label>
+                                      
+                                      <div className="flex flex-col gap-1.5 w-1/2">
+                                         <p className="text-[8px] font-black text-amber-500/60 uppercase text-right">Pay Seats With</p>
+                                         <div className="flex p-1 bg-black/40 rounded-lg border border-white/5">
+                                            <button 
+                                              type="button" 
+                                              onClick={() => setPrivateWallet('normal')}
+                                              className={`flex-1 py-1 rounded text-[8px] font-black transition-all ${privateWallet === 'normal' ? 'bg-primary text-white shadow-lg' : 'text-muted-foreground'}`}
+                                            >
+                                              MAIN
+                                            </button>
+                                            <button 
+                                              type="button" 
+                                              onClick={() => setPrivateWallet('referral')}
+                                              className={`flex-1 py-1 rounded text-[8px] font-black transition-all ${privateWallet === 'referral' ? 'bg-orange-600 text-white shadow-lg' : 'text-muted-foreground'}`}
+                                            >
+                                              REF
+                                            </button>
+                                         </div>
+                                      </div>
+                                   </div>
+
                                    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                                      <div className="flex items-center gap-4 bg-black/20 p-1.5 rounded-2xl border border-white/5 w-fit">
                                         <button type="button" onClick={() => updatePrivateSeats(privateSeats - 1)} disabled={privateSeats <= 1} className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-amber-500 hover:bg-white/10 disabled:opacity-50">-</button>
@@ -1518,7 +1597,7 @@ const CinemaRoom: React.FC = () => {
                            </>
                          ) : (
                            <>
-                             {calculateTotalCost() > 0 ? `Pay ₦${calculateTotalCost().toLocaleString()} & Create` : 'Create Room'}
+                             {calculateTotalCost().total > 0 ? `Pay ₦${calculateTotalCost().total.toLocaleString()} & Create` : 'Create Room'}
                              <Plus className="w-4 h-4" />
                            </>
                          )}
@@ -1534,6 +1613,43 @@ const CinemaRoom: React.FC = () => {
       )}
 
       <CinemaStoreModal isOpen={isStoreOpen} onClose={() => setIsStoreOpen(false)} />
+
+      {/* Insufficient Funds Modal */}
+      {insufficientFunds?.show && createPortal(
+        <div className="fixed inset-0 z-[5000] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md font-sans">
+           <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }} 
+            animate={{ scale: 1, opacity: 1 }} 
+            className="glass-card max-w-sm w-full p-8 text-center space-y-6 border-white/10 shadow-2xl"
+           >
+              <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center mx-auto border border-rose-500/20">
+                 <ShieldAlert className="text-rose-500 w-8 h-8" />
+              </div>
+              <div className="space-y-2">
+                 <h3 className="text-xl font-black uppercase text-white tracking-tighter">
+                   {insufficientFunds.type === 'referral' ? 'Referral Balance Low' : 'Wallet Balance Low'}
+                 </h3>
+                 <p className="text-xs text-muted-foreground font-medium uppercase leading-relaxed tracking-wider">
+                    {insufficientFunds.type === 'referral' 
+                      ? "You don't have enough referral earnings. Refer more friends to get 50% off or pay with your main wallet balance." 
+                      : `You need ₦${insufficientFunds.required.toLocaleString()} in your wallet to create this room.`}
+                 </p>
+              </div>
+              <div className="flex flex-col gap-3">
+                 {insufficientFunds.type === 'normal' && (
+                    <Button onClick={handleGoToWallet} className="w-full gradient-bg h-12 font-black uppercase text-[10px] shadow-lg shadow-primary/20">
+                      <WalletIcon className="w-4 h-4 mr-2" />
+                      Add Funds to Wallet
+                    </Button>
+                 )}
+                 <Button variant="ghost" onClick={() => setInsufficientFunds(null)} className="w-full h-11 text-[10px] font-black uppercase border border-white/5 hover:bg-white/5">
+                   Go Back
+                 </Button>
+              </div>
+           </motion.div>
+        </div>, 
+        document.body
+      )}
     </div>
   );
 };

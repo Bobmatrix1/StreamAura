@@ -4,10 +4,13 @@ from typing import Optional, List, Dict, Any
 class RoomCreateRequest(BaseModel):
     room_name: str
     room_type: str # 'free', 'paid', 'private'
+    content_type: str # 'movie', 'series'
     movie_title: str
     movie_cover_image: str
-    movie_file: str # Cloudflare R2 object key
+    movie_file: Optional[str] = None # For movies
+    episodes: Optional[List[Dict[str, Any]]] = None # For series
     
+    trailer_url: Optional[str] = None
     description: Optional[str] = None
     max_seats: Optional[int] = None
     category: Optional[str] = None
@@ -22,6 +25,10 @@ class RoomCreateRequest(BaseModel):
     
     invite_only: Optional[bool] = False # For private rooms
     private_theme: Optional[str] = None
+
+    payment_wallet_episodes: Optional[str] = "normal" # 'normal', 'referral'
+    payment_wallet_private: Optional[str] = "normal" # 'normal', 'referral'
+    auto_start_at: Optional[int] = None
 
 class PresignedUrlRequest(BaseModel):
     file_name: str
