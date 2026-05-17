@@ -284,11 +284,12 @@ const CinemaRoom: React.FC = () => {
   }, [curtainsOpen, slides.length]);
 
   // Form State
+  const [contentType, setContentType] = useState<'movie' | 'series'>('movie');
   const [roomType, setRoomType] = useState<'free' | 'paid' | 'private'>('free');
   const [isLiveNow, setIsLiveNow] = useState(true);
   const [isUnlimited, setIsUnlimited] = useState(true);
   const [privateSeats, setPrivateSeats] = useState(1);
-  const [privateGuests, setPrivateGuests] = useState<string[]>(['']);
+  const [privateGuests, setPrivateGuests] = useState(['']);
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
   
@@ -302,6 +303,43 @@ const CinemaRoom: React.FC = () => {
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [trailerFile, setTrailerFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Series Specific State
+  const [episodes, setEpisodes] = useState<{ number: number; title: string; file: File | null }[]>([
+    { number: 1, title: '', file: null }
+  ]);
+  const [paymentWallet, setPaymentWallet] = useState<'normal' | 'referral'>('normal');
+
+  const [isAutoStartDropdownOpen, setIsAutoStartDropdownOpen] = useState(false);
+  const [autoStartValue, setAutoStartValue] = useState('none');
+  const autoStartRef = React.useRef<HTMLDivElement>(null);
+  const [showAutoDeleteTooltip, setShowAutoDeleteTooltip] = useState(false);
+
+  const autoStartOptions = [
+    { value: 'none', label: 'Manual Start' },
+    { value: '5', label: 'When 5 users join' },
+    { value: '10', label: 'When 10 users join' },
+    { value: '15', label: 'When 15 users join' },
+    { value: '20', label: 'When 20 users join' }
+  ];
+
+  // Combined Total Calculation
+  const calculateTotalCost = () => {
+    let total = 0;
+    
+    // 1. Episode Cost (if series)
+    if (contentType === 'series') {
+      const perEp = paymentWallet === 'referral' ? 50 : 100;
+      total += (episodes.length * perEp);
+    }
+    
+    // 2. Private Room Cost (1k per seat)
+    if (roomType === 'private') {
+      total += (privateSeats * 1000);
+    }
+    
+    return total;
+  };
 
   // Pre-filled states from Deep Links
   const [preFilledMovieUrl, setPreFilledMovieUrl] = useState<string | null>(null);
@@ -424,6 +462,9 @@ const CinemaRoom: React.FC = () => {
       if (genreRef.current && !genreRef.current.contains(event.target as Node)) {
         setIsGenreDropdownOpen(false);
       }
+      if (autoStartRef.current && !autoStartRef.current.contains(event.target as Node)) {
+        setIsAutoStartDropdownOpen(false);
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -432,12 +473,30 @@ const CinemaRoom: React.FC = () => {
   const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const hasMovie = movieFile || preFilledMovieUrl;
+    // Validations
     const hasCover = coverFile || preFilledCoverUrl;
-
-    if (!roomName.trim() || !movieTitle.trim() || !hasMovie || !hasCover || !movieGenre) {
-      showError('Please fill all required fields, select a genre and provide media.');
+    if (!roomName.trim() || !movieTitle.trim() || !hasCover || !movieGenre) {
+      showError('Please fill all required fields and upload a cover poster.');
       return;
+    }
+
+    if (contentType === 'movie') {
+      const hasMovie = movieFile || preFilledMovieUrl;
+      if (!hasMovie) {
+        showError('Please upload a movie file or provide a stream URL.');
+        return;
+      }
+    } else {
+      // Series Validations
+      if (episodes.length === 0) {
+        showError('Please add at least one episode.');
+        return;
+      }
+      const invalidEp = episodes.find(ep => !ep.title || !ep.file);
+      if (invalidEp) {
+        showError(`Episode ${invalidEp.number} is missing a title or video file.`);
+        return;
+      }
     }
 
     if (roomType === 'paid' && (!ticketPrice || parseFloat(ticketPrice) <= 0)) {
@@ -454,10 +513,28 @@ const CinemaRoom: React.FC = () => {
         coverUrl = await uploadFile(coverFile, 'cinema/covers', 'assets');
       }
       
-      // 2. Resolve Movie URL
+      // 2. Resolve Content (Movie or Series)
       let movieUrl = preFilledMovieUrl;
-      if (movieFile) {
-        movieUrl = await uploadFile(movieFile, 'cinema/movies', 'movies');
+      let episodesData: any[] = [];
+
+      if (contentType === 'movie') {
+        if (movieFile) {
+          movieUrl = await uploadFile(movieFile, 'cinema/movies', 'movies');
+        }
+      } else {
+        // Handle Episodes Uploads
+        for (const ep of episodes) {
+           if (ep.file) {
+             showInfo(`Uploading Episode ${ep.number}...`);
+             const epUrl = await uploadFile(ep.file, `cinema/series/${movieTitle}/ep${ep.number}`, 'movies');
+             episodesData.push({
+               number: ep.number,
+               title: ep.title,
+               url: epUrl,
+               watched: false
+             });
+           }
+        }
       }
 
       // 3. Upload trailer if present
@@ -470,9 +547,11 @@ const CinemaRoom: React.FC = () => {
       const payload = {
         room_name: roomName,
         room_type: roomType,
+        content_type: contentType,
         movie_title: movieTitle,
         movie_cover_image: coverUrl,
-        movie_file: movieUrl,
+        movie_file: contentType === 'movie' ? movieUrl : null,
+        episodes: contentType === 'series' ? episodesData : null,
         trailer_url: trailerUrl,
         description: movieDescription,
         max_seats: isUnlimited ? null : (roomType === 'private' ? privateSeats : 100),
@@ -482,7 +561,9 @@ const CinemaRoom: React.FC = () => {
         voice_enabled: roomType !== 'free',
         camera_enabled: roomType === 'private',
         ticket_price: roomType === 'paid' ? parseFloat(ticketPrice) : null,
-        invite_only: roomType === 'private'
+        invite_only: roomType === 'private',
+        payment_wallet: contentType === 'series' || roomType === 'private' ? paymentWallet : 'normal',
+        auto_start_at: autoStartValue !== 'none' ? parseInt(autoStartValue) : null
       };
 
       const token = await auth.currentUser?.getIdToken();
@@ -495,13 +576,16 @@ const CinemaRoom: React.FC = () => {
         body: JSON.stringify(payload)
       });
 
-      if (!response.ok) throw new Error('Failed to create room on server.');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create room on server.');
+      }
       
       const result = await response.json();
 
-      if (roomType === 'private') {
-        const cost = privateSeats * 1000;
-        showSuccess(`Private Room Created! ₦${cost.toLocaleString()} deducted. Link: ${result.invite_link}`);
+      const totalPaid = calculateTotalCost();
+      if (totalPaid > 0) {
+        showSuccess(`Room Created! ₦${totalPaid.toLocaleString()} deducted from ${paymentWallet} wallet.${result.invite_link ? ` Link: ${result.invite_link}` : ''}`);
       } else {
         showSuccess('Room created successfully!');
       }
@@ -895,10 +979,33 @@ const CinemaRoom: React.FC = () => {
                   </div>
 
                   <form onSubmit={handleCreateRoom} className="p-6 space-y-8">
+                    {/* Content Type Selector */}
+                    <div className="space-y-4">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">What are you hosting?</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button 
+                          type="button" 
+                          onClick={() => setContentType('movie')}
+                          className={`p-4 rounded-2xl border flex flex-col items-center gap-2 transition-all ${contentType === 'movie' ? 'bg-primary/10 border-primary text-primary shadow-lg shadow-primary/10' : 'bg-white/5 border-white/10 text-muted-foreground'}`}
+                        >
+                          <Film className="w-6 h-6" />
+                          <span className="text-[10px] font-black uppercase tracking-widest">Single Movie</span>
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => setContentType('series')}
+                          className={`p-4 rounded-2xl border flex flex-col items-center gap-2 transition-all ${contentType === 'series' ? 'bg-purple-500/10 border-purple-500 text-purple-400 shadow-lg shadow-purple-500/10' : 'bg-white/5 border-white/10 text-muted-foreground'}`}
+                        >
+                          <Tv className="w-6 h-6" />
+                          <span className="text-[10px] font-black uppercase tracking-widest">TV Season / Series</span>
+                        </button>
+                      </div>
+                    </div>
+
                     {/* Media Uploads */}
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Movie Art Cover</label>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Main Poster / Cover Art</label>
                         <div 
                           onClick={() => coverFileRef.current?.click()}
                           className={`aspect-[3/4] rounded-2xl border-2 border-dashed ${coverFile ? 'border-primary bg-primary/5' : 'border-white/10 bg-white/5'} flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group relative overflow-hidden`}
@@ -914,53 +1021,157 @@ const CinemaRoom: React.FC = () => {
                           ) : (
                              <>
                               <Upload className="w-8 h-8 text-muted-foreground group-hover:text-primary transition-colors mb-2" />
-                              <span className="text-xs font-bold text-muted-foreground group-hover:text-primary">Upload Poster</span>
+                              <span className="text-xs font-bold text-muted-foreground group-hover:text-primary uppercase tracking-tighter">Upload Poster</span>
                              </>
                           )}
                           <input type="file" ref={coverFileRef} onChange={(e) => setCoverFile(e.target.files?.[0] || null)} className="hidden" accept="image/*" />
                         </div>
                       </div>
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Movie File</label>
-                          <div 
-                             onClick={() => movieFileRef.current?.click()}
-                             className={`h-24 rounded-2xl border-2 border-dashed ${movieFile ? 'border-primary bg-primary/5' : 'border-white/10 bg-white/5'} flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group`}
-                          >
-                             {movieFile ? (
-                               <>
-                                 <Check className="w-5 h-5 text-primary mb-1" />
-                                 <span className="text-xs font-bold text-white truncate max-w-[90%]">{movieFile.name}</span>
-                               </>
-                             ) : (
-                               <>
-                                 <Film className="w-5 h-5 text-muted-foreground group-hover:text-primary mb-1" />
-                                 <span className="text-xs font-bold text-muted-foreground">Upload Video</span>
-                               </>
-                             )}
-                             <input type="file" ref={movieFileRef} onChange={(e) => setMovieFile(e.target.files?.[0] || null)} className="hidden" accept="video/*" />
+
+                      <div className="space-y-6">
+                        {contentType === 'movie' ? (
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Movie Video File</label>
+                              <div 
+                                 onClick={() => movieFileRef.current?.click()}
+                                 className={`h-32 rounded-2xl border-2 border-dashed ${movieFile ? 'border-primary bg-primary/5' : 'border-white/10 bg-white/5'} flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group`}
+                              >
+                                 {movieFile ? (
+                                   <>
+                                     <Check className="w-5 h-5 text-primary mb-1" />
+                                     <span className="text-xs font-bold text-white truncate max-w-[90%]">{movieFile.name}</span>
+                                   </>
+                                 ) : (
+                                   <>
+                                     <Film className="w-5 h-5 text-muted-foreground group-hover:text-primary mb-1" />
+                                     <span className="text-xs font-bold text-muted-foreground">Upload Movie</span>
+                                   </>
+                                 )}
+                                 <input type="file" ref={movieFileRef} onChange={(e) => setMovieFile(e.target.files?.[0] || null)} className="hidden" accept="video/*" />
+                              </div>
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Trailer (Optional)</label>
+                              <div 
+                                 onClick={() => trailerFileRef.current?.click()}
+                                 className={`h-24 rounded-2xl border-2 border-dashed ${trailerFile ? 'border-primary bg-primary/5' : 'border-white/10 bg-white/5'} flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group relative`}
+                              >
+                                 {trailerFile ? (
+                                   <>
+                                     <Check className="w-5 h-5 text-primary mb-1" />
+                                     <span className="text-xs font-bold text-white truncate max-w-[90%]">{trailerFile.name}</span>
+                                   </>
+                                 ) : (
+                                   <>
+                                     <Camera className="w-5 h-5 text-muted-foreground group-hover:text-primary mb-1" />
+                                     <span className="text-xs font-bold text-muted-foreground">Upload Trailer</span>
+                                   </>
+                                 )}
+                                 <input type="file" ref={trailerFileRef} onChange={(e) => setTrailerFile(e.target.files?.[0] || null)} className="hidden" accept="video/*" />
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Trailer Video</label>
-                          <div 
-                             onClick={() => trailerFileRef.current?.click()}
-                             className={`h-24 rounded-2xl border-2 border-dashed ${trailerFile ? 'border-primary bg-primary/5' : 'border-white/10 bg-white/5'} flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group relative`}
-                          >
-                             {trailerFile ? (
-                               <>
-                                 <Check className="w-5 h-5 text-primary mb-1" />
-                                 <span className="text-xs font-bold text-white truncate max-w-[90%]">{trailerFile.name}</span>
-                               </>
-                             ) : (
-                               <>
-                                 <Camera className="w-5 h-5 text-muted-foreground group-hover:text-primary mb-1" />
-                                 <span className="text-xs font-bold text-muted-foreground">Upload Trailer</span>
-                               </>
-                             )}
-                             <input type="file" ref={trailerFileRef} onChange={(e) => setTrailerFile(e.target.files?.[0] || null)} className="hidden" accept="video/*" />
+                        ) : (
+                          <div className="space-y-4">
+                             <div className="flex justify-between items-center">
+                                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Episodes Management</label>
+                                <Badge className="bg-purple-600 font-black text-[9px]">{episodes.length} EPISODE{episodes.length === 1 ? '' : 'S'}</Badge>
+                             </div>
+                             
+                             <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                                {episodes.map((ep, idx) => (
+                                  <div key={idx} className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3 relative group">
+                                     <div className="flex justify-between items-center">
+                                        <span className="text-[10px] font-black text-purple-400">EPISODE {ep.number}</span>
+                                        {episodes.length > 1 && (
+                                          <button 
+                                            type="button" 
+                                            onClick={() => setEpisodes(episodes.filter((_, i) => i !== idx))}
+                                            className="text-rose-500 hover:text-rose-400 p-1"
+                                          >
+                                            <X size={14} />
+                                          </button>
+                                        )}
+                                     </div>
+                                     <input 
+                                       type="text" 
+                                       placeholder="Episode Title (e.g. The Beginning)" 
+                                       value={ep.title}
+                                       onChange={(e) => {
+                                         const newEps = [...episodes];
+                                         newEps[idx].title = e.target.value;
+                                         setEpisodes(newEps);
+                                       }}
+                                       className="w-full bg-black/20 border border-white/5 rounded-lg py-3 px-4 text-xs outline-none focus:border-purple-500/50"
+                                     />
+                                     <button 
+                                        type="button" 
+                                        onClick={() => {
+                                          const input = document.createElement('input');
+                                          input.type = 'file';
+                                          input.accept = 'video/*';
+                                          input.onchange = (e) => {
+                                            const file = (e.target as HTMLInputElement).files?.[0];
+                                            if (file) {
+                                              const newEps = [...episodes];
+                                              newEps[idx].file = file;
+                                              setEpisodes(newEps);
+                                            }
+                                          };
+                                          input.click();
+                                        }}
+                                        className={`w-full py-3 rounded-xl text-[10px] font-bold border transition-all ${ep.file ? 'bg-purple-500/20 border-purple-500/50 text-purple-400' : 'bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10'}`}
+                                      >
+                                         {ep.file ? `✓ ${ep.file.name.substring(0, 20)}...` : 'Select Video File'}
+                                      </button>
+                                  </div>
+                                ))}
+                                <Button 
+                                  type="button" 
+                                  onClick={() => setEpisodes([...episodes, { number: episodes.length + 1, title: '', file: null }])}
+                                  className="w-full border-dashed border-white/10 h-12 text-[9px] font-black uppercase tracking-widest hover:bg-white/5" 
+                                  variant="outline"
+                                >
+                                  <Plus className="w-3 h-3 mr-2" /> Add Next Episode
+                                </Button>
+                             </div>
+
+                             {/* Payment Method for Episodes */}
+                             <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/20 space-y-4 mt-4">
+                                <div className="flex justify-between items-end">
+                                   <div>
+                                      <p className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Episode Hosting Cost</p>
+                                      <p className="text-xl font-black text-white">₦{(episodes.length * (paymentWallet === 'referral' ? 50 : 100)).toLocaleString()}</p>
+                                   </div>
+                                   <div className="flex flex-col gap-2 w-1/2">
+                                      <p className="text-[8px] font-black text-muted-foreground uppercase text-right">Choose Wallet</p>
+                                      <div className="flex p-1 bg-black/40 rounded-lg border border-white/5">
+                                         <button 
+                                          type="button" 
+                                          onClick={() => setPaymentWallet('normal')}
+                                          className={`flex-1 py-1 rounded text-[8px] font-black transition-all ${paymentWallet === 'normal' ? 'bg-primary text-white shadow-lg' : 'text-muted-foreground'}`}
+                                         >
+                                           MAIN (100)
+                                         </button>
+                                         <button 
+                                          type="button" 
+                                          onClick={() => setPaymentWallet('referral')}
+                                          className={`flex-1 py-1 rounded text-[8px] font-black transition-all ${paymentWallet === 'referral' ? 'bg-orange-600 text-white shadow-lg' : 'text-muted-foreground'}`}
+                                         >
+                                           REF (50)
+                                         </button>
+                                      </div>
+                                   </div>
+                                </div>
+                                <p className="text-[9px] text-muted-foreground leading-relaxed italic">
+                                  {paymentWallet === 'referral' 
+                                    ? "Using your Aura Referral Balance. get 50% off per episode!" 
+                                    : "Standard rate applied. Episodes are hosted until the entire season is watched."}
+                                </p>
+                             </div>
                           </div>
-                        </div>
+                        )}
                       </div>
                     </div>
 
@@ -973,8 +1184,8 @@ const CinemaRoom: React.FC = () => {
                       
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Movie Title</label>
-                          <input type="text" required value={movieTitle} onChange={e => setMovieTitle(e.target.value)} placeholder="Movie Name" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm outline-none focus:border-primary/50" />
+                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{contentType === 'movie' ? 'Movie Title' : 'Season Name'}</label>
+                          <input type="text" required value={movieTitle} onChange={e => setMovieTitle(e.target.value)} placeholder={contentType === 'movie' ? 'Movie Name' : 'e.g. The Boys Season 4'} className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm outline-none focus:border-primary/50" />
                         </div>
                         <div className="space-y-2">
                           <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Genre</label>
@@ -996,7 +1207,7 @@ const CinemaRoom: React.FC = () => {
                                   initial={{ opacity: 0, y: 10, scale: 0.95 }}
                                   animate={{ opacity: 1, y: 0, scale: 1 }}
                                   exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                  className="absolute left-0 right-0 top-full mt-2 z-50 bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden max-h-[300px] overflow-y-auto custom-scrollbar"
+                                  className="absolute left-0 right-0 top-full mt-2 z-[3000] bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden max-h-[300px] overflow-y-auto custom-scrollbar"
                                 >
                                   <div className="p-2 grid grid-cols-1 gap-1">
                                     {genres.map((genre) => (
@@ -1080,9 +1291,29 @@ const CinemaRoom: React.FC = () => {
                             </div>
                           </div>
                         )}
-                        <div className="flex items-start gap-2 mt-2">
-                          <Info className="w-3 h-3 text-muted-foreground mt-0.5 flex-shrink-0" />
+                        <div className="flex items-center gap-2 mt-2 relative">
+                          <div 
+                            onMouseEnter={() => setShowAutoDeleteTooltip(true)}
+                            onMouseLeave={() => setShowAutoDeleteTooltip(false)}
+                            onClick={() => setShowAutoDeleteTooltip(!showAutoDeleteTooltip)}
+                            className="cursor-help"
+                          >
+                             <Info className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                          </div>
                           <p className="text-[9px] text-muted-foreground leading-tight">Live rooms without users auto-delete after 24h.</p>
+                          
+                          <AnimatePresence>
+                            {showAutoDeleteTooltip && (
+                              <motion.div 
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 10 }}
+                                className="absolute bottom-full left-0 mb-2 w-48 p-3 rounded-xl bg-[#0f172a] border border-white/10 shadow-2xl z-[4000] pointer-events-none"
+                              >
+                                <p className="text-[8px] text-white/90 font-bold uppercase leading-relaxed tracking-wider">To keep our cloud fast, rooms with zero activity for 24 hours are cleared. However, series rooms stay active until the final episode is watched!</p>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </div>
                       </div>
 
@@ -1098,19 +1329,54 @@ const CinemaRoom: React.FC = () => {
                         </div>
                         {!isUnlimited && (
                           <div className="mt-2 relative">
-                            <input type="number" placeholder="Seats" className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-3 pr-10 text-xs outline-none focus:border-primary/50" />
+                            <input type="number" placeholder="Seats" className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-3 pr-10 text-xs outline-none focus:border-primary/50 font-black" />
                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] text-muted-foreground font-bold">Seats</span>
                           </div>
                         )}
-                        <div className="space-y-1 mt-3">
-                           <label className="text-[9px] font-bold text-muted-foreground uppercase">Auto-Start</label>
-                           <div className="relative">
-                              <select className="w-full bg-zinc-900/50 border border-white/10 rounded-xl py-2 px-3 text-[11px] outline-none text-white appearance-none focus:border-primary/50">
-                                <option value="none">Manual Start</option>
-                                <option value="5">When 5 users join</option>
-                                <option value="10">When 10 users join</option>
-                              </select>
-                              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                        <div className="space-y-1.5 mt-3">
+                           <label className="text-[9px] font-bold text-muted-foreground uppercase ml-1">Auto-Start</label>
+                           <div className="relative" ref={autoStartRef}>
+                              <button
+                                type="button"
+                                onClick={() => setIsAutoStartDropdownOpen(!isAutoStartDropdownOpen)}
+                                className="w-full bg-zinc-900/50 border border-white/10 rounded-xl py-2.5 px-3 text-[11px] outline-none text-white flex items-center justify-between transition-all"
+                              >
+                                <span className="font-black uppercase tracking-tighter">
+                                  {autoStartOptions.find(o => o.value === autoStartValue)?.label}
+                                </span>
+                                <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform duration-300 ${isAutoStartDropdownOpen ? 'rotate-180' : ''}`} />
+                              </button>
+
+                              <AnimatePresence>
+                                {isAutoStartDropdownOpen && (
+                                  <motion.div
+                                    initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                                    exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                                    className="absolute left-0 right-0 top-full mt-2 z-[3000] bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden"
+                                  >
+                                    <div className="p-1">
+                                      {autoStartOptions.map((opt) => (
+                                        <button
+                                          key={opt.value}
+                                          type="button"
+                                          onClick={() => {
+                                            setAutoStartValue(opt.value);
+                                            setIsAutoStartDropdownOpen(false);
+                                          }}
+                                          className={`w-full text-left px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-tight transition-all ${
+                                            autoStartValue === opt.value 
+                                              ? 'bg-primary text-white' 
+                                              : 'text-muted-foreground hover:bg-white/5 hover:text-white'
+                                          }`}
+                                        >
+                                          {opt.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
                            </div>
                         </div>
                       </div>
@@ -1244,15 +1510,15 @@ const CinemaRoom: React.FC = () => {
                     {/* Submit Action */}
                     <div className="pt-4 border-t border-white/10 flex justify-end gap-3 sticky bottom-0 bg-background p-4 -m-6 mt-0 shadow-[0_-20px_40px_rgba(0,0,0,0.8)]">
                        <Button type="button" variant="ghost" onClick={() => setIsCreateModalOpen(false)} disabled={isSubmitting}>Cancel</Button>
-                       <Button type="submit" disabled={isSubmitting} className="gradient-bg px-8 font-black gap-2 disabled:opacity-50">
+                       <Button type="submit" disabled={isSubmitting} className="gradient-bg px-8 font-black gap-2 disabled:opacity-50 min-w-[200px]">
                          {isSubmitting ? (
                            <>
                              <Loader2 className="w-4 h-4 animate-spin" />
-                             Creating...
+                             Processing...
                            </>
                          ) : (
                            <>
-                             {roomType === 'private' ? `Pay ₦${(privateSeats * 1000).toLocaleString()} & Create` : 'Create Room'} 
+                             {calculateTotalCost() > 0 ? `Pay ₦${calculateTotalCost().toLocaleString()} & Create` : 'Create Room'}
                              <Plus className="w-4 h-4" />
                            </>
                          )}

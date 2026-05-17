@@ -12,11 +12,16 @@ import {
   Maximize,
   LogOut,
   Crown,
-  Menu
+  Menu,
+  ChevronRight,
+  Tv,
+  Loader2
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
 import { useAuth } from '../contexts/AuthContext';
 import { useCinemaSync } from '../hooks/useCinemaSync';
+import { toast } from 'sonner';
 
 interface CinemaLiveRoomProps {
   roomId: string;
@@ -40,6 +45,7 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
     isVoiceActive,
     isMuted,
     syncPlayback,
+    syncEpisode,
     sendChatMessage,
     joinVoice,
     toggleMute
@@ -47,6 +53,28 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
 
   const isHost = user?.uid === roomData.host_uid;
   const canControl = isHost || isAdmin;
+  const isSeries = roomData.content_type === 'series';
+  const currentEpIndex = roomState?.currentEpisodeIndex || 0;
+  const episodes = roomData.episodes || [];
+  
+  const currentVideoSrc = isSeries 
+    ? episodes[currentEpIndex]?.url 
+    : roomData.movie_file;
+
+  const currentEpTitle = isSeries 
+    ? `S1 E${episodes[currentEpIndex]?.number}: ${episodes[currentEpIndex]?.title}` 
+    : roomData.movie_title;
+
+  // Handle Next Episode
+  const handleNextEpisode = () => {
+    if (!canControl || !isSeries) return;
+    if (currentEpIndex < episodes.length - 1) {
+      syncEpisode(currentEpIndex + 1);
+      toast.success(`Playing Episode ${episodes[currentEpIndex + 1].number}`);
+    } else {
+      toast.info('This is the last episode of the season.');
+    }
+  };
 
   // Auto-scroll chat
   useEffect(() => {
@@ -96,15 +124,26 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
                <LogOut className="w-5 h-5 rotate-180" />
             </Button>
             <div>
-              <h2 className="text-white font-black uppercase text-sm tracking-tight">{roomData.room_name}</h2>
-              <p className="text-white/60 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
-                <Crown className={`w-3 h-3 ${isHost ? 'text-amber-500' : 'text-blue-500'}`} />
-                {roomData.host_name}'s Theater
-              </p>
+              <h2 className="text-white font-black uppercase text-sm tracking-tight line-clamp-1">{roomData.room_name}</h2>
+              <div className="flex items-center gap-2">
+                <p className="text-white/60 text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5">
+                  <Crown className={`w-3 h-3 ${isHost ? 'text-amber-500' : 'text-blue-500'}`} />
+                  {roomData.host_name}'s Theater
+                </p>
+                {isSeries && (
+                   <Badge className="bg-purple-600 text-[8px] font-black h-4 px-1.5 border-none">SERIES</Badge>
+                )}
+              </div>
             </div>
           </div>
 
           <div className="flex items-center gap-4 pointer-events-auto">
+             {isSeries && (
+                <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-600/20 border border-purple-500/30 backdrop-blur-md">
+                   <Tv className="w-3.5 h-3.5 text-purple-400" />
+                   <span className="text-[10px] font-black text-white">{currentEpTitle}</span>
+                </div>
+             )}
              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md">
                 <Users className="w-3.5 h-3.5 text-rose-500" />
                 <span className="text-[10px] font-black text-white">{viewers} VIEWERS</span>
@@ -117,29 +156,51 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
 
         {/* Video Player Container */}
         <div className="flex-1 bg-black flex items-center justify-center relative group">
-           <video 
-             ref={videoRef}
-             src={roomData.movie_file} 
-             className="w-full h-full object-contain"
-             playsInline
-             onPlay={() => handleVideoAction('play')}
-             onPause={() => handleVideoAction('pause')}
-             onSeeked={() => handleVideoAction('seek')}
-           />
+           {currentVideoSrc ? (
+             <video 
+               key={currentVideoSrc}
+               ref={videoRef}
+               src={currentVideoSrc} 
+               className="w-full h-full object-contain"
+               playsInline
+               autoPlay
+               onPlay={() => handleVideoAction('play')}
+               onPause={() => handleVideoAction('pause')}
+               onSeeked={() => handleVideoAction('seek')}
+             />
+           ) : (
+             <div className="flex flex-col items-center gap-4">
+                <Loader2 className="w-10 h-10 text-primary animate-spin" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Loading Stream Cores...</p>
+             </div>
+           )}
 
            {/* Custom Controls (Only show for host/admin) */}
            {canControl && (
               <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/90 to-transparent opacity-0 group-hover:opacity-100 transition-opacity z-50">
-                 <div className="flex items-center gap-6">
-                    <button onClick={() => videoRef.current?.paused ? videoRef.current.play() : videoRef.current?.pause()} className="text-white">
-                       {videoRef.current?.paused ? <Play className="w-8 h-8 fill-current" /> : <Pause className="w-8 h-8 fill-current" />}
-                    </button>
-                    <div className="flex-1 h-1.5 bg-white/20 rounded-full relative overflow-hidden">
-                       <div className="absolute inset-y-0 left-0 bg-primary w-[30%]" />
+                 <div className="flex flex-col gap-4">
+                    {isSeries && (
+                       <div className="flex justify-center">
+                          <Button 
+                            onClick={handleNextEpisode}
+                            disabled={currentEpIndex >= episodes.length - 1}
+                            className="bg-purple-600 hover:bg-purple-500 text-white font-black uppercase tracking-widest text-[10px] h-9 gap-2 shadow-lg shadow-purple-600/20"
+                          >
+                            Play Next Episode <ChevronRight className="w-4 h-4" />
+                          </Button>
+                       </div>
+                    )}
+                    <div className="flex items-center gap-6">
+                       <button onClick={() => videoRef.current?.paused ? videoRef.current.play() : videoRef.current?.pause()} className="text-white">
+                          {videoRef.current?.paused ? <Play className="w-8 h-8 fill-current" /> : <Pause className="w-8 h-8 fill-current" />}
+                       </button>
+                       <div className="flex-1 h-1.5 bg-white/20 rounded-full relative overflow-hidden">
+                          <div className="absolute inset-y-0 left-0 bg-primary w-[30%]" />
+                       </div>
+                       <button className="text-white">
+                          <Maximize className="w-6 h-6" />
+                       </button>
                     </div>
-                    <button className="text-white">
-                       <Maximize className="w-6 h-6" />
-                    </button>
                  </div>
               </div>
            )}

@@ -14,6 +14,7 @@ interface CinemaState {
   movieTime: number;
   hostUid: string;
   mutedAll: boolean;
+  currentEpisodeIndex?: number;
 }
 
 export const useCinemaSync = (roomId: string | null, user: any, isAdmin: boolean = false) => {
@@ -36,7 +37,6 @@ export const useCinemaSync = (roomId: string | null, user: any, isAdmin: boolean
 
     ws.current.onopen = () => {
       console.log('Cinema WS Connected');
-      // Admin Invisibility: Don't send join event if admin
       if (!isAdmin) {
         ws.current?.send(JSON.stringify({ type: 'join', uid: user.uid }));
       }
@@ -48,12 +48,12 @@ export const useCinemaSync = (roomId: string | null, user: any, isAdmin: boolean
       switch (data.type) {
         case 'init':
           setRoomState(data.state);
-          if (data.playback) {
-              // Sync initial time
-          }
           break;
         case 'playback_sync':
           setRoomState(prev => prev ? { ...prev, status: data.status, movieTime: data.time } : null);
+          break;
+        case 'episode_sync':
+          setRoomState(prev => prev ? { ...prev, currentEpisodeIndex: data.index, movieTime: 0, status: 'playing' } : null);
           break;
         case 'chat':
           setMessages(prev => [...prev, data.message].slice(-100));
@@ -76,6 +76,12 @@ export const useCinemaSync = (roomId: string | null, user: any, isAdmin: boolean
   const syncPlayback = useCallback((status: 'play' | 'pause' | 'seek', time: number) => {
     if (ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({ type: status, time, uid: user?.uid }));
+    }
+  }, [user]);
+
+  const syncEpisode = useCallback((index: number) => {
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({ type: 'next_episode', index, uid: user?.uid }));
     }
   }, [user]);
 
@@ -139,6 +145,7 @@ export const useCinemaSync = (roomId: string | null, user: any, isAdmin: boolean
     isVoiceActive,
     isMuted,
     syncPlayback,
+    syncEpisode,
     sendChatMessage,
     joinVoice,
     leaveVoice,
