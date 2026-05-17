@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Play, 
@@ -577,7 +578,6 @@ const CinemaRoom: React.FC = () => {
 
       {/* Main Cinema Screen Area */}
       <div className="relative aspect-video rounded-[1.5rem] md:rounded-[2rem] overflow-hidden bg-black border border-white/10 shadow-2xl">
-        {/* ... slides and curtains remain same but ensure responsive rounding ... */}
         
         {/* Cinema Background (Poster Carousel - behind curtains) */}
         <div className="absolute inset-0 z-0">
@@ -606,7 +606,7 @@ const CinemaRoom: React.FC = () => {
         <div className="absolute top-4 left-4 w-6 h-6 rounded-full bg-white shadow-[0_0_30px_white,0_0_60px_white,0_0_100px_white] z-50 pointer-events-none border border-white/50" />
         <div className="absolute top-4 right-4 w-6 h-6 rounded-full bg-white shadow-[0_0_30px_white,0_0_60px_white,0_0_100px_white] z-50 pointer-events-none border border-white/50" />
 
-        {/* Curtains Layer with "Shut" entry and exit animations */}
+        {/* Curtains Layer */}
         <AnimatePresence initial={false}>
           {!curtainsOpen && (
             <React.Fragment key="curtains-fragment">
@@ -648,11 +648,11 @@ const CinemaRoom: React.FC = () => {
             {!curtainsOpen && (
               <motion.div 
                 key="theater-intro"
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.9, opacity: 0 }}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
                 transition={{ 
-                  delay: 1.2, // Wait for curtains to mostly close
+                  delay: 1.2,
                   duration: 0.8,
                   ease: "easeOut"
                 }}
@@ -665,13 +665,13 @@ const CinemaRoom: React.FC = () => {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <h2 className="text-3xl md:text-4xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-white/60 drop-shadow-2xl uppercase">
+                  <h2 className="text-3xl md:text-4xl font-black tracking-tighter text-[#FFD700] drop-shadow-[0_0_20px_rgba(255,215,0,0.4)] uppercase">
                     The Grand Theater
                   </h2>
                   <div className="flex items-center justify-center gap-3">
-                    <div className="h-[1px] w-8 bg-rose-500/50" />
-                    <p className="text-rose-400 uppercase tracking-[0.3em] text-[10px] font-bold">Premium Cinematic Experience</p>
-                    <div className="h-[1px] w-8 bg-rose-500/50" />
+                    <div className="h-[1px] w-8 bg-[#FFD700]/50" />
+                    <p className="text-[#FFD700] uppercase tracking-[0.3em] text-[10px] font-black animate-pulse">Available Movies</p>
+                    <div className="h-[1px] w-8 bg-[#FFD700]/50" />
                   </div>
                 </div>
               </motion.div>
@@ -784,7 +784,6 @@ const CinemaRoom: React.FC = () => {
                     <span className="text-[9px] text-muted-foreground uppercase font-black tracking-widest">Start Time</span>
                     <span className="text-xs font-bold flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3" /> {room.startTime}</span>
                   </div>
-                  {/* Join Room discovers if Paid/Free implicitly */}
                   <Button onClick={() => handleJoinRoom(room)} size="sm" className="rounded-xl px-6 font-bold shadow-lg transition-transform hover:scale-105 gradient-bg">
                     Join Room
                   </Button>
@@ -842,428 +841,431 @@ const CinemaRoom: React.FC = () => {
       <div className="fixed bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-blue-900/5 to-transparent pointer-events-none -z-10" />
 
       {/* Create Room Modal */}
-      <AnimatePresence>
-        {isCreateModalOpen && (
-          <React.Fragment key="modal-fragment">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsCreateModalOpen(false)}
-              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100]"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, x: "-50%", y: "-40%" }}
-              animate={{ opacity: 1, scale: 1, x: "-50%", y: "-50%" }}
-              exit={{ opacity: 0, scale: 0.95, x: "-50%", y: "-40%" }}
-              className="fixed left-1/2 top-1/2 w-full max-w-2xl max-h-[90vh] overflow-y-auto z-[101] p-4"
-            >
-              <Card className="glass-card border-white/10 shadow-2xl overflow-hidden relative">
-                <div className="sticky top-0 bg-background/90 backdrop-blur-xl border-b border-white/10 p-8 flex flex-col items-center text-center z-20 relative">
-                  <button 
-                    type="button"
-                    onClick={() => setIsCreateModalOpen(false)} 
-                    className="absolute right-6 top-6 p-2 rounded-full hover:bg-white/10 transition-all hover:rotate-90 group"
-                  >
-                    <X className="w-5 h-5 text-muted-foreground group-hover:text-white" />
-                  </button>
-                  
-                  <div className="w-14 h-14 rounded-[1.25rem] bg-primary/10 flex items-center justify-center mb-5 border border-primary/20 shadow-[0_0_30px_rgba(225,29,72,0.15)] relative group">
-                    <div className="absolute inset-0 bg-primary/20 rounded-[1.25rem] blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
-                    <Tv className="w-7 h-7 text-primary relative z-10" />
-                  </div>
-                  
-                  <h2 className="text-3xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-br from-white via-white to-white/40 uppercase">
-                    Create Cinema Room
-                  </h2>
-                  <p className="text-[10px] md:text-xs text-muted-foreground font-black uppercase tracking-[0.25em] mt-3 opacity-60 max-w-[80%] mx-auto leading-relaxed">
-                    Host a movie experience for friends or the public
-                  </p>
-                  
-                  <div className="flex items-center gap-3 mt-6">
-                    <div className="h-[1px] w-12 bg-gradient-to-r from-transparent to-primary/40" />
-                    <div className="w-1.5 h-1.5 rounded-full bg-primary shadow-[0_0_10px_#e11d48]" />
-                    <div className="h-[1px] w-12 bg-gradient-to-l from-transparent to-primary/40" />
-                  </div>
-                </div>
-
-                <div className="px-6 py-2 flex justify-end">
-                   <Button type="button" variant="outline" onClick={handleBuySnacks} className="gap-2 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 h-8 text-[10px] font-black uppercase">
-                      <ShoppingBag className="w-3 h-3" />
-                      Buy Snacks for Room
-                   </Button>
-                </div>
-
-                <form onSubmit={handleCreateRoom} className="p-6 space-y-8">
-                  {/* Media Uploads */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Movie Art Cover</label>
-                      <div 
-                        onClick={() => coverFileRef.current?.click()}
-                        className={`aspect-[3/4] rounded-2xl border-2 border-dashed ${coverFile ? 'border-primary bg-primary/5' : 'border-white/10 bg-white/5'} flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group relative overflow-hidden`}
-                      >
-                        {coverFile ? (
-                           <div className="absolute inset-0">
-                             <img src={URL.createObjectURL(coverFile)} className="w-full h-full object-cover opacity-60" />
-                             <div className="absolute inset-0 flex flex-col items-center justify-center">
-                               <Check className="w-8 h-8 text-primary mb-2" />
-                               <span className="text-xs font-bold text-white shadow-black drop-shadow-md">Cover Selected</span>
-                             </div>
-                           </div>
-                        ) : (
-                           <>
-                            <Upload className="w-8 h-8 text-muted-foreground group-hover:text-primary transition-colors mb-2" />
-                            <span className="text-xs font-bold text-muted-foreground group-hover:text-primary">Upload Poster</span>
-                           </>
-                        )}
-                        <input type="file" ref={coverFileRef} onChange={(e) => setCoverFile(e.target.files?.[0] || null)} className="hidden" accept="image/*" />
-                      </div>
-                    </div>
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Movie File</label>
-                        <div 
-                           onClick={() => movieFileRef.current?.click()}
-                           className={`h-24 rounded-2xl border-2 border-dashed ${movieFile ? 'border-primary bg-primary/5' : 'border-white/10 bg-white/5'} flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group`}
-                        >
-                           {movieFile ? (
-                             <>
-                               <Check className="w-5 h-5 text-primary mb-1" />
-                               <span className="text-xs font-bold text-white truncate max-w-[90%]">{movieFile.name}</span>
-                             </>
-                           ) : (
-                             <>
-                               <Film className="w-5 h-5 text-muted-foreground group-hover:text-primary mb-1" />
-                               <span className="text-xs font-bold text-muted-foreground">Upload Video</span>
-                             </>
-                           )}
-                           <input type="file" ref={movieFileRef} onChange={(e) => setMovieFile(e.target.files?.[0] || null)} className="hidden" accept="video/*" />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Trailer Video</label>
-                        <div 
-                           onClick={() => trailerFileRef.current?.click()}
-                           className={`h-24 rounded-2xl border-2 border-dashed ${trailerFile ? 'border-primary bg-primary/5' : 'border-white/10 bg-white/5'} flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group relative`}
-                        >
-                           {trailerFile ? (
-                             <>
-                               <Check className="w-5 h-5 text-primary mb-1" />
-                               <span className="text-xs font-bold text-white truncate max-w-[90%]">{trailerFile.name}</span>
-                             </>
-                           ) : (
-                             <>
-                               <Camera className="w-5 h-5 text-muted-foreground group-hover:text-primary mb-1" />
-                               <span className="text-xs font-bold text-muted-foreground">Upload Trailer</span>
-                             </>
-                           )}
-                           <input type="file" ref={trailerFileRef} onChange={(e) => setTrailerFile(e.target.files?.[0] || null)} className="hidden" accept="video/*" />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Room Details */}
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Room Name</label>
-                      <input type="text" required value={roomName} onChange={e => setRoomName(e.target.value)} placeholder="e.g. Midnight Watch Party" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-primary/50" />
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {isCreateModalOpen && (
+            <React.Fragment key="modal-fragment">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsCreateModalOpen(false)}
+                className="fixed inset-0 bg-black/90 backdrop-blur-md z-[2000]"
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, x: "-50%", y: "-40%" }}
+                animate={{ opacity: 1, scale: 1, x: "-50%", y: "-50%" }}
+                exit={{ opacity: 0, scale: 0.95, x: "-50%", y: "-40%" }}
+                className="fixed left-1/2 top-1/2 w-full max-w-2xl max-h-[90vh] overflow-y-auto z-[2001] p-4"
+              >
+                <Card className="glass-card border-white/10 shadow-2xl overflow-hidden relative">
+                  <div className="sticky top-0 bg-background/90 backdrop-blur-xl border-b border-white/10 p-8 flex flex-col items-center text-center z-20 relative">
+                    <button 
+                      type="button"
+                      onClick={() => setIsCreateModalOpen(false)} 
+                      className="absolute right-6 top-6 p-2 rounded-full hover:bg-white/10 transition-all hover:rotate-90 group"
+                    >
+                      <X className="w-5 h-5 text-muted-foreground group-hover:text-white" />
+                    </button>
+                    
+                    <div className="w-14 h-14 rounded-[1.25rem] bg-primary/10 flex items-center justify-center mb-5 border border-primary/20 shadow-[0_0_30px_rgba(225,29,72,0.15)] relative group">
+                      <div className="absolute inset-0 bg-primary/20 rounded-[1.25rem] blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <Tv className="w-7 h-7 text-primary relative z-10" />
                     </div>
                     
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Movie Title</label>
-                        <input type="text" required value={movieTitle} onChange={e => setMovieTitle(e.target.value)} placeholder="Movie Name" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm outline-none focus:border-primary/50" />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Genre</label>
-                        <div className="relative" ref={genreRef}>
-                          <button
-                            type="button"
-                            onClick={() => setIsGenreDropdownOpen(!isGenreDropdownOpen)}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-[13px] outline-none focus:border-primary/50 flex items-center justify-between transition-all"
-                          >
-                            <span className={movieGenre ? 'text-white font-bold' : 'text-muted-foreground'}>
-                              {movieGenre || 'Select Genre'}
-                            </span>
-                            <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${isGenreDropdownOpen ? 'rotate-180' : ''}`} />
-                          </button>
-
-                          <AnimatePresence>
-                            {isGenreDropdownOpen && (
-                              <motion.div
-                                initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                                animate={{ opacity: 1, y: 0, scale: 1 }}
-                                exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                className="absolute left-0 right-0 top-full mt-2 z-50 bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden max-h-[300px] overflow-y-auto custom-scrollbar"
-                              >
-                                <div className="p-2 grid grid-cols-1 gap-1">
-                                  {genres.map((genre) => (
-                                    <button
-                                      key={genre}
-                                      type="button"
-                                      onClick={() => {
-                                        setMovieGenre(genre);
-                                        setIsGenreDropdownOpen(false);
-                                      }}
-                                      className={`w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                                        movieGenre === genre 
-                                          ? 'bg-primary text-white shadow-lg shadow-primary/20' 
-                                          : 'text-muted-foreground hover:bg-white/5 hover:text-white'
-                                      }`}
-                                    >
-                                      {genre}
-                                    </button>
-                                  ))}
-                                </div>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-end">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Description</label>
-                        <span className="text-[10px] text-muted-foreground">Max 200 words</span>
-                      </div>
-                      <textarea required value={movieDescription} onChange={e => setMovieDescription(e.target.value)} rows={3} placeholder="What is this room about?" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm outline-none focus:border-primary/50 resize-none" />
+                    <h2 className="text-3xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-br from-white via-white to-white/40 uppercase">
+                      Create Cinema Room
+                    </h2>
+                    <p className="text-[10px] md:text-xs text-muted-foreground font-black uppercase tracking-[0.25em] mt-3 opacity-60 max-w-[80%] mx-auto leading-relaxed">
+                      Host a movie experience for friends or the public
+                    </p>
+                    
+                    <div className="flex items-center gap-3 mt-6">
+                      <div className="h-[1px] w-12 bg-gradient-to-r from-transparent to-primary/40" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary shadow-[0_0_10px_#e11d48]" />
+                      <div className="h-[1px] w-12 bg-gradient-to-l from-transparent to-primary/40" />
                     </div>
                   </div>
 
-                  {/* Scheduling & Capacity */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.05]">
-                    <div className="space-y-3">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Schedule</label>
-                      <div className="flex gap-2">
-                        <button type="button" onClick={() => setIsLiveNow(true)} className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all border ${isLiveNow ? 'bg-rose-500/10 border-rose-500/50 text-rose-500' : 'border-white/10 text-muted-foreground hover:bg-white/5'}`}>
-                          Live Now
-                        </button>
-                        <button type="button" onClick={() => setIsLiveNow(false)} className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all border ${!isLiveNow ? 'bg-primary/10 border-primary/50 text-primary' : 'border-white/10 text-muted-foreground hover:bg-white/5'}`}>
-                          Later
-                        </button>
-                      </div>
-                      {!isLiveNow && (
-                        <div className="flex flex-col gap-3 mt-3">
-                          <div 
-                            className="relative group cursor-pointer"
-                            onClick={() => dateInputRef.current?.showPicker()}
-                          >
-                             <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white/5 border border-white/10 group-hover:border-primary/50 transition-colors">
-                                <Calendar className="w-4 h-4 text-primary" />
-                                <span className="text-[11px] font-bold text-white flex-1">{formatDisplayDate(scheduledDate)}</span>
-                             </div>
-                             <input 
-                              ref={dateInputRef}
-                              type="date" 
-                              value={scheduledDate}
-                              onChange={(e) => setScheduledDate(e.target.value)}
-                              className="absolute inset-0 opacity-0 pointer-events-none" 
-                            />
-                          </div>
-                          <div 
-                            className="relative group cursor-pointer"
-                            onClick={() => timeInputRef.current?.showPicker()}
-                          >
-                             <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white/5 border border-white/10 group-hover:border-primary/50 transition-colors">
-                                <Clock className="w-4 h-4 text-primary" />
-                                <span className="text-[11px] font-bold text-white flex-1">{formatDisplayTime(scheduledTime)}</span>
-                             </div>
-                             <input 
-                              ref={timeInputRef}
-                              type="time" 
-                              value={scheduledTime}
-                              onChange={(e) => setScheduledTime(e.target.value)}
-                              className="absolute inset-0 opacity-0 pointer-events-none" 
-                            />
-                          </div>
-                        </div>
-                      )}
-                      <div className="flex items-start gap-2 mt-2">
-                        <Info className="w-3 h-3 text-muted-foreground mt-0.5 flex-shrink-0" />
-                        <p className="text-[9px] text-muted-foreground leading-tight">Live rooms without users auto-delete after 24h.</p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Room Capacity</label>
-                      <div className="flex gap-2">
-                        <button type="button" onClick={() => setIsUnlimited(true)} className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all border ${isUnlimited ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-500' : 'border-white/10 text-muted-foreground hover:bg-white/5'}`}>
-                          Unlimited
-                        </button>
-                        <button type="button" onClick={() => setIsUnlimited(false)} className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all border ${!isUnlimited ? 'bg-blue-500/10 border-blue-500/50 text-blue-500' : 'border-white/10 text-muted-foreground hover:bg-white/5'}`}>
-                          Limited
-                        </button>
-                      </div>
-                      {!isUnlimited && (
-                        <div className="mt-2 relative">
-                          <input type="number" placeholder="Seats" className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-3 pr-10 text-xs outline-none focus:border-primary/50" />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] text-muted-foreground font-bold">Seats</span>
-                        </div>
-                      )}
-                      <div className="space-y-1 mt-3">
-                         <label className="text-[9px] font-bold text-muted-foreground uppercase">Auto-Start</label>
-                         <div className="relative">
-                            <select className="w-full bg-zinc-900/50 border border-white/10 rounded-xl py-2 px-3 text-[11px] outline-none text-white appearance-none focus:border-primary/50">
-                              <option value="none">Manual Start</option>
-                              <option value="5">When 5 users join</option>
-                              <option value="10">When 10 users join</option>
-                            </select>
-                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
-                         </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Room Type & Privacy Logic */}
-                  <div className="space-y-4 border-t border-white/10 pt-6">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Access Type</label>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      {[
-                        { id: 'free', label: 'Free', icon: Users, desc: 'Open to everyone', color: 'text-blue-500', active: 'bg-blue-500/10 border-blue-500/50 shadow-lg' },
-                        { id: 'paid', label: 'Paid', icon: Ticket, desc: 'Sell tickets', color: 'text-orange-500', active: 'bg-orange-500/10 border-orange-500/50 shadow-lg' },
-                        { id: 'private', label: 'Private', icon: ShieldAlert, desc: 'Invite only', color: 'text-amber-500', active: 'bg-amber-500/10 border-amber-500/50 shadow-lg' }
-                      ].map(type => (
-                        <button
-                          key={type.id}
-                          type="button"
-                          onClick={() => setRoomType(type.id as 'free' | 'paid' | 'private')}
-                          className={`p-3 rounded-2xl border flex items-center md:flex-col gap-3 transition-all ${
-                            roomType === type.id 
-                              ? type.active
-                              : 'bg-white/5 border-white/10 hover:border-white/30'
-                          }`}
-                        >
-                          <div className={`p-2 rounded-xl ${roomType === type.id ? 'bg-white/10' : 'bg-white/5'}`}>
-                            <type.icon className={`w-5 h-5 ${roomType === type.id ? type.color : 'text-muted-foreground'}`} />
-                          </div>
-                          <div className="text-left md:text-center overflow-hidden">
-                            <p className={`text-xs font-black uppercase tracking-wider ${roomType === type.id ? type.color : 'text-foreground'}`}>{type.label}</p>
-                            <p className="text-[9px] text-muted-foreground mt-0.5 line-clamp-1">{type.desc}</p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Dynamic Logic Based on Room Type */}
-                    <AnimatePresence mode="wait">
-                      {roomType === 'free' && (
-                        <motion.div key="free-logic" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 flex gap-3 items-center">
-                          <Users className="w-5 h-5 text-blue-500 flex-shrink-0" />
-                          <p className="text-[11px] text-blue-200 font-medium">This room will be public. <span className="font-bold text-blue-400">Text and reactions</span> are available.</p>
-                        </motion.div>
-                      )}
-
-                      {roomType === 'paid' && (
-                        <motion.div key="paid-logic" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
-                           <div className="space-y-2">
-                             <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Ticket Price</label>
-                             <div className="relative">
-                               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground">₦</span>
-                               <input type="number" required={roomType === 'paid'} value={ticketPrice} onChange={e => setTicketPrice(e.target.value)} placeholder="0.00" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-9 pr-4 text-sm font-bold outline-none focus:border-primary/50" />
-                             </div>
-                           </div>
-                           <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/20 flex gap-3 items-center">
-                            <Ticket className="w-5 h-5 text-orange-500 flex-shrink-0" />
-                            <p className="text-[11px] text-orange-200 font-medium">Users must buy a ticket. <span className="font-bold text-orange-400">Voice chat</span> enabled.</p>
-                          </div>
-                        </motion.div>
-                      )}
-
-                      {roomType === 'private' && (
-                        <motion.div key="private-logic" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
-                           
-                           <div className="p-4 md:p-5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-4">
-                              <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-                                <div>
-                                  <h4 className="text-sm font-black text-amber-500 uppercase tracking-tight">Private Screening</h4>
-                                  <p className="text-[10px] text-amber-200/70 mt-1 max-w-[250px]">Hidden room. Access via unique link or QR. Premium features included.</p>
-                                </div>
-                                <div className="md:text-right">
-                                  <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest">Cost</p>
-                                  <p className="text-2xl font-black text-white">₦{(privateSeats * 1000).toLocaleString()}</p>
-                                </div>
-                              </div>
-
-                              <div className="space-y-4 pt-4 border-t border-amber-500/20">
-                                 <label className="text-[10px] font-black uppercase tracking-widest text-amber-300">Seats (₦1k/seat)</label>
-                                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                                   <div className="flex items-center gap-4 bg-black/20 p-1.5 rounded-2xl border border-white/5 w-fit">
-                                      <button type="button" onClick={() => updatePrivateSeats(privateSeats - 1)} disabled={privateSeats <= 1} className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-amber-500 hover:bg-white/10 disabled:opacity-50">-</button>
-                                      <span className="text-lg font-black w-6 text-center">{privateSeats}</span>
-                                      <button type="button" onClick={() => updatePrivateSeats(privateSeats + 1)} className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-amber-500 hover:bg-white/10">+</button>
-                                   </div>
-                                   
-                                   <div className="flex-1 flex items-center gap-2 p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                                     <div className="p-1.5 rounded-lg bg-amber-500/20">
-                                       <Video className="w-3.5 h-3.5 text-amber-500" />
-                                     </div>
-                                     <span className="text-[9px] font-black uppercase text-amber-500 tracking-tight">Premium Video Calling</span>
-                                   </div>
-                                 </div>
-                                 <p className="text-[9px] text-amber-300 font-bold uppercase tracking-widest">{privateSeats === 2 ? '❤️ Couple Special Active' : ''}</p>
-                              </div>
-                           </div>
-
-                           <div className="space-y-3">
-                             <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                               {privateSeats === 1 ? 'Invite Partner (Aura ID)' : 'Invite Guests (Aura IDs)'}
-                             </label>
-                             <div className="space-y-2 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
-                               {privateGuests.map((guest, index) => (
-                                 <div key={index} className="relative">
-                                   <Users className={`absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${index === 0 ? 'text-primary' : 'text-muted-foreground'}`} />
-                                   <input 
-                                     type="text" 
-                                     placeholder={index === 0 ? "Your Aura ID" : "Paste Aura ID..."}
-                                     value={guest}
-                                     readOnly={index === 0}
-                                     onChange={(e) => handlePrivateGuestChange(index, e.target.value)}
-                                     className={`w-full border border-white/10 rounded-xl py-2.5 pl-9 pr-4 text-[11px] outline-none transition-all ${
-                                       index === 0 
-                                         ? 'bg-primary/5 border-primary/20 text-primary font-bold cursor-default' 
-                                         : 'bg-white/5 focus:border-amber-500/50'
-                                     }`} 
-                                     required
-                                   />
-                                   {index === 0 && (
-                                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] font-black uppercase text-primary tracking-widest bg-primary/10 px-2 py-0.5 rounded-full">
-                                       You (Host)
-                                     </span>
-                                   )}
-                                 </div>
-                               ))}
-                             </div>
-                           </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                  
-                  {/* Submit Action */}
-                  <div className="pt-4 border-t border-white/10 flex justify-end gap-3 sticky bottom-0 bg-background p-4 -m-6 mt-0 shadow-[0_-20px_40px_rgba(0,0,0,0.8)]">
-                     <Button type="button" variant="ghost" onClick={() => setIsCreateModalOpen(false)} disabled={isSubmitting}>Cancel</Button>
-                     <Button type="submit" disabled={isSubmitting} className="gradient-bg px-8 font-black gap-2 disabled:opacity-50">
-                       {isSubmitting ? (
-                         <>
-                           <Loader2 className="w-4 h-4 animate-spin" />
-                           Creating...
-                         </>
-                       ) : (
-                         <>
-                           {roomType === 'private' ? `Pay ₦${(privateSeats * 1000).toLocaleString()} & Create` : 'Create Room'} 
-                           <Plus className="w-4 h-4" />
-                         </>
-                       )}
+                  <div className="px-6 py-2 flex justify-end">
+                     <Button type="button" variant="outline" onClick={handleBuySnacks} className="gap-2 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 h-8 text-[10px] font-black uppercase">
+                        <ShoppingBag className="w-3 h-3" />
+                        Buy Snacks for Room
                      </Button>
                   </div>
-                </form>
-              </Card>
-            </motion.div>
-          </React.Fragment>
-        )}
-      </AnimatePresence>
+
+                  <form onSubmit={handleCreateRoom} className="p-6 space-y-8">
+                    {/* Media Uploads */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Movie Art Cover</label>
+                        <div 
+                          onClick={() => coverFileRef.current?.click()}
+                          className={`aspect-[3/4] rounded-2xl border-2 border-dashed ${coverFile ? 'border-primary bg-primary/5' : 'border-white/10 bg-white/5'} flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group relative overflow-hidden`}
+                        >
+                          {coverFile ? (
+                             <div className="absolute inset-0">
+                               <img src={URL.createObjectURL(coverFile)} className="w-full h-full object-cover opacity-60" />
+                               <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                 <Check className="w-8 h-8 text-primary mb-2" />
+                                 <span className="text-xs font-bold text-white shadow-black drop-shadow-md">Cover Selected</span>
+                               </div>
+                             </div>
+                          ) : (
+                             <>
+                              <Upload className="w-8 h-8 text-muted-foreground group-hover:text-primary transition-colors mb-2" />
+                              <span className="text-xs font-bold text-muted-foreground group-hover:text-primary">Upload Poster</span>
+                             </>
+                          )}
+                          <input type="file" ref={coverFileRef} onChange={(e) => setCoverFile(e.target.files?.[0] || null)} className="hidden" accept="image/*" />
+                        </div>
+                      </div>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Movie File</label>
+                          <div 
+                             onClick={() => movieFileRef.current?.click()}
+                             className={`h-24 rounded-2xl border-2 border-dashed ${movieFile ? 'border-primary bg-primary/5' : 'border-white/10 bg-white/5'} flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group`}
+                          >
+                             {movieFile ? (
+                               <>
+                                 <Check className="w-5 h-5 text-primary mb-1" />
+                                 <span className="text-xs font-bold text-white truncate max-w-[90%]">{movieFile.name}</span>
+                               </>
+                             ) : (
+                               <>
+                                 <Film className="w-5 h-5 text-muted-foreground group-hover:text-primary mb-1" />
+                                 <span className="text-xs font-bold text-muted-foreground">Upload Video</span>
+                               </>
+                             )}
+                             <input type="file" ref={movieFileRef} onChange={(e) => setMovieFile(e.target.files?.[0] || null)} className="hidden" accept="video/*" />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Trailer Video</label>
+                          <div 
+                             onClick={() => trailerFileRef.current?.click()}
+                             className={`h-24 rounded-2xl border-2 border-dashed ${trailerFile ? 'border-primary bg-primary/5' : 'border-white/10 bg-white/5'} flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors group relative`}
+                          >
+                             {trailerFile ? (
+                               <>
+                                 <Check className="w-5 h-5 text-primary mb-1" />
+                                 <span className="text-xs font-bold text-white truncate max-w-[90%]">{trailerFile.name}</span>
+                               </>
+                             ) : (
+                               <>
+                                 <Camera className="w-5 h-5 text-muted-foreground group-hover:text-primary mb-1" />
+                                 <span className="text-xs font-bold text-muted-foreground">Upload Trailer</span>
+                               </>
+                             )}
+                             <input type="file" ref={trailerFileRef} onChange={(e) => setTrailerFile(e.target.files?.[0] || null)} className="hidden" accept="video/*" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Room Details */}
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Room Name</label>
+                        <input type="text" required value={roomName} onChange={e => setRoomName(e.target.value)} placeholder="e.g. Midnight Watch Party" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-primary/50" />
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Movie Title</label>
+                          <input type="text" required value={movieTitle} onChange={e => setMovieTitle(e.target.value)} placeholder="Movie Name" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm outline-none focus:border-primary/50" />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Genre</label>
+                          <div className="relative" ref={genreRef}>
+                            <button
+                              type="button"
+                              onClick={() => setIsGenreDropdownOpen(!isGenreDropdownOpen)}
+                              className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-[13px] outline-none focus:border-primary/50 flex items-center justify-between transition-all"
+                            >
+                              <span className={movieGenre ? 'text-white font-bold' : 'text-muted-foreground'}>
+                                {movieGenre || 'Select Genre'}
+                              </span>
+                              <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${isGenreDropdownOpen ? 'rotate-180' : ''}`} />
+                            </button>
+
+                            <AnimatePresence>
+                              {isGenreDropdownOpen && (
+                                <motion.div
+                                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                  className="absolute left-0 right-0 top-full mt-2 z-50 bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden max-h-[300px] overflow-y-auto custom-scrollbar"
+                                >
+                                  <div className="p-2 grid grid-cols-1 gap-1">
+                                    {genres.map((genre) => (
+                                      <button
+                                        key={genre}
+                                        type="button"
+                                        onClick={() => {
+                                          setMovieGenre(genre);
+                                          setIsGenreDropdownOpen(false);
+                                        }}
+                                        className={`w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                                          movieGenre === genre 
+                                            ? 'bg-primary text-white shadow-lg shadow-primary/20' 
+                                            : 'text-muted-foreground hover:bg-white/5 hover:text-white'
+                                        }`}
+                                      >
+                                        {genre}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-end">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Description</label>
+                          <span className="text-[10px] text-muted-foreground">Max 200 words</span>
+                        </div>
+                        <textarea required value={movieDescription} onChange={e => setMovieDescription(e.target.value)} rows={3} placeholder="What is this room about?" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm outline-none focus:border-primary/50 resize-none" />
+                      </div>
+                    </div>
+
+                    {/* Scheduling & Capacity */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.05]">
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Schedule</label>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => setIsLiveNow(true)} className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all border ${isLiveNow ? 'bg-rose-500/10 border-rose-500/50 text-rose-500' : 'border-white/10 text-muted-foreground hover:bg-white/5'}`}>
+                            Live Now
+                          </button>
+                          <button type="button" onClick={() => setIsLiveNow(false)} className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all border ${!isLiveNow ? 'bg-primary/10 border-primary/50 text-primary' : 'border-white/10 text-muted-foreground hover:bg-white/5'}`}>
+                            Later
+                          </button>
+                        </div>
+                        {!isLiveNow && (
+                          <div className="flex flex-col gap-3 mt-3">
+                            <div 
+                              className="relative group cursor-pointer"
+                              onClick={() => dateInputRef.current?.showPicker()}
+                            >
+                               <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white/5 border border-white/10 group-hover:border-primary/50 transition-colors">
+                                  <Calendar className="w-4 h-4 text-primary" />
+                                  <span className="text-[11px] font-bold text-white flex-1">{formatDisplayDate(scheduledDate)}</span>
+                               </div>
+                               <input 
+                                ref={dateInputRef}
+                                type="date" 
+                                value={scheduledDate}
+                                onChange={(e) => setScheduledDate(e.target.value)}
+                                className="absolute inset-0 opacity-0 pointer-events-none" 
+                              />
+                            </div>
+                            <div 
+                              className="relative group cursor-pointer"
+                              onClick={() => timeInputRef.current?.showPicker()}
+                            >
+                               <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white/5 border border-white/10 group-hover:border-primary/50 transition-colors">
+                                  <Clock className="w-4 h-4 text-primary" />
+                                  <span className="text-[11px] font-bold text-white flex-1">{formatDisplayTime(scheduledTime)}</span>
+                               </div>
+                               <input 
+                                ref={timeInputRef}
+                                type="time" 
+                                value={scheduledTime}
+                                onChange={(e) => setScheduledTime(e.target.value)}
+                                className="absolute inset-0 opacity-0 pointer-events-none" 
+                              />
+                            </div>
+                          </div>
+                        )}
+                        <div className="flex items-start gap-2 mt-2">
+                          <Info className="w-3 h-3 text-muted-foreground mt-0.5 flex-shrink-0" />
+                          <p className="text-[9px] text-muted-foreground leading-tight">Live rooms without users auto-delete after 24h.</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Room Capacity</label>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => setIsUnlimited(true)} className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all border ${isUnlimited ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-500' : 'border-white/10 text-muted-foreground hover:bg-white/5'}`}>
+                            Unlimited
+                          </button>
+                          <button type="button" onClick={() => setIsUnlimited(false)} className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all border ${!isUnlimited ? 'bg-blue-500/10 border-blue-500/50 text-blue-500' : 'border-white/10 text-muted-foreground hover:bg-white/5'}`}>
+                            Limited
+                          </button>
+                        </div>
+                        {!isUnlimited && (
+                          <div className="mt-2 relative">
+                            <input type="number" placeholder="Seats" className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-3 pr-10 text-xs outline-none focus:border-primary/50" />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] text-muted-foreground font-bold">Seats</span>
+                          </div>
+                        )}
+                        <div className="space-y-1 mt-3">
+                           <label className="text-[9px] font-bold text-muted-foreground uppercase">Auto-Start</label>
+                           <div className="relative">
+                              <select className="w-full bg-zinc-900/50 border border-white/10 rounded-xl py-2 px-3 text-[11px] outline-none text-white appearance-none focus:border-primary/50">
+                                <option value="none">Manual Start</option>
+                                <option value="5">When 5 users join</option>
+                                <option value="10">When 10 users join</option>
+                              </select>
+                              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                           </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Room Type & Privacy Logic */}
+                    <div className="space-y-4 border-t border-white/10 pt-6">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Access Type</label>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {[
+                          { id: 'free', label: 'Free', icon: Users, desc: 'Open to everyone', color: 'text-blue-500', active: 'bg-blue-500/10 border-blue-500/50 shadow-lg' },
+                          { id: 'paid', label: 'Paid', icon: Ticket, desc: 'Sell tickets', color: 'text-orange-500', active: 'bg-orange-500/10 border-orange-500/50 shadow-lg' },
+                          { id: 'private', label: 'Private', icon: ShieldAlert, desc: 'Invite only', color: 'text-amber-500', active: 'bg-amber-500/10 border-amber-500/50 shadow-lg' }
+                        ].map(type => (
+                          <button
+                            key={type.id}
+                            type="button"
+                            onClick={() => setRoomType(type.id as 'free' | 'paid' | 'private')}
+                            className={`p-3 rounded-2xl border flex items-center md:flex-col gap-3 transition-all ${
+                              roomType === type.id 
+                                ? type.active
+                                : 'bg-white/5 border-white/10 hover:border-white/30'
+                            }`}
+                          >
+                            <div className={`p-2 rounded-xl ${roomType === type.id ? 'bg-white/10' : 'bg-white/5'}`}>
+                              <type.icon className={`w-5 h-5 ${roomType === type.id ? type.color : 'text-muted-foreground'}`} />
+                            </div>
+                            <div className="text-left md:text-center overflow-hidden">
+                              <p className={`text-xs font-black uppercase tracking-wider ${roomType === type.id ? type.color : 'text-foreground'}`}>{type.label}</p>
+                              <p className="text-[9px] text-muted-foreground mt-0.5 line-clamp-1">{type.desc}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Dynamic Logic Based on Room Type */}
+                      <AnimatePresence mode="wait">
+                        {roomType === 'free' && (
+                          <motion.div key="free-logic" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 flex gap-3 items-center">
+                            <Users className="w-5 h-5 text-blue-500 flex-shrink-0" />
+                            <p className="text-[11px] text-blue-200 font-medium">This room will be public. <span className="font-bold text-blue-400">Text and reactions</span> are available.</p>
+                          </motion.div>
+                        )}
+
+                        {roomType === 'paid' && (
+                          <motion.div key="paid-logic" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
+                             <div className="space-y-2">
+                               <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Ticket Price</label>
+                               <div className="relative">
+                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground">₦</span>
+                                 <input type="number" required={roomType === 'paid'} value={ticketPrice} onChange={e => setTicketPrice(e.target.value)} placeholder="0.00" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-9 pr-4 text-sm font-bold outline-none focus:border-primary/50" />
+                               </div>
+                             </div>
+                             <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/20 flex gap-3 items-center">
+                              <Ticket className="w-5 h-5 text-orange-500 flex-shrink-0" />
+                              <p className="text-[11px] text-orange-200 font-medium">Users must buy a ticket. <span className="font-bold text-orange-400">Voice chat</span> enabled.</p>
+                            </div>
+                          </motion.div>
+                        )}
+
+                        {roomType === 'private' && (
+                          <motion.div key="private-logic" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
+                             
+                             <div className="p-4 md:p-5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-4">
+                                <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+                                  <div>
+                                    <h4 className="text-sm font-black text-amber-500 uppercase tracking-tight">Private Screening</h4>
+                                    <p className="text-[10px] text-amber-200/70 mt-1 max-w-[250px]">Hidden room. Access via unique link or QR. Premium features included.</p>
+                                  </div>
+                                  <div className="md:text-right">
+                                    <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest">Cost</p>
+                                    <p className="text-2xl font-black text-white">₦{(privateSeats * 1000).toLocaleString()}</p>
+                                  </div>
+                                </div>
+
+                                <div className="space-y-4 pt-4 border-t border-amber-500/20">
+                                   <label className="text-[10px] font-black uppercase tracking-widest text-amber-300">Seats (₦1k/seat)</label>
+                                   <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                                     <div className="flex items-center gap-4 bg-black/20 p-1.5 rounded-2xl border border-white/5 w-fit">
+                                        <button type="button" onClick={() => updatePrivateSeats(privateSeats - 1)} disabled={privateSeats <= 1} className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-amber-500 hover:bg-white/10 disabled:opacity-50">-</button>
+                                        <span className="text-lg font-black w-6 text-center">{privateSeats}</span>
+                                        <button type="button" onClick={() => updatePrivateSeats(privateSeats + 1)} className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-amber-500 hover:bg-white/10">+</button>
+                                     </div>
+                                     
+                                     <div className="flex-1 flex items-center gap-2 p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                                       <div className="p-1.5 rounded-lg bg-amber-500/20">
+                                         <Video className="w-3.5 h-3.5 text-amber-500" />
+                                       </div>
+                                       <span className="text-[9px] font-black uppercase text-amber-500 tracking-tight">Premium Video Calling</span>
+                                     </div>
+                                   </div>
+                                   <p className="text-[9px] text-amber-300 font-bold uppercase tracking-widest">{privateSeats === 2 ? '❤️ Couple Special Active' : ''}</p>
+                                </div>
+                             </div>
+
+                             <div className="space-y-3">
+                               <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                                 {privateSeats === 1 ? 'Invite Partner (Aura ID)' : 'Invite Guests (Aura IDs)'}
+                               </label>
+                               <div className="space-y-2 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
+                                 {privateGuests.map((guest, index) => (
+                                   <div key={index} className="relative">
+                                     <Users className={`absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${index === 0 ? 'text-primary' : 'text-muted-foreground'}`} />
+                                     <input 
+                                       type="text" 
+                                       placeholder={index === 0 ? "Your Aura ID" : "Paste Aura ID..."}
+                                       value={guest}
+                                       readOnly={index === 0}
+                                       onChange={(e) => handlePrivateGuestChange(index, e.target.value)}
+                                       className={`w-full border border-white/10 rounded-xl py-2.5 pl-9 pr-4 text-[11px] outline-none transition-all ${
+                                         index === 0 
+                                           ? 'bg-primary/5 border-primary/20 text-primary font-bold cursor-default' 
+                                           : 'bg-white/5 focus:border-amber-500/50'
+                                       }`} 
+                                       required
+                                     />
+                                     {index === 0 && (
+                                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] font-black uppercase text-primary tracking-widest bg-primary/10 px-2 py-0.5 rounded-full">
+                                         You (Host)
+                                       </span>
+                                     )}
+                                   </div>
+                                 ))}
+                               </div>
+                             </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                    
+                    {/* Submit Action */}
+                    <div className="pt-4 border-t border-white/10 flex justify-end gap-3 sticky bottom-0 bg-background p-4 -m-6 mt-0 shadow-[0_-20px_40px_rgba(0,0,0,0.8)]">
+                       <Button type="button" variant="ghost" onClick={() => setIsCreateModalOpen(false)} disabled={isSubmitting}>Cancel</Button>
+                       <Button type="submit" disabled={isSubmitting} className="gradient-bg px-8 font-black gap-2 disabled:opacity-50">
+                         {isSubmitting ? (
+                           <>
+                             <Loader2 className="w-4 h-4 animate-spin" />
+                             Creating...
+                           </>
+                         ) : (
+                           <>
+                             {roomType === 'private' ? `Pay ₦${(privateSeats * 1000).toLocaleString()} & Create` : 'Create Room'} 
+                             <Plus className="w-4 h-4" />
+                           </>
+                         )}
+                       </Button>
+                    </div>
+                  </form>
+                </Card>
+              </motion.div>
+            </React.Fragment>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       <CinemaStoreModal isOpen={isStoreOpen} onClose={() => setIsStoreOpen(false)} />
     </div>

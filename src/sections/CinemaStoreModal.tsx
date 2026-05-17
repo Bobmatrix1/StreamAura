@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ShoppingBag, 
@@ -184,10 +185,12 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
     }
   };
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 overflow-hidden">
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 overflow-hidden">
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -200,7 +203,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="relative w-full max-w-4xl max-h-[90vh] glass-card border-white/10 flex flex-col overflow-hidden"
+            className="relative w-full max-w-4xl max-h-[90vh] glass-card border-white/10 flex flex-col overflow-hidden z-[3001]"
           >
             {/* Header */}
             <div className="p-6 border-b border-white/10 flex items-center justify-between bg-black/40">
@@ -518,6 +521,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
           </motion.div>
         </div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 };

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Zap } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import Layout from '@/sections/Layout';
 import Home from '@/sections/Home';
@@ -126,82 +125,74 @@ export const AppContent: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="fixed inset-0 bg-background flex flex-col items-center justify-center z-[100] overflow-hidden">
-        <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-blue-500/10 rounded-full blur-[100px] animate-pulse" />
-        <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-purple-500/10 rounded-full blur-[100px] animate-pulse delay-700" />
-
-        <div className="relative flex items-center justify-center">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.5 }}
+      <div className="fixed inset-0 bg-[#00040d] flex flex-col items-center justify-center z-[2000] overflow-hidden">
+        {/* Performance-Optimized Background Aura */}
+        <div className="absolute inset-0 pointer-events-none">
+          <motion.div 
             animate={{ 
-              opacity: [0.4, 0.8, 0.4],
-              scale: [1, 1.2, 1],
+              opacity: [0.1, 0.2, 0.1],
             }}
-            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-            className="absolute w-40 h-40 rounded-full bg-gradient-to-r from-blue-500/20 to-purple-500/20 blur-2xl"
+            transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+            className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(30,58,138,0.15)_0%,transparent_70%)]" 
           />
-
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
-            className="absolute w-32 h-32 rounded-full border-2 border-dashed border-blue-500/30"
-          />
-
-          <motion.div
-            animate={{ rotate: -360 }}
-            transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
-            className="absolute w-24 h-24 rounded-full border border-purple-500/20"
-          />
-
-          <motion.div
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            className="relative w-24 h-24 rounded-3xl overflow-hidden flex items-center justify-center shadow-2xl border border-white/10 bg-white/5"
-          >
-            <motion.div
-              animate={{ 
-                y: [0, -5, 0],
-                scale: [1, 1.1, 1]
-              }}
-              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-              className="w-full h-full p-4 flex items-center justify-center"
-            >
-              <img src="/logo.png" alt="StreamAura" className="w-full h-full object-contain scale-125" />
-            </motion.div>
-            
-            <motion.div
-              animate={{ opacity: [0, 1, 0] }}
-              transition={{ duration: 1.5, repeat: Infinity, delay: 0.5 }}
-              className="absolute top-2 right-2 text-yellow-400"
-            >
-              <Zap className="w-4 h-4 fill-current" />
-            </motion.div>
-          </motion.div>
         </div>
 
-        <motion.div 
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="mt-12 text-center"
-        >
-          <div className="flex items-center justify-center gap-2 mb-1">
-            <span className="text-xl font-bold tracking-tight gradient-text">StreamAura</span>
-            <div className="flex gap-1">
-              {[0, 1, 2].map((i) => (
-                <motion.div
-                  key={i}
-                  animate={{ opacity: [0.3, 1, 0.3] }}
-                  transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
-                  className="w-1.5 h-1.5 rounded-full bg-primary"
-                />
-              ))}
+        {/* Central Core */}
+        <div className="relative flex flex-col items-center">
+          <div className="relative w-64 h-64 flex items-center justify-center">
+            {/* Pulsing Core Shadow - Using Gradient instead of Blur for Speed */}
+            <motion.div
+              animate={{ 
+                scale: [1, 1.1, 1],
+                opacity: [0.3, 0.5, 0.3],
+              }}
+              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+              className="absolute w-56 h-56 rounded-full bg-[radial-gradient(circle,rgba(34,197,94,0.1)_0%,transparent_70%)]"
+            />
+            
+            {/* Geometric Orbit */}
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
+              className="absolute inset-0 rounded-full border border-white/[0.05] will-change-transform"
+            >
+              <div className="w-full h-full rounded-full border-t-2 border-primary/20" />
+            </motion.div>
+
+            {/* Logo Housing */}
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 0.8, ease: "easeOut" }}
+              className="relative w-32 h-32 rounded-[2.5rem] bg-[#020617] border border-white/10 shadow-2xl flex items-center justify-center p-6 z-50 overflow-hidden"
+            >
+              <img src="/logo.png" className="w-full h-full object-contain relative z-10 scale-125" alt="Aura" />
+            </motion.div>
+          </div>
+
+          {/* Typography */}
+          <div className="mt-8 text-center">
+            <motion.h1 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-4xl font-black uppercase tracking-[0.4em] text-white ml-[0.4em]"
+            >
+              Stream<span className="text-primary italic">Aura</span>
+            </motion.h1>
+            
+            {/* Optimized Progress Bar - Using scaleX instead of width to prevent lag */}
+            <div className="w-32 h-[2px] bg-white/5 mt-4 mx-auto overflow-hidden rounded-full">
+              <motion.div 
+                animate={{ 
+                  scaleX: [0, 1, 0],
+                  x: ['-50%', '0%', '50%']
+                }}
+                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                className="w-full h-full bg-primary origin-left will-change-transform"
+              />
             </div>
           </div>
-          <p className="text-muted-foreground text-xs uppercase tracking-[0.2em] font-medium opacity-60">
-            Download Anything. Feel the Aura.
-          </p>
-        </motion.div>
+        </div>
       </div>
     );
   }
