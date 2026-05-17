@@ -86,6 +86,7 @@ const CinemaRoom: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     const roomId = params.get('room');
     const verifyRef = params.get('verify');
+    const triggerCreate = params.get('create');
 
     if (roomId) {
       handleJoinRoomById(roomId);
@@ -93,6 +94,31 @@ const CinemaRoom: React.FC = () => {
 
     if (verifyRef && roomId) {
       handleVerifyPayment(roomId, verifyRef);
+    }
+
+    if (triggerCreate === 'true') {
+      const mTitle = params.get('title') || '';
+      const mThumb = params.get('thumbnail') || '';
+      const mUrl = params.get('movie_url') || '';
+      const mSeason = params.get('season');
+      const mEpisode = params.get('episode');
+
+      if (mTitle) setMovieTitle(mSeason ? `${mTitle} (S${mSeason} E${mEpisode})` : mTitle);
+      if (mThumb) setPreFilledCoverUrl(mThumb);
+      if (mUrl) setPreFilledMovieUrl(mUrl);
+      
+      setIsCreateModalOpen(true);
+      
+      // Clean URL params to prevent re-opening on reload
+      const url = new URL(window.location.href);
+      url.searchParams.delete('create');
+      url.searchParams.delete('movie_id');
+      url.searchParams.delete('title');
+      url.searchParams.delete('thumbnail');
+      url.searchParams.delete('movie_url');
+      url.searchParams.delete('season');
+      url.searchParams.delete('episode');
+      window.history.replaceState({}, '', url);
     }
   }, []);
 
@@ -276,6 +302,10 @@ const CinemaRoom: React.FC = () => {
   const [trailerFile, setTrailerFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Pre-filled states from Deep Links
+  const [preFilledMovieUrl, setPreFilledMovieUrl] = useState<string | null>(null);
+  const [preFilledCoverUrl, setPreFilledCoverUrl] = useState<string | null>(null);
+
   // File Refs
   const movieFileRef = React.useRef<HTMLInputElement>(null);
   const coverFileRef = React.useRef<HTMLInputElement>(null);
@@ -400,8 +430,12 @@ const CinemaRoom: React.FC = () => {
 
   const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!roomName.trim() || !movieTitle.trim() || !movieFile || !coverFile || !movieGenre) {
-      showError('Please fill all required fields, select a genre and upload media.');
+    
+    const hasMovie = movieFile || preFilledMovieUrl;
+    const hasCover = coverFile || preFilledCoverUrl;
+
+    if (!roomName.trim() || !movieTitle.trim() || !hasMovie || !hasCover || !movieGenre) {
+      showError('Please fill all required fields, select a genre and provide media.');
       return;
     }
 
@@ -413,11 +447,17 @@ const CinemaRoom: React.FC = () => {
     setIsSubmitting(true);
     
     try {
-      // 1. Upload cover image to assets bucket
-      const coverUrl = await uploadFile(coverFile, 'cinema/covers', 'assets');
+      // 1. Resolve Cover URL
+      let coverUrl = preFilledCoverUrl;
+      if (coverFile) {
+        coverUrl = await uploadFile(coverFile, 'cinema/covers', 'assets');
+      }
       
-      // 2. Upload movie file to movies bucket
-      const movieUrl = await uploadFile(movieFile, 'cinema/movies', 'movies');
+      // 2. Resolve Movie URL
+      let movieUrl = preFilledMovieUrl;
+      if (movieFile) {
+        movieUrl = await uploadFile(movieFile, 'cinema/movies', 'movies');
+      }
 
       // 3. Upload trailer if present
       let trailerUrl = null;

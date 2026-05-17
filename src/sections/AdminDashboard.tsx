@@ -44,8 +44,13 @@ import {
   clearUserHistory,
   clearAllHistory,
   clearAllTraffic,
-  type SystemStats
+  getUserDetails,
+  db,
+  type SystemStats,
+  type UserFinancials,
+  type UserActivitySummary
 } from '../lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 import { API_BASE_URL } from '../api/mediaApi';
 import type { User, GlobalHistoryItem } from '../types';
 import {
@@ -69,6 +74,11 @@ const AdminDashboard: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [history, setHistory] = useState<GlobalHistoryItem[]>([]);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  
+  // Detailed User Info State
+  const [userDetails, setUserDetailsMap] = useState<Record<string, { financials: UserFinancials, activity: UserActivitySummary }>>({});
+  const [isDetailLoading, setIsDetailLoading] = useState<string | null>(null);
+
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -112,7 +122,21 @@ const AdminDashboard: React.FC = () => {
     setIsLoading(true);
     try {
       const data = await getAllUsers();
-      setUsers(data);
+      
+      // Fetch wallet balances for all users in parallel
+      const walletsRef = collection(db, 'room_wallets');
+      const walletSnap = await getDocs(walletsRef);
+      const walletMap: Record<string, number> = {};
+      walletSnap.docs.forEach(doc => {
+        walletMap[doc.id] = doc.data().balance || 0;
+      });
+
+      const augmentedUsers = data.map(u => ({
+        ...u,
+        walletBalance: walletMap[u.uid] || 0
+      }));
+
+      setUsers(augmentedUsers as any);
     } catch (error: any) {
       showError(error.message || 'Failed to load users');
     } finally {
@@ -348,6 +372,26 @@ const AdminDashboard: React.FC = () => {
     setShowAllItems(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
+  const toggleUserExpansion = async (uid: string) => {
+    if (expandedUserId === uid) {
+      setExpandedUserId(null);
+      return;
+    }
+
+    setExpandedUserId(uid);
+    if (!userDetails[uid]) {
+      setIsDetailLoading(uid);
+      try {
+        const details = await getUserDetails(uid);
+        setUserDetailsMap(prev => ({ ...prev, [uid]: details }));
+      } catch (err) {
+        console.error("Failed to load user details");
+      } finally {
+        setIsDetailLoading(null);
+      }
+    }
+  };
+
   return (
     <div className="space-y-6 pb-10">
       {/* MODAL LAYER */}
@@ -504,50 +548,182 @@ const AdminDashboard: React.FC = () => {
             <PartnersManager />
           ) : activeTab === 'users' ? (
             <Table>
-              <TableHeader><TableRow className="border-white/5 bg-white/[0.02] hover:bg-transparent"><TableHead className="text-muted-foreground font-bold">USER IDENTITY</TableHead><TableHead className="text-muted-foreground font-bold">DEVICE</TableHead><TableHead className="text-muted-foreground font-bold text-center">VISITS</TableHead><TableHead className="text-muted-foreground font-bold text-center">TIME</TableHead><TableHead className="text-muted-foreground font-bold text-center">HITS</TableHead><TableHead className="text-muted-foreground font-bold text-center">DLs</TableHead><TableHead className="text-muted-foreground font-bold">JOINED</TableHead><TableHead className="text-right text-muted-foreground font-bold pr-10">CONTROLS</TableHead></TableRow></TableHeader>
+              <TableHeader>
+                <TableRow className="border-white/5 bg-white/[0.02] hover:bg-transparent text-center">
+                  <TableHead className="text-muted-foreground font-bold text-left">USER IDENTITY</TableHead>
+                  <TableHead className="text-muted-foreground font-bold">DEVICE</TableHead>
+                  <TableHead className="text-muted-foreground font-bold">VISITS</TableHead>
+                  <TableHead className="text-muted-foreground font-bold text-center">WALLET</TableHead>
+                  <TableHead className="text-muted-foreground font-bold text-center">REFERRAL</TableHead>
+                  <TableHead className="text-muted-foreground font-bold">JOINED</TableHead>
+                  <TableHead className="text-right text-muted-foreground font-bold pr-10">CONTROLS</TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
-                {filteredUsers.map(user => (
-                  <TableRow key={user.uid} className="border-white/5 hover:bg-white/[0.03]">
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full border border-white/10 overflow-hidden bg-white/5 flex items-center justify-center">{user.photoURL ? <img src={user.photoURL} className="w-full h-full object-cover" /> : <Users className="w-5 h-5 text-primary" />}</div>
-                        <div className="flex flex-col"><span className="font-bold text-sm">{user.displayName || 'Anonymous'}</span><span className="text-[10px] text-muted-foreground uppercase">{user.email}</span></div>
-                      </div>
-                    </TableCell>
-                    <TableCell><div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-white/5 border border-white/5 w-fit">{getDeviceIcon((user as any).lastDevice)}<span className="text-[10px] font-black uppercase">{(user as any).lastDevice || '---'}</span></div></TableCell>
-                    <TableCell className="text-center font-bold text-sm">{formatNumber((user as any).visitCount)}</TableCell>
-                    <TableCell className="text-center font-bold text-sm text-blue-400">{formatTime((user as any).totalTimeMinutes)}</TableCell>
-                    <TableCell className="text-center font-bold text-sm text-purple-400">{formatNumber((user as any).searchCount)}</TableCell>
-                    <TableCell className="text-center font-bold text-sm text-green-400">{formatNumber((user as any).downloadCount)}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{new Date(user.createdAt).toLocaleDateString()}</TableCell>
-                    <TableCell className="text-right pr-6">
-                      <div className="flex items-center justify-end gap-2 relative z-[100]">
-                        <button
-                          onClick={(e) => {
-                            e.preventDefault(); e.stopPropagation();
-                            handleToggleAdminAction(user.uid, user.displayName || 'User', user.isAdmin);
-                          }}
-                          disabled={user.uid === currentUser?.uid}
-                          className={`p-3 rounded-xl transition-all shadow-lg active:scale-95 active:brightness-125 disabled:opacity-20 ${
-                            user.isAdmin ? 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/40' : 'bg-green-500/20 text-green-400 hover:bg-green-500/40'
-                          }`}
-                        >
-                          {user.isAdmin ? <ShieldOff className="w-5 h-5" /> : <Shield className="w-5 h-5" />}
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.preventDefault(); e.stopPropagation();
-                            handleDeleteUserAction(user.uid, user.displayName || 'User');
-                          }}
-                          disabled={user.uid === currentUser?.uid}
-                          className="p-3 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/40 transition-all shadow-lg active:scale-95 active:brightness-125 disabled:opacity-20"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {filteredUsers.map(user => {
+                  const isExpanded = expandedUserId === user.uid;
+                  const details = userDetails[user.uid];
+                  
+                  return (
+                    <React.Fragment key={user.uid}>
+                      <TableRow 
+                        className={`border-white/5 hover:bg-white/[0.03] transition-colors cursor-pointer ${isExpanded ? 'bg-white/[0.04]' : ''}`}
+                        onClick={() => toggleUserExpansion(user.uid)}
+                      >
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full border border-white/10 overflow-hidden bg-white/5 flex items-center justify-center">
+                              {user.photoURL ? <img src={user.photoURL} className="w-full h-full object-cover" /> : <Users className="w-5 h-5 text-primary" />}
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="font-bold text-sm">{user.displayName || 'Anonymous'}</span>
+                              <span className="text-[10px] text-muted-foreground uppercase">{user.email}</span>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-white/5 border border-white/5 w-fit mx-auto">
+                            {getDeviceIcon((user as any).lastDevice)}
+                            <span className="text-[10px] font-black uppercase">{(user as any).lastDevice || '---'}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-center font-bold text-sm">{formatNumber((user as any).visitCount)}</TableCell>
+                        <TableCell className="text-center font-bold text-sm text-emerald-400">₦{formatNumber((user as any).walletBalance || 0)}</TableCell>
+                        <TableCell className="text-center font-bold text-sm text-orange-400">₦{formatNumber(user.referralBalance || 0)}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{new Date(user.createdAt).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-right pr-6">
+                          <div className="flex items-center justify-end gap-2 relative z-[100]" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault(); e.stopPropagation();
+                                handleToggleAdminAction(user.uid, user.displayName || 'User', user.isAdmin);
+                              }}
+                              disabled={user.uid === currentUser?.uid}
+                              className={`p-2.5 rounded-xl transition-all shadow-lg active:scale-95 active:brightness-125 disabled:opacity-20 ${
+                                user.isAdmin ? 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/40' : 'bg-green-500/20 text-green-400 hover:bg-green-500/40'
+                              }`}
+                            >
+                              {user.isAdmin ? <ShieldOff className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault(); e.stopPropagation();
+                                handleDeleteUserAction(user.uid, user.displayName || 'User');
+                              }}
+                              disabled={user.uid === currentUser?.uid}
+                              className="p-2.5 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/40 transition-all shadow-lg active:scale-95 active:brightness-125 disabled:opacity-20"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={(e) => {
+                                e.preventDefault(); e.stopPropagation();
+                                toggleUserExpansion(user.uid);
+                              }}
+                              className="p-2 hover:bg-white/5 rounded-lg transition-colors ml-2"
+                            >
+                              <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+                            </button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+
+                      <AnimatePresence>
+                        {isExpanded && (
+                          <TableRow className="border-none bg-black/40 hover:bg-black/40">
+                            <TableCell colSpan={7} className="p-0">
+                              <motion.div 
+                                initial={{ height: 0, opacity: 0 }} 
+                                animate={{ height: 'auto', opacity: 1 }} 
+                                exit={{ height: 0, opacity: 0 }}
+                                className="overflow-hidden"
+                              >
+                                <div className="p-8 grid grid-cols-1 md:grid-cols-3 gap-8">
+                                  {isDetailLoading === user.uid ? (
+                                    <div className="col-span-full py-12 flex flex-col items-center gap-4 text-primary">
+                                      <Loader2 className="w-8 h-8 animate-spin" />
+                                      <p className="text-[10px] font-black uppercase tracking-widest">Fetching user intelligence...</p>
+                                    </div>
+                                  ) : details ? (
+                                    <>
+                                      {/* Financial Summary */}
+                                      <div className="space-y-4">
+                                        <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                                          <Banknote className="w-3.5 h-3.5 text-emerald-500" /> Financial Intelligence
+                                        </h4>
+                                        <div className="grid grid-cols-1 gap-3">
+                                          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex justify-between items-center">
+                                            <span className="text-[10px] font-bold text-muted-foreground uppercase">Wallet Balance</span>
+                                            <span className="text-sm font-black text-emerald-400">₦{details.financials.walletBalance.toLocaleString()}</span>
+                                          </div>
+                                          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex justify-between items-center">
+                                            <span className="text-[10px] font-bold text-muted-foreground uppercase">Referral Rewards</span>
+                                            <span className="text-sm font-black text-orange-400">₦{(user.referralBalance || 0).toLocaleString()}</span>
+                                          </div>
+                                          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex justify-between items-center">
+                                            <span className="text-[10px] font-bold text-muted-foreground uppercase">Ticket Earnings</span>
+                                            <span className="text-sm font-black text-primary">₦{details.financials.totalEarned.toLocaleString()}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* Cinema Activity */}
+                                      <div className="space-y-4">
+                                        <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                                          <Film className="w-3.5 h-3.5 text-rose-500" /> Cinema Activity
+                                        </h4>
+                                        <div className="grid grid-cols-1 gap-3">
+                                          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex justify-between items-center">
+                                            <span className="text-[10px] font-bold text-muted-foreground uppercase">Rooms Created</span>
+                                            <span className="text-sm font-black text-white">{details.activity.roomsCreated} Rooms</span>
+                                          </div>
+                                          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex justify-between items-center">
+                                            <span className="text-[10px] font-bold text-muted-foreground uppercase">Tickets Sold</span>
+                                            <span className="text-sm font-black text-white">{details.financials.ticketsSold} Sold</span>
+                                          </div>
+                                          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex flex-col gap-2">
+                                            <span className="text-[10px] font-bold text-muted-foreground uppercase">Hosted Movies</span>
+                                            <div className="flex flex-wrap gap-1.5">
+                                              {details.activity.moviesHosted.length > 0 ? details.activity.moviesHosted.map((movie, idx) => (
+                                                <Badge key={idx} variant="outline" className="bg-primary/10 border-primary/20 text-[8px] uppercase">{movie}</Badge>
+                                              )) : <span className="text-[10px] italic text-muted-foreground">No movies hosted yet</span>}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* Social & Store */}
+                                      <div className="space-y-4">
+                                        <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                                          <Users className="w-3.5 h-3.5 text-blue-500" /> Social & Store
+                                        </h4>
+                                        <div className="grid grid-cols-1 gap-3">
+                                          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex justify-between items-center">
+                                            <span className="text-[10px] font-bold text-muted-foreground uppercase">Referred People</span>
+                                            <span className="text-sm font-black text-blue-400">{user.referredCount || 0} Users</span>
+                                          </div>
+                                          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex justify-between items-center">
+                                            <span className="text-[10px] font-bold text-muted-foreground uppercase">Snack Orders</span>
+                                            <span className="text-sm font-black text-purple-400">{details.activity.snacksCount} Orders</span>
+                                          </div>
+                                          <div className="p-4 rounded-2xl border border-dashed border-white/10 bg-white/[0.01]">
+                                            <p className="text-[9px] font-bold text-muted-foreground uppercase leading-relaxed">
+                                              User has been part of Aura since {new Date(user.createdAt).toLocaleDateString()}.
+                                            </p>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </>
+                                  ) : null}
+                                </div>
+                              </motion.div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </AnimatePresence>
+                    </React.Fragment>
+                  );
+                })}
               </TableBody>
             </Table>
           ) : activeTab === 'history' ? (

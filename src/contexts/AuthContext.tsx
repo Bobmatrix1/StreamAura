@@ -49,11 +49,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             uid: firebaseUser.uid,
             email: firebaseUser.email || '',
             displayName: firebaseUser.displayName || 'Anonymous',
-            isAdmin: firebaseUser.isAdmin || false,
             lastActive: serverTimestamp(),
             createdAt: firebaseUser.createdAt || Date.now()
           };
           if (firebaseUser.photoURL) syncData.photoURL = firebaseUser.photoURL;
+          
+          // CRITICAL: Only sync isAdmin if it's explicitly present in firebaseUser 
+          // to prevent overwriting existing Admin status with 'false' during fetch delays.
+          if (firebaseUser.isAdmin !== undefined) {
+            syncData.isAdmin = firebaseUser.isAdmin;
+          }
           
           await setDoc(userRef, syncData, { merge: true });
         } catch (e) {

@@ -21,7 +21,7 @@ from bs4 import BeautifulSoup
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from moviebox_api.v1.core import Search, Session, SubjectType
-from moviebox_api.v1 import MovieDetails, DownloadableMovieFilesDetail
+from moviebox_api.v1 import MovieDetails, DownloadableMovieFilesDetail, TVSeriesDetails, DownloadableTVSeriesFilesDetail
 
 # Load environment
 from dotenv import load_dotenv
@@ -280,7 +280,7 @@ async def download_media(url: str, background_tasks: BackgroundTasks, filename: 
 async def search_movies(query: str = Query(...), type: str = "movie"):
     try:
         client_session = Session()
-        subject_type = SubjectType.MOVIES if type == "movie" else SubjectType.TV_SHOWS
+        subject_type = SubjectType.MOVIES if type == "movie" else SubjectType.TV_SERIES
         search = Search(client_session, query, subject_type=subject_type)
         results = await search.get_content()
         
@@ -314,28 +314,75 @@ async def search_movies(query: str = Query(...), type: str = "movie"):
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.get("/api/movies/details")
-async def get_movie_details(subject_id: str = Query(...), type: str = "movie"):
+async def get_movie_details(
+    subject_id: str = Query(...), 
+    type: str = "movie",
+    title: Optional[str] = Query(None),
+    season: Optional[int] = None,
+    episode: Optional[int] = None
+):
     try:
         client_session = Session()
-        subject_type = SubjectType.MOVIES if type == "movie" else SubjectType.TV_SHOWS
-        search = Search(client_session, subject_id, subject_type=subject_type)
+        subject_type = SubjectType.MOVIES if type == "movie" else SubjectType.TV_SERIES
+        
+        # If we have a title, search by title first and find matching ID
+        # because the API Search class doesn't always support direct ID queries
+        search_query = title if title else subject_id
+        search = Search(client_session, search_query, subject_type=subject_type)
         search_model = await search.get_content_model()
         
-        target_item = None
+        items = []
         if hasattr(search_model, 'items') and search_model.items:
-            target_item = search_model.items[0]
+            items = search_model.items
         elif hasattr(search_model, 'list') and search_model.list:
-            target_item = search_model.list[0]
+            items = search_model.list
+            
+        target_item = None
+        for item in items:
+            if str(item.get('subjectId')) == subject_id:
+                target_item = item
+                break
+        
+        # Fallback to first item if title search was used but ID match failed
+        if not target_item and items:
+            target_item = items[0]
             
         if not target_item:
             return JSONResponse(status_code=404, content={"success": False, "error": "Content not found"})
 
-        md_instance = MovieDetails(target_item, client_session)
-        details = await md_instance.get_content()
+        seasons_info = []
         
-        md_model = await md_instance.get_content_model()
-        downloadable_files = DownloadableMovieFilesDetail(client_session, md_model)
-        files_data = await downloadable_files.get_content()
+        if type == "series":
+            md_instance = TVSeriesDetails(target_item, client_session)
+            details = await md_instance.get_content()
+            resData = details.get('resData', {})
+            subject = resData.get('subject', {})
+            resource = resData.get('resource', {})
+            seasons_raw = resource.get('seasons', [])
+            
+            for s in seasons_raw:
+                se_num = s.get('se')
+                max_ep = s.get('maxEp', 0)
+                seasons_info.append({
+                    "season": se_num,
+                    "episodes": list(range(1, max_ep + 1))
+                })
+            
+            # If season/episode provided, get specific files
+            if season is not None and episode is not None:
+                md_model = await md_instance.get_content_model()
+                files_instance = DownloadableTVSeriesFilesDetail(client_session, md_model)
+                files_data = await files_instance.get_content(season=season, episode=episode)
+            else:
+                files_data = {"list": []}
+                
+            details_data = subject
+        else:
+            md_instance = MovieDetails(target_item, client_session)
+            details_data = await md_instance.get_content()
+            md_model = await md_instance.get_content_model()
+            downloadable_files = DownloadableMovieFilesDetail(client_session, md_model)
+            files_data = await downloadable_files.get_content()
         
         qualities = []
         raw_files = files_data.get('list', [])
@@ -351,12 +398,13 @@ async def get_movie_details(subject_id: str = Query(...), type: str = "movie"):
             "success": True,
             "data": {
                 "id": subject_id,
-                "title": details.get('name') or details.get('title'),
-                "description": details.get('description'),
-                "thumbnail": details.get('poster'),
-                "year": details.get('year'),
-                "rating": str(details.get('rating', '0.0')),
+                "title": details_data.get('name') or details_data.get('title'),
+                "description": details_data.get('description'),
+                "thumbnail": details_data.get('poster') or details_data.get('cover'),
+                "year": details_data.get('year') or details_data.get('releaseDate', '').split('-')[0],
+                "rating": str(details_data.get('rating', details_data.get('imdbRatingValue', '0.0'))),
                 "qualities": qualities,
+                "seasons": seasons_info,
                 "mediaType": type
             }
         }

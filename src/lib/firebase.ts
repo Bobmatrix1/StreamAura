@@ -82,6 +82,7 @@ export interface AppNotification {
   timestamp: number;
   read: boolean;
   type: 'update' | 'alert' | 'general';
+  link?: string;
 }
 
 export const requestNotificationPermission = async (userId: string) => {
@@ -287,6 +288,59 @@ export const getUserData = async (uid: string, createIfMissing = false): Promise
 export const toggleAdminStatus = async (uid: string, isAdmin: boolean): Promise<void> => { await updateDoc(doc(db, 'users', uid), { isAdmin }); };
 export const deleteUserAccount = async (uid: string): Promise<void> => { await deleteDoc(doc(db, 'users', uid)); };
 
+export interface UserFinancials {
+  walletBalance: number;
+  totalEarned: number;
+  ticketsSold: number;
+}
+
+export interface UserActivitySummary {
+  roomsCreated: number;
+  moviesHosted: string[];
+  snacksCount: number;
+}
+
+export const getUserDetails = async (uid: string): Promise<{ financials: UserFinancials, activity: UserActivitySummary }> => {
+  try {
+    // 1. Fetch Wallet Info
+    const walletRef = doc(db, 'room_wallets', uid);
+    const walletDoc = await getDoc(walletRef);
+    const walletData = walletDoc.exists() ? walletDoc.data() : {};
+    
+    const financials: UserFinancials = {
+      walletBalance: walletData.balance || 0,
+      totalEarned: walletData.total_earned || 0,
+      ticketsSold: walletData.tickets_sold || 0
+    };
+
+    // 2. Fetch Rooms Info
+    const roomsRef = collection(db, 'cinema_rooms');
+    const qRooms = query(roomsRef, where('host_uid', '==', uid));
+    const roomsSnapshot = await getDocs(qRooms);
+    
+    const activity: UserActivitySummary = {
+      roomsCreated: roomsSnapshot.size,
+      moviesHosted: Array.from(new Set(roomsSnapshot.docs.map(doc => doc.data().movie_title))),
+      snacksCount: 0 // Will implement orders check if collection exists
+    };
+
+    // 3. Fetch Orders (Snacks)
+    try {
+      const ordersRef = collection(db, 'orders');
+      const qOrders = query(ordersRef, where('customerUid', '==', uid)); // Assuming this field exists
+      const ordersSnapshot = await getDocs(qOrders);
+      activity.snacksCount = ordersSnapshot.size;
+    } catch (e) {}
+
+    return { financials, activity };
+  } catch (error) {
+    return {
+      financials: { walletBalance: 0, totalEarned: 0, ticketsSold: 0 },
+      activity: { roomsCreated: 0, moviesHosted: [], snacksCount: 0 }
+    };
+  }
+};
+
 export const getAllUsers = async (): Promise<User[]> => {
   try {
     const usersRef = collection(db, 'users');
@@ -318,11 +372,6 @@ export const getGlobalHistory = async (limitCount = 100): Promise<GlobalHistoryI
 export const getUserHistory = async (userId: string, limitCount = 50): Promise<HistoryItem[]> => {
   try {
     const historyRef = collection(db, 'downloads');
-    
-    // NOTE: This query REQUIRES a composite index in Firestore:
-    // Collection: downloads
-    // Fields: userId (Ascending), downloadedAt (Descending)
-    // You can create it in the Firebase Console.
     const q = query(
       historyRef, 
       where('userId', '==', userId),
@@ -336,21 +385,15 @@ export const getUserHistory = async (userId: string, limitCount = 50): Promise<H
       id: doc.id
     } as any));
   } catch (error: any) { 
-    // If index is missing, fallback to non-ordered query to keep app functional
     if (error?.message?.includes('index')) {
-      console.warn('[Firebase] Query requires a composite index. Falling back to in-memory sort.');
-      console.warn('To fix this permanently, create the index using this link:', error.message);
       try {
         const historyRef = collection(db, 'downloads');
         const q = query(historyRef, where('userId', '==', userId), limit(limitCount));
         const snapshot = await getDocs(q);
         const results = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as any));
         return results.sort((a, b) => (b.downloadedAt || 0) - (a.downloadedAt || 0));
-      } catch (innerError) {
-        return [];
-      }
+      } catch (innerError) { return []; }
     }
-    console.error('Error fetching user history:', error);
     return []; 
   }
 };
@@ -366,9 +409,7 @@ export const logVisit = async (country: string, device: string = 'Unknown', user
 
     if (userId && userId !== 'anonymous') {
       const userRef = doc(db, 'users', userId);
-      await updateDoc(userRef, {
-        visitCount: increment(1)
-      });
+      await updateDoc(userRef, { visitCount: increment(1) });
     }
   } catch (error) {}
 };
@@ -384,24 +425,17 @@ export const clearAllTraffic = async (): Promise<void> => {
 export const logFeatureUsage = async (feature: string, userId?: string): Promise<void> => {
   try {
     const featureRef = collection(db, 'feature_usage');
-    await addDoc(featureRef, {
-      feature, userId: userId || 'anonymous', timestamp: serverTimestamp()
-    });
+    await addDoc(featureRef, { feature, userId: userId || 'anonymous', timestamp: serverTimestamp() });
   } catch (error) {}
 };
 
-export const logSearch = async (queryText: string, type: 'movie' | 'video' | 'music', userId?: string): Promise<void> => {
+export const logSearch = async (queryText: string, type: 'movie' | 'video' | 'music' | 'series', userId?: string): Promise<void> => {
   try {
     const searchRef = collection(db, 'searches');
-    await addDoc(searchRef, {
-      query: queryText, type, userId: userId || 'anonymous', timestamp: serverTimestamp()
-    });
-
+    await addDoc(searchRef, { query: queryText, type, userId: userId || 'anonymous', timestamp: serverTimestamp() });
     if (userId && userId !== 'anonymous') {
       const userRef = doc(db, 'users', userId);
-      await updateDoc(userRef, {
-        searchCount: increment(1)
-      });
+      await updateDoc(userRef, { searchCount: increment(1) });
     }
   } catch (error) {}
 };
@@ -413,16 +447,12 @@ export const logMediaInteraction = async (
 ): Promise<void> => {
   try {
     const interactionRef = collection(db, 'interactions');
-    await addDoc(interactionRef, {
-      ...item, action, userId: userId || 'anonymous', timestamp: serverTimestamp()
-    });
-
+    await addDoc(interactionRef, { ...item, action, userId: userId || 'anonymous', timestamp: serverTimestamp() });
     if (userId && userId !== 'anonymous') {
       const userRef = doc(db, 'users', userId);
       const updateData: any = {};
       if (action === 'download') updateData.downloadCount = increment(1);
       if (action === 'watch') updateData.watchCount = increment(1);
-
       await updateDoc(userRef, updateData);
     }
   } catch (error) {}
@@ -446,8 +476,7 @@ export const updateUserPresence = async (uid: string, device?: string): Promise<
         totalTimeMinutes: 0,
         visitCount: 1
       }, { merge: true }); 
-    }
-    catch (e) {}
+    } catch (e) {}
   }
 };
 
@@ -471,7 +500,6 @@ export const getStatsSummary = async (): Promise<SystemStats> => {
     const interactionsRef = collection(db, 'interactions');
     const historyRef = collection(db, 'downloads');
     
-    // Unified 2-hour window for online users to account for all sync issues
     const twoHoursAgo = new Date(Date.now() - 120 * 60 * 1000);
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     
@@ -571,6 +599,8 @@ export interface CloudMovie {
   streamUrl: string;
   downloadUrl: string;
   mediaType: 'movie' | 'series';
+  season?: string;
+  episode?: string;
   addedAt: number;
 }
 
@@ -579,67 +609,84 @@ export interface PreOrder {
   userId: string;
   userEmail: string;
   userName: string;
-  movieId: string; // MovieBox ID
+  movieId: string;
   title: string;
   thumbnail: string;
-  status: 'pending' | 'fulfilled';
+  status: 'pending' | 'available';
+  userStatus: 'none' | 'watched' | 'downloaded';
+  movieUrl?: string;
+  mediaType: 'movie' | 'series';
+  season?: string;
+  episode?: string;
   requestedAt: number;
+  availableAt?: number;
 }
 
-/**
- * Check if a movie is already in our cloud library
- */
-export const checkCloudMovie = async (movieId: string): Promise<CloudMovie | null> => {
+export const checkCloudMovie = async (movieId: string, season?: string | number, episode?: string | number): Promise<CloudMovie | null> => {
   try {
-    const docRef = doc(db, 'movies', movieId);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) return docSnap.data() as CloudMovie;
-    return null;
+    let q = query(collection(db, 'movies'), where('id', '==', movieId));
+    if (season !== undefined) q = query(q, where('season', '==', season.toString()));
+    if (episode !== undefined) q = query(q, where('episode', '==', episode.toString()));
+    
+    const snap = await getDocs(q);
+    if (snap.empty) return null;
+    return { ...snap.docs[0].data(), id: snap.docs[0].id } as CloudMovie;
   } catch (error) { return null; }
 };
 
-/**
- * Create a pre-order request for a movie
- */
-export const createPreOrder = async (userId: string, userEmail: string, userName: string, movie: any): Promise<void> => {
+export const getCloudMovie = async (movieId: string): Promise<CloudMovie | null> => {
+  const docRef = doc(db, 'movies', movieId);
+  const snap = await getDoc(docRef);
+  if (!snap.exists()) return null;
+  return { ...snap.data(), id: snap.id } as CloudMovie;
+};
+
+export const createPreOrder = async (
+  userId: string, 
+  userEmail: string, 
+  userName: string, 
+  movie: any,
+  season?: string,
+  episode?: string
+): Promise<void> => {
   try {
     const preorderRef = collection(db, 'preorders');
-    // Check if user already preordered this to avoid duplicates
-    const q = query(preorderRef, where('userId', '==', userId), where('movieId', '==', movie.id || movie.subjectId));
+    
+    // Check if EXACT pending pre-order already exists
+    let q = query(
+      preorderRef, 
+      where('userId', '==', userId), 
+      where('movieId', '==', movie.id || movie.subjectId),
+      where('status', '==', 'pending')
+    );
+    
+    if (season) q = query(q, where('season', '==', season));
+    if (episode) q = query(q, where('episode', '==', episode));
+
     const snap = await getDocs(q);
-    if (!snap.empty) return;
+    if (!snap.empty) {
+      throw new Error('You already have a pending request for this specific content.');
+    }
 
     await addDoc(preorderRef, {
-      userId,
-      userEmail,
-      userName,
+      userId, userEmail, userName,
       movieId: movie.id || movie.subjectId,
       title: movie.title || movie.name,
       thumbnail: movie.thumbnail || movie.poster,
-      status: 'pending',
-      requestedAt: Date.now()
+      mediaType: movie.mediaType || 'movie',
+      season: season || null,
+      episode: episode || null,
+      status: 'pending', userStatus: 'none', requestedAt: Date.now()
     });
-  } catch (error: any) { 
-    console.error('Pre-order Error:', error);
-    throw new Error('Failed to create pre-order: ' + (error.message || 'Unknown error')); 
-  }
+  } catch (error: any) { throw new Error(error.message || 'Failed to create pre-order'); }
 };
 
-/**
- * Admin: Upload a movie to the cloud library
- */
 export const uploadToCloud = async (movieData: CloudMovie): Promise<void> => {
   try {
-    await setDoc(doc(db, 'movies', movieData.id), {
-      ...movieData,
-      addedAt: Date.now()
-    });
+    await setDoc(doc(db, 'movies', movieData.id), { ...movieData, addedAt: Date.now() });
   } catch (error) { throw new Error('Failed to upload movie'); }
 };
 
-/**
- * Admin: Get all pending pre-orders
- */
 export const getPreOrders = async (): Promise<PreOrder[]> => {
   try {
     const q = query(collection(db, 'preorders'), orderBy('requestedAt', 'desc'));
@@ -648,31 +695,50 @@ export const getPreOrders = async (): Promise<PreOrder[]> => {
   } catch (error) { return []; }
 };
 
-/**
- * Admin: Notify user and mark pre-order as fulfilled
- */
-export const fulfillPreOrder = async (preorderId: string, userId: string, movieTitle: string): Promise<void> => {
+export const getMyPreOrders = async (userId: string): Promise<PreOrder[]> => {
   try {
-    // 1. Mark preorder as fulfilled
-    await updateDoc(doc(db, 'preorders', preorderId), { status: 'fulfilled' });
+    const q = query(collection(db, 'preorders'), where('userId', '==', userId), orderBy('requestedAt', 'desc'));
+    const snap = await getDocs(q);
+    return snap.docs.map(doc => ({ ...doc.data(), id: doc.id } as PreOrder));
+  } catch (error: any) {
+    if (error?.message?.includes('index')) {
+      const q = query(collection(db, 'preorders'), where('userId', '==', userId));
+      const snap = await getDocs(q);
+      const results = snap.docs.map(doc => ({ ...doc.data(), id: doc.id } as PreOrder));
+      return results.sort((a, b) => b.requestedAt - a.requestedAt);
+    }
+    return [];
+  }
+};
+
+export const updatePreOrderStatus = async (preOrderId: string, status: 'watched' | 'downloaded'): Promise<void> => {
+  await updateDoc(doc(db, 'preorders', preOrderId), { userStatus: status });
+};
+
+export const fulfillPreOrder = async (preorderId: string, userId: string, movieTitle: string, movieUrl: string, thumbnailUrl: string): Promise<void> => {
+  try {
+    await updateDoc(doc(db, 'preorders', preorderId), { 
+      status: 'available', 
+      movieUrl, 
+      thumbnail: thumbnailUrl, 
+      availableAt: Date.now() 
+    });
     
-    // 2. Send notification to user
     const notifRef = collection(db, 'users', userId, 'notifications');
     await addDoc(notifRef, {
       title: '🎥 Movie Ready!',
       message: `The movie "${movieTitle}" you pre-ordered is now live! You can watch or download it now.`,
-      timestamp: serverTimestamp(),
+      timestamp: Date.now(),
       read: false,
-      type: 'update'
+      type: 'update',
+      link: `/?tab=movie&preorder=${preorderId}`
     });
+    await updateDoc(doc(db, 'users', userId), { unreadCount: increment(1) });
   } catch (error) { throw new Error('Failed to fulfill pre-order'); }
 };
 
-/**
- * Store Management
- */
+// --- Store, Vendors, Partners ---
 
-// Vendors
 export const getVendors = async (): Promise<Vendor[]> => {
   const snap = await getDocs(collection(db, 'vendors'));
   return snap.docs.map(d => ({ id: d.id, ...d.data() } as Vendor));
@@ -682,7 +748,6 @@ export const updateVendor = async (vendor: Vendor): Promise<void> => {
   await setDoc(doc(db, 'vendors', vendor.id), vendor);
 };
 
-// Products
 export const getProducts = async (): Promise<Product[]> => {
   const snap = await getDocs(collection(db, 'products'));
   return snap.docs.map(d => ({ id: d.id, ...d.data() } as Product));
@@ -700,7 +765,6 @@ export const deleteProduct = async (id: string): Promise<void> => {
   await deleteDoc(doc(db, 'products', id));
 };
 
-// Partners
 export const getPartners = async (): Promise<Partner[]> => {
   const snap = await getDocs(collection(db, 'partners'));
   return snap.docs.map(d => ({ id: d.id, ...d.data() } as Partner));
@@ -714,59 +778,32 @@ export const deletePartner = async (id: string): Promise<void> => {
   await deleteDoc(doc(db, 'partners', id));
 };
 
-// Orders
 export const placeOrder = async (order: Omit<Order, 'id' | 'createdAt' | 'status'>): Promise<string> => {
-  const docRef = await addDoc(collection(db, 'orders'), {
-    ...order,
-    status: 'pending',
-    createdAt: Date.now()
-  });
+  const docRef = await addDoc(collection(db, 'orders'), { ...order, status: 'pending', createdAt: Date.now() });
   return docRef.id;
 };
 
-/**
- * Upload a file to Cloudflare R2 via backend presigned URL
- */
 export const uploadFile = async (file: File, _path: string, bucketType: 'assets' | 'movies' = 'assets'): Promise<string> => {
   if (!auth.currentUser) throw new Error("Must be logged in to upload files.");
-  
   const token = await auth.currentUser.getIdToken();
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-  // 1. Get presigned URL from backend
   const response = await fetch(`${API_URL}/api/cinema/presigned-url`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
-    body: JSON.stringify({
-      file_name: file.name,
-      content_type: file.type,
-      bucket_type: bucketType
-    })
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ file_name: file.name, content_type: file.type, bucket_type: bucketType })
   });
 
-  if (!response.ok) {
-    throw new Error('Failed to get upload URL');
-  }
-
+  if (!response.ok) throw new Error('Failed to get upload URL');
   const { upload_url, public_url } = await response.json();
 
-  // 2. Upload file directly to R2
   const uploadResponse = await fetch(upload_url, {
     method: 'PUT',
     body: file,
-    headers: {
-      'Content-Type': file.type
-    }
+    headers: { 'Content-Type': file.type }
   });
 
-  if (!uploadResponse.ok) {
-    throw new Error('Failed to upload file to storage');
-  }
-
-  // 3. Return the public URL
+  if (!uploadResponse.ok) throw new Error('Failed to upload file to storage');
   return public_url;
 };
 
