@@ -63,10 +63,14 @@ app = FastAPI(title="StreamAura API Master")
 
 # Cinema Routers (Must be imported AFTER Firebase init because they call firestore.client() at module level)
 from routers import cinema as cinema_router
+from routers import games as games_router
 from websockets import room_sync as websocket_router
+from websockets import game_sync as game_ws_router
 
 app.include_router(cinema_router.router, prefix="/api/cinema", tags=["cinema"])
+app.include_router(games_router.router, prefix="/api/games", tags=["games"])
 app.include_router(websocket_router.router, prefix="/api/ws/cinema", tags=["cinema-ws"])
+app.include_router(game_ws_router.router, prefix="/api/ws/games", tags=["games-ws"])
 
 # Initialize Spotify
 sp = None
@@ -102,12 +106,22 @@ def format_size(size_bytes):
 @app.head("/")
 async def root(): return {"status": "online", "service": "StreamAura"}
 
-@app.get("/api/analytics/country")
-async def get_visitor_country(request: Request):
+@app.get("/api/analytics/location")
+async def get_visitor_location(request: Request):
     country = request.headers.get("cf-ipcountry") or "Unknown"
+    region = request.headers.get("cf-region") or "Unknown" # Cloudflare region header
     ua = request.headers.get("user-agent", "").lower()
-    device = "Mobile" if any(x in ua for x in ["iphone", "android", "mobile"]) else "Desktop"
-    return {"country": country, "device": device}
+    
+    if "iphone" in ua or "ipad" in ua: device = "iOS"
+    elif "android" in ua: device = "Android"
+    elif "mobile" in ua: device = "Mobile"
+    else: device = "Desktop"
+    
+    return {
+        "country": country, 
+        "region": region,
+        "device": device
+    }
 
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request):

@@ -3,7 +3,6 @@ import { createContext, useContext, useState, useCallback, type ReactNode } from
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   CheckCircle, 
-  XCircle, 
   Info as InfoIcon, 
   AlertTriangle, 
   X 
@@ -30,7 +29,7 @@ export function useToast() {
 
 const toastIcons = {
   success: CheckCircle,
-  error: XCircle,
+  error: AlertTriangle,
   info: InfoIcon,
   warning: AlertTriangle
 };
@@ -87,7 +86,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 exit={{ opacity: 0, scale: 0.9 }}
                 className={`pointer-events-auto glass-card p-4 flex items-start gap-3 w-full max-w-sm shadow-2xl border ${toastColors[toast.type]}`}
               >
-                <Icon className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                {toast.type !== 'error' && <Icon className="w-5 h-5 flex-shrink-0 mt-0.5" />}
                 <p className="flex-1 text-sm font-medium break-words leading-relaxed">{toast.message}</p>
                 <button onClick={() => removeToast(toast.id)} className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity">
                   <X className="w-4 h-4" />

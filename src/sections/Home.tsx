@@ -21,7 +21,8 @@ import {
   Youtube,
   Cloud,
   CreditCard,
-  Users
+  Users,
+  Gamepad2
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -112,6 +113,14 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       icon: Tv,
       color: 'rose',
       badge: 'LIVE'
+    },
+    {
+      id: 'games' as ViewType,
+      title: 'Split or Steal',
+      desc: 'Test your luck and loyalty in our high-stakes social game. Compete for cash prizes in our real-time high-fidelity arena.',
+      icon: Gamepad2,
+      color: 'yellow',
+      badge: 'NEW'
     },
     {
       id: 'wallet' as ViewType,
@@ -221,12 +230,13 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
           <p className="text-muted-foreground font-medium uppercase tracking-[0.2em] text-xs">Everything you need to master your media</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
           {features.map((feature, i) => {
             const themeClasses: Record<string, string> = {
               blue: 'bg-blue-500/10 border-blue-500/20 text-blue-500 group-hover:!bg-blue-600 group-hover:!text-white group-hover:border-blue-400 group-hover:shadow-[0_0_30px_rgba(37,99,235,0.5)]',
               fuchsia: 'bg-fuchsia-500/10 border-fuchsia-500/20 text-fuchsia-500 group-hover:!bg-fuchsia-600 group-hover:!text-white group-hover:border-fuchsia-400 group-hover:shadow-[0_0_30px_rgba(192,38,211,0.5)]',
               rose: 'bg-rose-500/10 border-rose-500/20 text-rose-500 group-hover:!bg-rose-600 group-hover:!text-white group-hover:border-rose-400 group-hover:shadow-[0_0_30px_rgba(244,63,94,0.5)]',
+              yellow: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500 group-hover:!bg-yellow-500 group-hover:!text-black group-hover:border-yellow-400 group-hover:shadow-[0_0_30px_rgba(234,179,8,0.5)]',
               emerald: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500 group-hover:!bg-emerald-600 group-hover:!text-white group-hover:border-emerald-400 group-hover:shadow-[0_0_30px_rgba(16,185,129,0.5)]'
             };
 
@@ -249,12 +259,14 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
                       feature.color === 'blue' ? 'bg-blue-500/10 border-blue-500/20 group-hover:border-blue-400/50' :
                       feature.color === 'fuchsia' ? 'bg-fuchsia-500/10 border-fuchsia-500/20 group-hover:border-fuchsia-400/50' :
                       feature.color === 'rose' ? 'bg-rose-500/10 border-rose-500/20 group-hover:border-rose-400/50' :
+                      feature.color === 'yellow' ? 'bg-yellow-500/10 border-yellow-500/20 group-hover:border-yellow-400/50' :
                       'bg-emerald-500/10 border-emerald-500/20 group-hover:border-emerald-400/50'
                     }`}>
                       <feature.icon className={`w-7 h-7 transition-colors ${
                         feature.color === 'blue' ? 'text-blue-500 group-hover:text-blue-300' :
                         feature.color === 'fuchsia' ? 'text-fuchsia-500 group-hover:text-fuchsia-300' :
                         feature.color === 'rose' ? 'text-rose-500 group-hover:text-rose-300' :
+                        feature.color === 'yellow' ? 'text-yellow-500 group-hover:text-yellow-300' :
                         'text-emerald-500 group-hover:text-emerald-300'
                       }`} />
                     </div>
@@ -265,6 +277,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
                           feature.color === 'blue' ? 'bg-blue-500/10 text-blue-500 border-blue-500/30 group-hover:!bg-blue-400/20 group-hover:!text-white' :
                           feature.color === 'fuchsia' ? 'bg-fuchsia-500/10 text-fuchsia-500 border-fuchsia-500/30 group-hover:!bg-fuchsia-400/20 group-hover:!text-white' :
                           feature.color === 'rose' ? 'bg-rose-500/10 text-rose-500 border-rose-500/30 group-hover:!bg-rose-400/20 group-hover:!text-white' :
+                          feature.color === 'yellow' ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30 group-hover:!bg-yellow-500 group-hover:!text-black' :
                           'bg-emerald-500/10 text-emerald-500 border-emerald-500/30 group-hover:!bg-emerald-400/20 group-hover:!text-white'
                         }`}>{feature.badge}</Badge>
                       </div>

@@ -38,26 +38,26 @@ export const PreOrderManager: React.FC = () => {
            <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
         </div>
       ) : preOrders.length > 0 ? (
-        <div className="grid grid-cols-1 gap-3">
+        <div className="grid grid-cols-1 gap-4">
           {preOrders.map(order => (
-            <div key={order.id} className={`glass-card p-4 flex items-center justify-between border-white/5 group hover:bg-white/[0.02] transition-all ${order.status === 'available' ? 'opacity-60' : ''}`}>
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-20 relative rounded-lg overflow-hidden border border-white/10">
+            <div key={order.id} className={`glass-card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-white/5 group hover:bg-white/[0.02] transition-all ${order.status === 'available' ? 'opacity-60' : ''}`}>
+              <div className="flex items-center gap-4 flex-1 min-w-0">
+                <div className="w-16 h-20 relative rounded-2xl overflow-hidden border border-white/10 shrink-0">
                    <img src={order.thumbnail} className="w-full h-full object-cover" />
                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                       {order.mediaType === 'series' ? <Tv className="w-6 h-6 text-white/50" /> : <Film className="w-6 h-6 text-white/50" />}
                    </div>
                 </div>
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <p className="font-black text-sm uppercase tracking-tight text-white">{order.title}</p>
-                    {order.season && <Badge variant="outline" className="text-[7px] border-primary/20 text-primary uppercase">S{order.season} E{order.episode}</Badge>}
+                <div className="space-y-1.5 flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-black text-sm uppercase tracking-tight text-white truncate">{order.title}</p>
+                    {order.season && <Badge variant="outline" className="text-[8px] border-primary/20 text-primary uppercase font-black">S{order.season} E{order.episode}</Badge>}
                   </div>
-                  <div className="flex items-center gap-3 text-[10px] text-muted-foreground font-bold uppercase">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-muted-foreground font-bold uppercase tracking-widest">
                      <span className="flex items-center gap-1.5"><User className="w-3 h-3" /> {order.userName}</span>
                      <span className="flex items-center gap-1.5"><Clock className="w-3 h-3" /> {new Date(order.requestedAt).toLocaleDateString()}</span>
                   </div>
-                  <Badge className={`text-[8px] font-black uppercase ${order.status === 'available' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                  <Badge className={`text-[8px] font-black uppercase w-fit ${order.status === 'available' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
                     {order.status === 'available' ? 'READY' : 'PENDING'}
                   </Badge>
                 </div>
@@ -66,7 +66,7 @@ export const PreOrderManager: React.FC = () => {
               {order.status === 'pending' && (
                 <Button
                   onClick={() => setSelectedPreOrder(order)}
-                  className="gradient-bg text-white rounded-xl font-black uppercase text-[10px] tracking-widest px-6 h-10 shadow-lg shadow-primary/20"
+                  className="w-full sm:w-auto gradient-bg text-white rounded-xl font-black uppercase text-[10px] tracking-widest px-8 h-11 shadow-lg shadow-primary/20 shrink-0 active:scale-95 transition-all"
                 >
                   Deliver
                 </Button>

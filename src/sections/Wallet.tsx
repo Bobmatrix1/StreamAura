@@ -25,13 +25,16 @@ import {
   Building,
   CheckCircle2,
   ChevronDown,
-  X
+  X,
+  Loader2
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
+import { doc, collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
+import { db, auth } from '../lib/firebase';
 import { API_BASE_URL } from '../api/mediaApi';
 import { initializePaystackPayment, fetchBanks, resolveBankAccount } from '../api/paymentApi';
 import { LoginRequired } from '../components/LoginRequired';
@@ -83,8 +86,46 @@ const Wallet: React.FC = () => {
   const [bankSearch, setBankQuery] = useState('');
   const [showBankDropdown, setShowBankDropdown] = useState(false);
   const [isResolving, setIsResolving] = useState(false);
+  const [scrollToTab, setScrollToTab] = useState<'history' | 'overview' | null>(null);
   
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Handle cross-component deep linking (e.g. from Games modal 'Add Funds')
+  useEffect(() => {
+    const action = sessionStorage.getItem('wallet_action');
+    if (action === 'deposit') {
+      setActiveTab('overview');
+      // Intentionally not setting scrollToTab here so the page starts at the top
+      sessionStorage.removeItem('wallet_action');
+    }
+  }, []);
+
+  const [balance, setBalance] = useState({
+    available: 0,
+    total: 0,
+    currency: 'NGN'
+  });
+
+  const [transactions, setTransactions] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (user?.uid) {
+      const unsubBalance = onSnapshot(doc(db, 'room_wallets', user.uid), (docSnap) => {
+         if (docSnap.exists()) {
+             setBalance({ available: docSnap.data().balance || 0, total: docSnap.data().balance || 0, currency: 'NGN' });
+         }
+      });
+      const q = query(collection(db, 'transactions'), where('user_uid', '==', user.uid), orderBy('timestamp', 'desc'));
+      const unsubTx = onSnapshot(q, (snapshot) => {
+         setTransactions(snapshot.docs.map(d => {
+            const data = d.data();
+            const dateStr = data.timestamp?.toDate ? data.timestamp.toDate().toLocaleDateString() : data.date || 'Recent';
+            return { id: d.id, ...data, date: dateStr };
+         }));
+      });
+      return () => { unsubBalance(); unsubTx(); };
+    }
+  }, [user?.uid]);
 
   // Common Nigerian Bank Prefixes (for OPay-style auto-detection)
   const BANK_PREFIXES: Record<string, string[]> = {
@@ -203,21 +244,6 @@ const Wallet: React.FC = () => {
     { id: 'room-02', name: 'Late Night Chill', price: 1500, seatsTaken: 12, maxSeats: 20, date: 'Oct 31, 2023', time: '11:00 PM', status: 'upcoming' }
   ];
 
-  const [balance, setBalance] = useState({
-    available: 15400.00,
-    total: 22000.00,
-    currency: 'NGN'
-  });
-
-  const transactions = [
-    { id: '1', type: 'earning', amount: 5000.00, title: 'Tickets Sold - Matrix', date: 'Today, 2:30 PM', status: 'completed' },
-    { id: '2', type: 'purchase', amount: 1500.00, title: 'Bought Ticket - Avengers', date: 'Yesterday, 8:15 PM', status: 'completed' },
-    { id: '3', type: 'withdrawal', amount: 10000.00, title: 'Bank Withdrawal', date: 'Oct 24, 2023', status: 'pending' },
-    { id: '4', type: 'deposit', amount: 20000.00, title: 'Wallet Top-up', date: 'Oct 20, 2023', status: 'completed' },
-    { id: '5', type: 'purchase', amount: 3000.00, title: 'Snacks - Popcorn', date: 'Oct 19, 2023', status: 'completed' },
-    { id: '6', type: 'earning', amount: 8000.00, title: 'Private Room Booking', date: 'Oct 15, 2023', status: 'completed' },
-  ];
-
   const paginatedTransactions = transactions.slice(0, historyPage * itemsPerPage);
 
   const myTickets: TicketItem[] = [
@@ -265,11 +291,27 @@ const Wallet: React.FC = () => {
       email,
       parseFloat(fundAmount),
       { type: 'wallet_funding', user_uid: user.uid },
-      (_reference) => {
-        setBalance(prev => ({ ...prev, available: prev.available + parseFloat(fundAmount) }));
-        toast.success(`₦${parseFloat(fundAmount).toLocaleString()} successfully added!`);
-        setIsAddingFunds(false);
-        setFundAmount('');
+      async (reference) => {
+        try {
+          const token = await auth.currentUser?.getIdToken();
+          const resp = await fetch(`${API_BASE_URL}/api/cinema/verify-wallet-funding?reference=${reference}`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          const result = await resp.json();
+          if (result.success) {
+            toast.success(`₦${parseFloat(fundAmount).toLocaleString()} successfully added!`);
+            setFundAmount('');
+          } else {
+            toast.error(result.message || 'Verification failed. Please contact support.');
+          }
+        } catch (err) {
+          toast.error('Error communicating with server.');
+        } finally {
+          setIsAddingFunds(false);
+        }
       },
       () => {
         setIsAddingFunds(false);
@@ -321,19 +363,22 @@ const Wallet: React.FC = () => {
 
   return (
     <div className="space-y-8 pb-20">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground uppercase tracking-tighter">My Wallet</h1>
-          <p className="text-muted-foreground mt-1 font-medium">Manage funds, tickets, and your virtual card.</p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-1">
+        <div className="space-y-1">
+          <h1 className="text-3xl font-black tracking-tight text-foreground uppercase tracking-tighter">My Secure Wallet</h1>
+          <p className="text-muted-foreground font-bold text-xs uppercase tracking-widest opacity-60">Manage funds, tickets, and your virtual identity.</p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={() => setActiveTab('history')} className="gap-2 border-white/10 rounded-xl h-11 text-xs font-black uppercase">
+          <Button variant="outline" onClick={() => {
+            setActiveTab('history');
+            setScrollToTab('history');
+          }} className="flex-1 md:flex-none gap-2 border-white/10 rounded-xl h-12 text-xs font-black uppercase tracking-widest active:scale-95 transition-all">
             <History className="w-4 h-4" /> History
           </Button>
           <Button onClick={() => {
-            const el = document.getElementById('quick-deposit');
-            el?.scrollIntoView({ behavior: 'smooth' });
-          }} className="gap-2 gradient-bg rounded-xl h-11 text-xs font-black uppercase shadow-lg shadow-primary/20">
+            setActiveTab('overview');
+            setScrollToTab('overview');
+          }} className="flex-1 md:flex-none gap-2 gradient-bg rounded-xl h-12 text-xs font-black uppercase tracking-widest shadow-lg shadow-primary/20 active:scale-95 transition-all">
             <Plus className="w-4 h-4" /> Add Funds
           </Button>
         </div>
@@ -341,49 +386,61 @@ const Wallet: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-1 space-y-6">
-          <motion.div whileHover={{ scale: 1.02 }} className="relative aspect-[1.6/1] w-full rounded-3xl overflow-hidden shadow-2xl">
+          <motion.div whileHover={{ scale: 1.02 }} className="relative aspect-[1.6/1] w-full rounded-[2rem] overflow-hidden shadow-2xl border border-white/5">
             <div className="absolute inset-0 bg-gradient-to-br from-indigo-900 via-slate-900 to-black p-6 flex flex-col justify-between">
               <div className="flex justify-between items-start">
                 <div className="space-y-1">
                   <p className="text-white/40 text-[10px] uppercase font-black tracking-widest">Available Balance</p>
-                  <h2 className="text-3xl font-black text-white">₦{balance.available.toLocaleString()}</h2>
+                  <h2 className="text-3xl font-black text-white tracking-tighter">₦{balance.available.toLocaleString()}</h2>
                 </div>
-                <img src="/logo.png" alt="Aura" className="w-8 h-8 opacity-40" />
+                <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/10">
+                   <img src="/logo.png" alt="Aura" className="w-6 h-6 opacity-80" />
+                </div>
               </div>
               <div className="space-y-3">
                 <p className="text-[7px] uppercase font-black text-white/30 tracking-[0.3em]">Aura ID</p>
-                <div className="flex items-center justify-between">
-                   <p className="font-mono text-white/90 text-sm tracking-[0.2em] flex-1">
+                <div className="flex items-center justify-between gap-4 overflow-hidden bg-black/20 p-2 rounded-xl border border-white/5">
+                   <p className="font-mono text-white/90 text-xs tracking-[0.1em] truncate flex-1 min-w-0">
                      {showFullId ? user?.uid : `**** **** **** ${user?.uid?.slice(-4)}`}
                    </p>
-                   <div className="flex gap-2">
+                   <div className="flex gap-1 shrink-0">
                      <button onClick={() => {
                         navigator.clipboard.writeText(user?.uid || '');
                         toast.success("Aura ID Copied!");
-                     }} className="text-white/40 hover:text-white transition-colors">
-                       <Copy className="w-4 h-4" />
+                     }} className="p-2 text-white/40 hover:text-primary transition-colors">
+                       <Copy className="w-3.5 h-3.5" />
                      </button>
-                     <button onClick={() => setShowFullId(!showFullId)} className="text-white/40 hover:text-white transition-colors">
-                       {showFullId ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                     <button onClick={() => setShowFullId(!showFullId)} className="p-2 text-white/40 hover:text-primary transition-colors">
+                       {showFullId ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                      </button>
                    </div>
                 </div>
-                <p className="text-[10px] font-black text-white uppercase tracking-widest">{user?.displayName || 'Aura Member'}</p>
+                <p className="text-[10px] font-black text-white uppercase tracking-[0.2em] opacity-80 truncate">{user?.displayName || 'Premium Aura Member'}</p>
               </div>
             </div>
           </motion.div>
 
-          <Card id="quick-deposit" className="p-6 glass-card border-white/10 space-y-4">
-            <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Quick Deposit</h3>
-            <div className="space-y-3">
+          <Card id="quick-deposit" className="p-6 glass-card border-white/10 space-y-5 shadow-2xl relative z-10">
+            <div className="flex items-center gap-2">
+               <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+               <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Quick Funding</h3>
+            </div>
+            <div className="space-y-4">
               <div className="relative group">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-muted-foreground group-focus-within:text-primary">₦</span>
-                <input type="text" inputMode="numeric" value={fundAmount} onChange={(e) => setFundAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0.00" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm outline-none focus:border-primary/50" />
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-lg text-muted-foreground group-focus-within:text-primary transition-colors">₦</span>
+                <input 
+                  type="text" 
+                  inputMode="numeric" 
+                  value={fundAmount} 
+                  onChange={(e) => setFundAmount(e.target.value.replace(/[^0-9.]/g, ''))} 
+                  placeholder="0.00" 
+                  className="w-full bg-black/40 border border-white/10 rounded-2xl py-4 pl-10 pr-4 text-lg font-black outline-none focus:border-primary/50 transition-all" 
+                />
               </div>
-              <Button onClick={handleAddFunds} disabled={isAddingFunds} className="w-full gradient-bg h-12 font-black uppercase text-[10px] tracking-widest">
-                {isAddingFunds ? 'Processing...' : 'Pay with Paystack'}
+              <Button onClick={handleAddFunds} disabled={isAddingFunds} className="w-full gradient-bg h-14 font-black uppercase text-[11px] tracking-[0.2em] shadow-xl shadow-primary/10">
+                {isAddingFunds ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Pay with Paystack'}
               </Button>
-              <p className="text-[8px] text-center text-muted-foreground mt-2 uppercase tracking-widest">Funds are used for tickets & snacks. 100% Refundable.</p>
+              <p className="text-[8px] text-center text-muted-foreground uppercase font-bold tracking-[0.1em] leading-relaxed">Secured via encrypted gateway. 100% full refund policy active.</p>
             </div>
           </Card>
         </div>
@@ -404,7 +461,19 @@ const Wallet: React.FC = () => {
 
           <AnimatePresence mode="wait">
             {activeTab === 'overview' && (
-              <motion.div key="tickets" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+              <motion.div 
+                key="tickets" 
+                initial={{ opacity: 0, x: 20 }} 
+                animate={{ opacity: 1, x: 0 }} 
+                exit={{ opacity: 0, x: -20 }} 
+                className="space-y-6"
+                onAnimationStart={() => {
+                  if (scrollToTab === 'overview') {
+                    document.getElementById('quick-deposit')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    setScrollToTab(null);
+                  }
+                }}
+              >
                 {myTickets.length > 0 ? myTickets.map(ticket => (
                   <Card key={ticket.id} className="glass-card border-white/5 relative overflow-hidden flex flex-col md:flex-row shadow-xl group/ticket">
                      {/* Stub Side */}
@@ -484,8 +553,22 @@ const Wallet: React.FC = () => {
             )}
 
             {activeTab === 'history' && (
-              <motion.div key="history" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
+              <motion.div 
+                id="transaction-history" 
+                key="history" 
+                initial={{ opacity: 0, x: 20 }} 
+                animate={{ opacity: 1, x: 0 }} 
+                exit={{ opacity: 0, x: -20 }} 
+                className="space-y-4"
+                onAnimationStart={() => {
+                  if (scrollToTab === 'history') {
+                    document.getElementById('transaction-history')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    setScrollToTab(null);
+                  }
+                }}
+              >
                  <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground mb-4">Transaction History</h3>
+
                  <div className="space-y-3">
                    {paginatedTransactions.map(tx => (
                      <div key={tx.id} className="p-4 rounded-xl glass-card border-white/5 flex items-center justify-between group hover:bg-white/[0.02] transition-colors">
@@ -637,7 +720,7 @@ const Wallet: React.FC = () => {
                                   </div>
                                </div>
 
-                               <div className="space-y-2 relative" ref={dropdownRef}>
+                               <div className="space-y-2 relative z-[100]" ref={dropdownRef}>
                                   <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select Your Bank</label>
                                   <div className="relative group">
                                     <Building className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -647,6 +730,7 @@ const Wallet: React.FC = () => {
                                       onChange={e => {
                                         setBankQuery(e.target.value);
                                         setBankDetails({...bankDetails, bankName: e.target.value, bankCode: ''});
+                                        if (!showBankDropdown) setShowBankDropdown(true);
                                       }} 
                                       placeholder="Search bank name..." 
                                       className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-11 pr-12 text-sm outline-none focus:border-primary/50" 
@@ -681,39 +765,39 @@ const Wallet: React.FC = () => {
                                   <AnimatePresence>
                                     {showBankDropdown && (
                                       <motion.div 
-                                        initial={{ opacity: 0, y: 10 }}
+                                        initial={{ opacity: 0, y: 5 }}
                                         animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, y: 10 }}
-                                        className="absolute z-50 left-0 right-0 top-full mt-2 max-h-60 overflow-y-auto glass-card border-white/10 bg-zinc-900 shadow-2xl custom-scrollbar"
+                                        exit={{ opacity: 0, y: 5 }}
+                                        className="absolute z-[110] left-0 right-0 top-full mt-2 max-h-64 overflow-y-auto bg-[#0f172a] border border-white/10 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-xl custom-scrollbar"
                                       >
                                         {filteredBanks.length > 0 ? filteredBanks.map((bank, i) => (
                                           <button
-                                            key={i}
+                                            key={`${bank.code || 'bank'}-${i}`}
                                             type="button"
                                             onClick={() => {
                                               setBankDetails({...bankDetails, bankName: bank.name, bankCode: bank.code});
                                               setBankQuery(bank.name);
                                               setShowBankDropdown(false);
                                             }}
-                                            className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-primary/10 transition-colors border-b border-white/5 last:border-0 flex items-center gap-3"
+                                            className="w-full text-left px-4 py-3.5 text-xs font-bold hover:bg-primary/10 transition-colors border-b border-white/5 last:border-0 flex items-center gap-3 group/item"
                                           >
-                                            <div className="relative w-7 h-7 shrink-0">
-                                               <div className="absolute inset-0 rounded-full bg-primary/20 flex items-center justify-center text-[9px] font-black text-primary">
+                                            <div className="relative w-8 h-8 shrink-0">
+                                               <div className="absolute inset-0 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-black text-primary group-hover/item:bg-primary/30 transition-colors">
                                                   {bank.name.substring(0, 2).toUpperCase()}
                                                </div>
                                                {bank.slug && (
                                                   <img 
                                                     src={`https://raw.githubusercontent.com/iam-kevin/nigerian-banks-logos/master/logos/${bank.slug}.png`} 
-                                                    className="absolute inset-0 w-full h-full rounded-full object-contain bg-white border border-white/10" 
+                                                    className="absolute inset-0 w-full h-full rounded-full object-contain bg-white border border-white/10 shadow-sm" 
                                                     alt=""
                                                     onError={(e) => (e.target as any).style.display = 'none'}
                                                   />
                                                )}
                                             </div>
-                                            <span className="flex-1 truncate">{bank.name}</span>
+                                            <span className="flex-1 truncate text-white/90 group-hover/item:text-primary transition-colors">{bank.name}</span>
                                           </button>
-                                        )) : bankSearch && (
-                                          <div className="p-4 text-center text-[10px] text-muted-foreground italic">No matching bank found.</div>
+                                        )) : (
+                                          <div className="p-6 text-center text-[10px] text-muted-foreground uppercase font-black tracking-widest italic opacity-50">No matching bank found.</div>
                                         )}
                                       </motion.div>
                                     )}

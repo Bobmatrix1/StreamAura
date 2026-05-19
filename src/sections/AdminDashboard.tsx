@@ -31,7 +31,8 @@ import {
   Store,
   Film,
   Banknote,
-  Handshake
+  Handshake,
+  MapPin
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -740,47 +741,129 @@ const AdminDashboard: React.FC = () => {
               })}
             </div>
           ) : activeTab === 'traffic' ? (
-            <div className="space-y-6 p-4">
-              <div className="flex items-center justify-between px-2">
-                <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-orange-400" /> Live System Activity
+            <div className="p-6 space-y-10">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-black uppercase tracking-[0.3em] text-muted-foreground flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-orange-500" /> Global Traffic Intel
                 </h3>
-                <button onClick={loadStats} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-all">
-                  <RefreshCcw className="w-4 h-4 text-muted-foreground" />
+                <button onClick={loadStats} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all border border-white/10 group">
+                  <RefreshCcw className={`w-4 h-4 text-primary group-hover:rotate-180 transition-transform duration-500`} />
                 </button>
               </div>
 
-              <div className="grid gap-3">
-                {stats?.topUsers.flatMap(u => u.recentActivity.map(a => ({ ...a, user: u }))).sort((a, b) => b.timestamp - a.timestamp).slice(0, 30).map((act, idx) => (
-                  <div key={idx} className="glass-card p-4 flex items-center gap-4 border-white/5 hover:bg-white/[0.03] transition-all">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                      act.action === 'download' ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400'
-                    }`}>
-                      {act.action === 'download' ? <Download className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              {/* 1. Geographic & Device Distribution */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                 {/* Top Countries */}
+                 <div className="glass-card p-6 space-y-4 border-white/5">
+                    <h4 className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2"><Globe className="w-3.5 h-3.5" /> Top Countries</h4>
+                    <div className="space-y-3">
+                       {stats?.topCountries.map((c, i) => (
+                         <div key={i} className="space-y-1.5">
+                            <div className="flex justify-between text-xs font-bold uppercase"><span className="text-white/80">{c.country}</span><span className="text-primary">{c.count}</span></div>
+                            <div className="h-1 bg-white/5 rounded-full overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${(c.count / (stats?.totalVisits || 1)) * 100}%` }} className="h-full bg-primary" /></div>
+                         </div>
+                       ))}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm truncate">{act.title}</span>
-                        <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-muted-foreground">
-                          {act.platform}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                        <span className="font-bold text-primary">{act.user.name}</span>
-                        <span>•</span>
-                        <span>{act.action === 'download' ? 'Downloaded' : 'Watched'}</span>
-                        <span>•</span>
-                        <span>{new Date(act.timestamp).toLocaleTimeString()}</span>
-                      </div>
+                 </div>
+
+                 {/* Top States */}
+                 <div className="glass-card p-6 space-y-4 border-white/5">
+                    <h4 className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2"><MapPin className="w-3.5 h-3.5 text-blue-400" /> Top States/Regions</h4>
+                    <div className="space-y-3">
+                       {stats?.topStates.map((s, i) => (
+                         <div key={i} className="space-y-1.5">
+                            <div className="flex justify-between text-xs font-bold uppercase"><span className="text-white/80">{s.state}</span><span className="text-blue-400">{s.count}</span></div>
+                            <div className="h-1 bg-white/5 rounded-full overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${(s.count / (stats?.totalVisits || 1)) * 100}%` }} className="h-full bg-blue-500" /></div>
+                         </div>
+                       ))}
                     </div>
-                  </div>
-                ))}
-                {(!stats?.topUsers || stats.topUsers.length === 0) && (
-                  <div className="py-20 text-center opacity-50">
-                    <Activity className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                    <p className="text-sm font-bold uppercase tracking-widest">No recent activity detected</p>
-                  </div>
-                )}
+                 </div>
+
+                 {/* Device Distribution */}
+                 <div className="glass-card p-6 space-y-4 border-white/5">
+                    <h4 className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2"><Smartphone className="w-3.5 h-3.5 text-emerald-400" /> Device Distribution</h4>
+                    <div className="space-y-3">
+                       {stats?.topDevices.map((d, i) => (
+                         <div key={i} className="space-y-1.5">
+                            <div className="flex justify-between text-xs font-bold uppercase items-center gap-2">
+                               <div className="flex items-center gap-2">{getDeviceIcon(d.device)} <span className="text-white/80 truncate">{d.device}</span></div>
+                               <span className="text-emerald-400">{d.count}</span>
+                            </div>
+                            <div className="h-1 bg-white/5 rounded-full overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${(d.count / (stats?.totalVisits || 1)) * 100}%` }} className="h-full bg-emerald-500" /></div>
+                         </div>
+                       ))}
+                    </div>
+                 </div>
+              </div>
+
+              {/* 2. Page Ranking & Engagement */}
+              <div className="glass-card overflow-hidden border-white/5 bg-black/20">
+                 <div className="p-6 border-b border-white/5"><h4 className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2"><TrendingUp className="w-3.5 h-3.5 text-purple-400" /> Page Ranking & Engagement</h4></div>
+                 <Table>
+                    <TableHeader className="bg-white/[0.02] border-white/5">
+                       <TableRow>
+                          <TableHead className="text-[10px] font-black uppercase tracking-widest">Ranked Page</TableHead>
+                          <TableHead className="text-[10px] font-black uppercase tracking-widest text-center">Visits</TableHead>
+                          <TableHead className="text-[10px] font-black uppercase tracking-widest text-center">Avg Engagement</TableHead>
+                          <TableHead className="text-[10px] font-black uppercase tracking-widest text-right">Popularity</TableHead>
+                       </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                       {stats?.pageVisitsRanked.map((pv, i) => (
+                         <TableRow key={i} className="border-white/5 hover:bg-white/[0.01]">
+                            <TableCell className="font-bold text-xs uppercase tracking-tight text-white/90">{pv.page}</TableCell>
+                            <TableCell className="text-center font-black text-xs text-primary">{pv.count}</TableCell>
+                            <TableCell className="text-center"><Badge variant="outline" className="text-[9px] border-white/10 bg-white/5">{pv.avgTimeSpent}s / view</Badge></TableCell>
+                            <TableCell className="text-right">
+                               <div className="w-24 h-1 bg-white/5 rounded-full ml-auto overflow-hidden"><div className="h-full bg-primary" style={{ width: `${(pv.count / (stats?.totalVisits || 1)) * 100}%` }} /></div>
+                            </TableCell>
+                         </TableRow>
+                       ))}
+                    </TableBody>
+                 </Table>
+              </div>
+
+              {/* 3. Business Intelligence Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                 {/* User Behavior */}
+                 <div className="p-6 glass-card border-white/5 space-y-4">
+                    <h4 className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Behavior Signals</h4>
+                    <div className="space-y-4">
+                       <div className="flex justify-between items-center"><span className="text-xs font-bold text-white/60">Total Clicks</span><span className="text-lg font-black text-white">{formatNumber(stats?.userBehavior.clicks)}</span></div>
+                       <div className="flex justify-between items-center"><span className="text-xs font-bold text-white/60">Total Taps</span><span className="text-lg font-black text-white">{formatNumber(stats?.userBehavior.taps)}</span></div>
+                       <div className="flex justify-between items-center"><span className="text-xs font-bold text-rose-400">Abandonments</span><span className="text-lg font-black text-rose-500">{formatNumber(stats?.userBehavior.abandonedActions)}</span></div>
+                    </div>
+                 </div>
+
+                 {/* Payment Intelligence */}
+                 <div className="p-6 glass-card border-white/5 space-y-4">
+                    <h4 className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Payment Health</h4>
+                    <div className="space-y-4">
+                       <div className="flex justify-between items-center"><span className="text-xs font-bold text-white/60">Success</span><span className="text-lg font-black text-emerald-400">{stats?.paymentStats.successful}</span></div>
+                       <div className="flex justify-between items-center"><span className="text-xs font-bold text-white/60">Failed</span><span className="text-lg font-black text-rose-400">{stats?.paymentStats.failed}</span></div>
+                       <div className="pt-2 border-t border-white/5 flex justify-between items-center"><span className="text-[10px] font-black text-muted-foreground">Conv Rate</span><span className="text-sm font-black text-primary">{stats?.paymentStats.rate}%</span></div>
+                    </div>
+                 </div>
+
+                 {/* Room & Invites */}
+                 <div className="p-6 glass-card border-white/5 space-y-4">
+                    <h4 className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Social Velocity</h4>
+                    <div className="space-y-4">
+                       <div className="flex justify-between items-center"><span className="text-xs font-bold text-white/60">Invites Sent</span><span className="text-lg font-black text-blue-400">{stats?.inviteStats.sent}</span></div>
+                       <div className="flex justify-between items-center"><span className="text-xs font-bold text-white/60">Accepted</span><span className="text-lg font-black text-emerald-400">{stats?.inviteStats.accepted}</span></div>
+                       <div className="pt-2 border-t border-white/5 flex justify-between items-center"><span className="text-[10px] font-black text-muted-foreground">Accept Rate</span><span className="text-sm font-black text-primary">{stats?.inviteStats.rate}%</span></div>
+                    </div>
+                 </div>
+
+                 {/* Live Status */}
+                 <div className="p-6 glass-card border-white/5 space-y-4">
+                    <h4 className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Cloud Pulse</h4>
+                    <div className="space-y-4">
+                       <div className="flex justify-between items-center"><span className="text-xs font-bold text-white/60">Active Rooms</span><Badge className="bg-rose-500 font-black text-[10px]">{stats?.liveSystem.activeRooms}</Badge></div>
+                       <div className="flex justify-between items-center"><span className="text-xs font-bold text-white/60">R2 Movies</span><span className="text-lg font-black text-white">{stats?.liveSystem.totalMoviesR2}</span></div>
+                       <div className="pt-2 border-t border-white/5 flex justify-between items-center"><span className="text-[10px] font-black text-muted-foreground">Watch Logs</span><span className="text-sm font-black text-primary">{formatNumber(stats?.watchHistoryCount)}</span></div>
+                    </div>
+                 </div>
               </div>
             </div>
           ) : activeTab === 'messages' ? (

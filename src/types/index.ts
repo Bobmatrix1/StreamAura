@@ -106,7 +106,7 @@ export interface Toast {
 }
 
 // App state types
-export type ViewType = MediaType | 'home' | 'bulk' | 'history' | 'admin' | 'notifications' | 'about' | 'privacy' | 'contact' | 'cinema' | 'wallet' | 'referral';
+export type ViewType = MediaType | 'home' | 'bulk' | 'history' | 'admin' | 'notifications' | 'about' | 'privacy' | 'contact' | 'cinema' | 'wallet' | 'referral' | 'games';
 
 export interface AppState {
   isAuthenticated: boolean;

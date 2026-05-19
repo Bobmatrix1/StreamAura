@@ -30,7 +30,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { CinemaStoreModal } from './CinemaStoreModal';
 import { API_BASE_URL } from '../api/mediaApi';
-import { uploadFile, auth, db } from '../lib/firebase';
+import { auth, db, uploadFile, logUserAction, logPaymentEvent, logInviteEvent } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { initializePaystackPayment, verifyPaymentOnBackend } from '../api/paymentApi';
 import { CinemaLiveRoom } from './CinemaLiveRoom';
@@ -91,6 +91,7 @@ const CinemaRoom: React.FC = () => {
     const triggerCreate = params.get('create');
 
     if (roomId) {
+      logInviteEvent('accepted', roomId, auth.currentUser?.uid);
       handleJoinRoomById(roomId);
     }
 
@@ -634,8 +635,16 @@ const CinemaRoom: React.FC = () => {
       }
       
       const result = await response.json();
-      showSuccess(`Cinema Room Created!${result.invite_link ? ` Invite: ${result.invite_link}` : ''}`);
+
+      const totalPaid = costs.total;
+      if (totalPaid > 0) {
+      logPaymentEvent('success', totalPaid, { roomType, contentType, episodes: episodes.length }, auth.currentUser?.uid);
+      showSuccess(`Cinema Room Active!${result.invite_link ? ` Invite: ${result.invite_link}` : ''}`);
+      } else {
+      showSuccess(`Cinema Room Active!${result.invite_link ? ` Invite: ${result.invite_link}` : ''}`);
+      }
       setIsCreateModalOpen(false);
+
     } catch (err: any) {
       showError(err.message || 'Error creating room.');
     } finally {
@@ -646,7 +655,8 @@ const CinemaRoom: React.FC = () => {
   const handleGoToWallet = () => {
     setInsufficientFunds(null);
     setIsCreateModalOpen(false);
-    window.location.href = '/?tab=wallet';
+    sessionStorage.setItem('wallet_action', 'deposit');
+    window.dispatchEvent(new CustomEvent('navigate', { detail: { view: 'wallet' } }));
   };
 
   const handlePrivateGuestChange = (index: number, value: string) => {
@@ -678,6 +688,13 @@ const CinemaRoom: React.FC = () => {
   if (activeRoom) {
     return <CinemaLiveRoom roomId={activeRoom.id} roomData={activeRoom} onLeave={() => setActiveRoom(null)} />;
   }
+
+  const closeCreateModal = () => {
+    if (roomName.trim() || movieTitle.trim()) {
+      logUserAction('room_creation_abandoned', 'cinema', { roomName, movieTitle }, auth.currentUser?.uid);
+    }
+    setIsCreateModalOpen(false);
+  };
 
   return (
     <div className="space-y-6 md:space-y-8 pb-20 relative overflow-x-hidden">
@@ -985,7 +1002,7 @@ const CinemaRoom: React.FC = () => {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                onClick={() => setIsCreateModalOpen(false)}
+                onClick={closeCreateModal}
                 className="fixed inset-0 bg-black/90 backdrop-blur-md z-[2000]"
               />
               <motion.div
@@ -998,7 +1015,7 @@ const CinemaRoom: React.FC = () => {
                   <div className="sticky top-0 bg-background/90 backdrop-blur-xl border-b border-white/10 p-8 flex flex-col items-center text-center z-20 relative">
                     <button 
                       type="button"
-                      onClick={() => setIsCreateModalOpen(false)} 
+                      onClick={closeCreateModal} 
                       className="absolute right-6 top-6 p-2 rounded-full hover:bg-white/10 transition-all hover:rotate-90 group"
                     >
                       <X className="w-5 h-5 text-muted-foreground group-hover:text-white" />

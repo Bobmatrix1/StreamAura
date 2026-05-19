@@ -27,7 +27,8 @@ import {
   Tv,
   Wallet,
   Share2,
-  Home
+  Home,
+  Gamepad2
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -56,6 +57,7 @@ const tabs: Tab[] = [
   { id: 'music', label: 'Music', icon: Music, color: 'orange' },
   { id: 'movie', label: 'Movies', icon: Film, color: 'cyan' },
   { id: 'cinema', label: 'Cinema Room', icon: Tv, color: 'purple' },
+  { id: 'games', label: 'Game Room', icon: Gamepad2, color: 'yellow' },
   { id: 'wallet', label: 'Wallet', icon: Wallet, color: 'emerald' },
   { id: 'referral', label: 'Refer & Earn', icon: Share2, color: 'orange' },
   { id: 'bulk', label: 'Bulk Download', icon: List, color: 'purple' },
@@ -193,7 +195,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
               indigo: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20 shadow-indigo-500/10',
               emerald: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shadow-emerald-500/10',
               fuchsia: 'bg-fuchsia-500/10 text-fuchsia-500 border-fuchsia-500/20 shadow-fuchsia-500/10',
-              lime: 'bg-lime-500/10 text-lime-500 border-lime-500/20 shadow-lime-500/10'
+              lime: 'bg-lime-500/10 text-lime-500 border-lime-500/20 shadow-lime-500/10',
+              yellow: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20 shadow-yellow-500/10'
             };
 
             const activeClass = colorClasses[tab.color] || colorClasses.blue;

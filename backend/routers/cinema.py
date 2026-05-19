@@ -18,6 +18,54 @@ router = APIRouter()
 def get_db():
     return firestore.client()
 
+@router.post("/verify-wallet-funding")
+async def verify_wallet_funding(reference: str, user: dict = Depends(get_current_user)):
+    """
+    Verify Paystack transaction for wallet funding and update balance.
+    """
+    db = get_db()
+    try:
+        response = await verify_transaction(reference)
+        
+        if response["data"]["status"] == "success":
+            amount_kobo = response["data"]["amount"]
+            amount_naira = amount_kobo / 100
+            
+            # Check if transaction was already processed
+            tx_ref = db.collection("transactions").document(reference)
+            tx_doc = tx_ref.get()
+            if tx_doc.exists and tx_doc.to_dict().get("status") == "completed":
+                return {"success": True, "message": "Already processed"}
+                
+            # Update user's wallet
+            wallet_ref = db.collection("room_wallets").document(user["uid"])
+            wallet_ref.set({"balance": firestore.Increment(amount_naira)}, merge=True)
+            
+            # Save transaction
+            tx_ref.set({
+                "user_uid": user["uid"],
+                "type": "deposit",
+                "amount": amount_naira,
+                "title": "Wallet Top-up via Paystack",
+                "status": "completed",
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "reference": reference
+            })
+            
+            # Update global analytics
+            stats_ref = db.collection('system_analytics').document('global_counters')
+            stats_ref.set({
+                "payments.success.count": firestore.Increment(1),
+                "payments.success.totalAmount": firestore.Increment(amount_naira),
+                "actions.deposit": firestore.Increment(1)
+            }, merge=True)
+            
+            return {"success": True, "amount": amount_naira}
+        else:
+            raise HTTPException(status_code=400, detail="Payment verification failed")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/banks")
 async def fetch_bank_list():
     """

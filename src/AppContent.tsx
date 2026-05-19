@@ -7,6 +7,7 @@ import VideoDownloader from '@/sections/VideoDownloader';
 import MusicDownloader from '@/sections/MusicDownloader';
 import MovieDownloader from '@/sections/MovieDownloader';
 import CinemaRoom from '@/sections/CinemaRoom';
+import Games from '@/sections/Games';
 import Wallet from '@/sections/Wallet';
 import Referral from '@/sections/Referral';
 import BulkDownloader from '@/sections/BulkDownloader';
@@ -17,7 +18,7 @@ import About from '@/sections/About';
 import PrivacyPolicy from '@/sections/PrivacyPolicy';
 import ContactUs from '@/sections/ContactUs';
 import InstallPWA from '@/components/InstallPWA';
-import { logVisit, updateUserPresence, logFeatureUsage, requestNotificationPermission, listenToNotifications } from '@/lib/firebase';
+import { logVisit, updateUserPresence, logFeatureUsage, requestNotificationPermission, listenToNotifications, logPageVisit, auth, logUserAction } from '@/lib/firebase';
 import { API_BASE_URL } from '@/api/mediaApi';
 import type { ViewType } from '@/types';
 
@@ -29,54 +30,71 @@ export const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading, isAdmin, user } = useAuth();
   
   const [activeView, setActiveView] = useState<ViewType>('home');
+  const [viewStartTime, setViewStartTime] = useState(Date.now());
 
   // URL Parameter Sync
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as ViewType;
-    if (tab && ['home', 'video', 'music', 'movie', 'cinema', 'wallet', 'bulk', 'admin', 'notifications', 'history', 'referral'].includes(tab)) {
-      setActiveView(tab);
-    }
-
-    // Handle Referral Code
+    const allowedTabs = ['home', 'video', 'music', 'movie', 'cinema', 'games', 'wallet', 'bulk', 'admin', 'notifications', 'history', 'referral', 'about', 'privacy', 'contact'];
+    
+    // Handle Referral Code FIRST so it's captured even if routing changes
     const refCode = params.get('ref');
     if (refCode) {
       localStorage.setItem('aura_referral_code', refCode);
+      // Carefully remove just the 'ref' parameter to keep other routing params intact
+      params.delete('ref');
+      const newUrl = window.location.pathname + (params.toString() ? `?${params.toString()}` : '');
+      window.history.replaceState({}, '', newUrl);
+    }
+
+    if (tab && allowedTabs.includes(tab)) {
+      setActiveView(tab);
+      // Clear tab from URL so manual refresh resets to Home
+      window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
 
-  // Scroll to top on navigation
+  // Custom Navigation Event Listener
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [activeView]);
+    const handleCustomNav = (e: any) => {
+      if (e.detail?.view) {
+        handleTabChange(e.detail.view as ViewType);
+      }
+    };
+    window.addEventListener('navigate', handleCustomNav);
+    return () => window.removeEventListener('navigate', handleCustomNav);
+  }, [viewStartTime, activeView]);
 
-  // 1. Track Initial Visit
+  // 1. Track Initial Visit (Geographic & Device Intel)
   useEffect(() => {
     const trackVisit = async () => {
       try {
         let country = 'Unknown';
+        let state = 'Unknown';
         let device = 'Desktop';
         
         try {
-          const response = await fetch(`${API_BASE_URL}/api/analytics/country`);
+          const response = await fetch(`${API_BASE_URL}/api/analytics/location`);
           if (response.ok) {
             const data = await response.json();
             country = data.country || 'Unknown';
+            state = data.region || 'Unknown';
             device = data.device || 'Desktop';
           }
         } catch (backendErr) {
           if (window.location.hostname === 'localhost') country = 'Localhost';
         }
         
-        // Pass user uid if already authenticated
-        await logVisit(country, device, user?.uid);
+        await logVisit(country, state, device, auth.currentUser?.uid);
       } catch (err) {
         console.warn('Analytics logging skipped');
       }
     };
     
     trackVisit();
-  }, [user?.uid]);
+    logPageVisit(activeView, auth.currentUser?.uid, 0);
+  }, [auth.currentUser?.uid]);
 
   // 2. Real-time Presence, Badges, and Notifications
   useEffect(() => {
@@ -95,7 +113,7 @@ export const AppContent: React.FC = () => {
       // Presence Sync
       const syncPresence = async () => {
         try {
-          const resp = await fetch(`${API_BASE_URL}/api/analytics/country`);
+          const resp = await fetch(`${API_BASE_URL}/api/analytics/location`);
           const data = await resp.json();
           updateUserPresence(user.uid, data.device || 'Desktop');
         } catch (e) {
@@ -117,11 +135,52 @@ export const AppContent: React.FC = () => {
   }, [isAuthenticated, user?.uid]);
 
   const handleTabChange = (tab: ViewType) => {
+    // 1. Log time spent on previous page
+    const timeSpent = Date.now() - viewStartTime;
+    logPageVisit(activeView, auth.currentUser?.uid, timeSpent);
+
+    // 2. Switch View
     setActiveView(tab);
+    setViewStartTime(Date.now());
+    
+    // 3. Scroll the main content area to top (since main has overflow-auto)
+    setTimeout(() => {
+      const mainEl = document.querySelector('main');
+      if (mainEl) {
+        mainEl.scrollTo({ top: 0, behavior: 'instant' });
+      }
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }, 50);
+
     if (isAuthenticated && user?.uid) {
       logFeatureUsage(tab, user.uid);
     }
   };
+
+  // Global Interaction Tracking
+  useEffect(() => {
+    const handleGlobalClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const details = {
+        tagName: target.tagName,
+        text: target.innerText?.substring(0, 30),
+        id: target.id,
+        className: target.className
+      };
+      logUserAction('click', activeView, details, auth.currentUser?.uid);
+    };
+
+    window.addEventListener('click', handleGlobalClick);
+    return () => window.removeEventListener('click', handleGlobalClick);
+  }, [activeView, auth.currentUser?.uid]);
+
+  // Final Unmount Tracking
+  useEffect(() => {
+    return () => {
+      const timeSpent = Date.now() - viewStartTime;
+      logPageVisit(activeView, auth.currentUser?.uid, timeSpent);
+    };
+  }, []);
 
   if (isLoading) {
     return (
@@ -171,11 +230,11 @@ export const AppContent: React.FC = () => {
           </div>
 
           {/* Typography */}
-          <div className="mt-8 text-center">
+          <div className="mt-8 text-center px-6">
             <motion.h1 
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-4xl font-black uppercase tracking-[0.4em] text-white ml-[0.4em]"
+              className="text-3xl md:text-4xl font-black uppercase tracking-widest md:tracking-[0.4em] text-white ml-[0.1em] md:ml-[0.4em]"
             >
               Stream<span className="text-primary italic">Aura</span>
             </motion.h1>
@@ -213,6 +272,7 @@ export const AppContent: React.FC = () => {
             {activeView === 'music' && <MusicDownloader />}
             {activeView === 'movie' && <MovieDownloader />}
             {activeView === 'cinema' && <CinemaRoom />}
+            {activeView === 'games' && <Games />}
             {activeView === 'wallet' && <Wallet />}
             {activeView === 'bulk' && <BulkDownloader />}
             {activeView === 'referral' && <Referral />}

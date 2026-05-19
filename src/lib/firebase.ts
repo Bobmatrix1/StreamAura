@@ -398,19 +398,76 @@ export const getUserHistory = async (userId: string, limitCount = 50): Promise<H
   }
 };
 
-export const logVisit = async (country: string, device: string = 'Unknown', userId?: string): Promise<void> => {
+export const logVisit = async (country: string, state: string = 'Unknown', device: string = 'Unknown', userId?: string): Promise<void> => {
   try {
-    const visitsRef = collection(db, 'visits');
-    await addDoc(visitsRef, {
-      country, device, timestamp: serverTimestamp(),
+    const batch = writeBatch(db);
+    const visitsRef = doc(collection(db, 'visits'));
+    batch.set(visitsRef, {
+      country, state, device, timestamp: serverTimestamp(),
       hour: new Date().getHours(), platform: navigator.platform,
       userId: userId || 'anonymous'
     });
 
+    // Atomic Increment for Stats (Reduces Reads later)
+    const statsRef = doc(db, 'system_analytics', 'global_counters');
+    batch.set(statsRef, { 
+      totalVisits: increment(1),
+      [`countries.${country}`]: increment(1),
+      [`states.${state}`]: increment(1),
+      [`devices.${device}`]: increment(1)
+    }, { merge: true });
+
     if (userId && userId !== 'anonymous') {
       const userRef = doc(db, 'users', userId);
-      await updateDoc(userRef, { visitCount: increment(1) });
+      batch.update(userRef, { visitCount: increment(1) });
     }
+    await batch.commit();
+  } catch (error) {}
+};
+
+export const logPageVisit = async (page: string, _userId?: string, timeSpentMs?: number): Promise<void> => {
+  if (timeSpentMs && timeSpentMs < 1000) return; // Ignore accidental bounces < 1s
+  try {
+    const statsRef = doc(db, 'system_analytics', 'global_counters');
+    await setDoc(statsRef, { 
+      [`pages.${page}.count`]: increment(1),
+      [`pages.${page}.totalTime`]: increment(timeSpentMs || 0)
+    }, { merge: true });
+  } catch (error) {}
+};
+
+export const logUserAction = async (action: string, _page: string, _details?: any, _userId?: string): Promise<void> => {
+  // Only log high-value actions to save Write costs
+  const highValueActions = ['download', 'create_room', 'purchase', 'referral_click', 'room_creation_abandoned'];
+  if (!highValueActions.includes(action)) return;
+
+  try {
+    const statsRef = doc(db, 'system_analytics', 'global_counters');
+    await setDoc(statsRef, { 
+      [`actions.${action}`]: increment(1)
+    }, { merge: true });
+  } catch (error) {}
+};
+
+export const logPaymentEvent = async (status: 'success' | 'failed', amount: number, _details: any, _userId?: string): Promise<void> => {
+  try {
+    const statsRef = doc(db, 'system_analytics', 'global_counters');
+    await setDoc(statsRef, { 
+      [`payments.${status}.count`]: increment(1),
+      [`payments.${status}.totalAmount`]: increment(status === 'success' ? amount : 0)
+    }, { merge: true });
+  } catch (error) {}
+};
+
+export const logInviteEvent = async (action: 'sent' | 'accepted', roomId: string, userId?: string): Promise<void> => {
+  try {
+    const inviteEventsRef = collection(db, 'invite_events');
+    await addDoc(inviteEventsRef, {
+      action,
+      roomId,
+      userId: userId || 'anonymous',
+      timestamp: serverTimestamp()
+    });
   } catch (error) {}
 };
 
@@ -481,97 +538,123 @@ export const updateUserPresence = async (uid: string, device?: string): Promise<
 };
 
 export interface SystemStats {
-  totalUsers: number; totalVisits: number; onlineNow: number; dailyActiveUsers: number;
+  totalUsers: number; 
+  totalVisits: number; 
+  onlineNow: number; 
+  dailyActiveUsers: number;
   topCountries: { country: string; count: number }[];
+  topStates: { state: string; count: number }[];
   topUsers: { email: string; name: string; visits: number; timeSpent: number; recentActivity: any[] }[];
   featureUsage: { feature: string; count: number }[];
   topSearches: { query: string; count: number }[];
   topMovies: { title: string; watches: number; downloads: number }[];
   peakHours: { hour: number; display: string; count: number }[];
   topPlatforms: { platform: string; count: number }[];
+  topDevices: { device: string; count: number }[];
+  
+  // High-Fidelity Additions
+  pageVisitsRanked: { page: string; count: number; avgTimeSpent: number }[];
+  userBehavior: { clicks: number; taps: number; abandonedActions: number };
+  watchHistoryCount: number;
+  roomCreationStats: { total: number; frequency: string }; // frequency e.g. "5/day"
+  inviteStats: { sent: number; accepted: number; rate: number };
+  snackPurchases: { total: number; amount: number };
+  paymentStats: { successful: number; failed: number; rate: number };
+  liveSystem: { activeRooms: number; totalMoviesR2: number };
 }
 
 export const getStatsSummary = async (): Promise<SystemStats> => {
   try {
+    const statsDoc = await getDoc(doc(db, 'system_analytics', 'global_counters'));
+    const data = statsDoc.exists() ? statsDoc.data() : {};
+    
+    // Live counts that still need direct queries (small collections)
     const usersRef = collection(db, 'users');
-    const visitsRef = collection(db, 'visits');
-    const featuresRef = collection(db, 'feature_usage');
-    const searchesRef = collection(db, 'searches');
-    const interactionsRef = collection(db, 'interactions');
-    const historyRef = collection(db, 'downloads');
+    const roomsRef = collection(db, 'cinema_rooms');
+    const moviesRef = collection(db, 'movies');
     
-    const twoHoursAgo = new Date(Date.now() - 120 * 60 * 1000);
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // Time windows for activity
+    const tenMinutesAgo = Timestamp.fromMillis(Date.now() - 10 * 60 * 1000);
+    const twentyFourHoursAgo = Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
     
-    const [usersCount, visitsCount, onlineSnapshot, dailySnapshot, visitsSnapshot, usersSnapshot, featuresSnapshot, searchesSnapshot, interactionsSnapshot, historySnapshot] = await Promise.all([
+    const [usersCount, liveRoomsSnap, moviesCount, onlineCount, dailyCount] = await Promise.all([
       getCountFromServer(usersRef),
-      getCountFromServer(visitsRef),
-      getDocs(query(usersRef, where('lastActive', '>=', Timestamp.fromDate(twoHoursAgo)))),
-      getDocs(query(usersRef, where('lastActive', '>=', Timestamp.fromDate(twentyFourHoursAgo)))),
-      getDocs(query(visitsRef, orderBy('timestamp', 'desc'), limit(200))),
-      getDocs(query(usersRef, orderBy('totalTimeMinutes', 'desc'), limit(20))),
-      getDocs(query(featuresRef, orderBy('timestamp', 'desc'), limit(200))),
-      getDocs(query(searchesRef, orderBy('timestamp', 'desc'), limit(200))),
-      getDocs(query(interactionsRef, orderBy('timestamp', 'desc'), limit(200))),
-      getDocs(query(historyRef, orderBy('downloadedAt', 'desc'), limit(200)))
+      getDocs(query(roomsRef, where('status', '==', 'live'))),
+      getCountFromServer(moviesRef),
+      getCountFromServer(query(usersRef, where('lastActive', '>=', tenMinutesAgo))),
+      getCountFromServer(query(usersRef, where('lastActive', '>=', twentyFourHoursAgo)))
     ]);
 
-    const countryMap: Record<string, number> = {};
-    const hoursMap: Record<number, number> = {};
-    visitsSnapshot.docs.forEach(doc => {
-      const data = doc.data();
-      const hour = data.hour !== undefined ? data.hour : (data.timestamp?.toDate()?.getHours() || 0);
-      countryMap[data.country || 'Unknown'] = (countryMap[data.country || 'Unknown'] || 0) + 1;
-      hoursMap[hour] = (hoursMap[hour] || 0) + 1;
-    });
-    
-    return {
-      totalUsers: usersCount.data().count, totalVisits: visitsCount.data().count,
-      onlineNow: onlineSnapshot.size, dailyActiveUsers: dailySnapshot.size,
-      topCountries: Object.entries(countryMap).map(([country, count]) => ({ country, count })).sort((a, b) => b.count - a.count).slice(0, 5),
-      topUsers: usersSnapshot.docs.map(doc => {
-        const data = doc.data();
-        const uid = doc.id;
-        const ui = interactionsSnapshot.docs.filter(d => d.data().userId === uid).map(d => ({ title: d.data().title, action: d.data().action }));
-        const uh = historySnapshot.docs.filter(d => d.data().userId === uid).map(d => ({ title: d.data().title, platform: d.data().platform }));
-        return { 
-          email: data.email || 'Unknown', 
-          name: data.displayName || 'Anonymous', 
-          visits: data.visitCount || 0,
-          timeSpent: data.totalTimeMinutes || 0, 
-          recentActivity: [...ui, ...uh].slice(0, 5) 
-        };
-      }).filter(u => u.timeSpent > 0 || u.visits > 0).sort((a, b) => b.timeSpent - a.timeSpent),
-      featureUsage: Object.entries(filteredMap(featuresSnapshot, 'feature')).map(([feature, count]) => ({ feature, count })).sort((a, b) => b.count - a.count),
-      topSearches: Object.entries(filteredMap(searchesSnapshot, 'query')).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 10),
-      topMovies: Object.entries(interactionsSnapshot.docs.reduce((acc, d) => {
-        const data = d.data();
-        if (data.title) {
-          if (!acc[data.title]) acc[data.title] = { watches: 0, downloads: 0 };
-          if (data.action === 'watch') acc[data.title].watches += 1;
-          if (data.action === 'download') acc[data.title].downloads += 1;
-        }
-        return acc;
-      }, {} as any)).map(([title, s]: any) => ({ title, ...s })).sort((a, b) => (b.watches + b.downloads) - (a.watches + a.downloads)).slice(0, 10),
-      peakHours: Object.entries(hoursMap).map(([hour, count]) => {
-        const h = parseInt(hour);
-        const ampm = h >= 12 ? 'PM' : 'AM';
-        const display = `${h % 12 || 12}${ampm}`;
-        return { hour: h, display, count };
-      }).sort((a, b) => b.count - a.count).slice(0, 6),
-      topPlatforms: Object.entries(filteredMap(historySnapshot, 'platform')).map(([platform, count]) => ({ platform, count })).sort((a, b) => b.count - a.count).slice(0, 8)
-    };
-  } catch (error) { throw new Error('Failed to fetch system statistics'); }
-};
+    // Format Page Stats
+    const pages = data.pages || {};
+    const pageVisitsRanked = Object.entries(pages).map(([page, s]: any) => ({
+      page,
+      count: s.count || 0,
+      avgTimeSpent: s.count > 0 ? Math.round(s.totalTime / s.count / 1000) : 0
+    })).sort((a, b) => b.count - a.count);
 
-function filteredMap(snap: any, key: string) {
-  const m: Record<string, number> = {};
-  snap.docs.forEach((d: any) => {
-    const val = d.data()[key];
-    if (val) m[val] = (m[val] || 0) + 1;
-  });
-  return m;
-}
+    // Format Geo Stats
+    const countries = data.countries || {};
+    const states = data.states || {};
+    const devices = data.devices || {};
+
+    const topCountries = Object.entries(countries).map(([country, count]: any) => ({ country, count })).sort((a, b) => b.count - a.count).slice(0, 5);
+    const topStates = Object.entries(states).map(([state, count]: any) => ({ state, count })).sort((a, b) => b.count - a.count).slice(0, 5);
+    const topDevices = Object.entries(devices).map(([device, count]: any) => ({ device, count })).sort((a, b) => b.count - a.count).slice(0, 5);
+
+    return {
+      totalUsers: usersCount.data().count,
+      totalVisits: data.totalVisits || 0,
+      onlineNow: onlineCount.data().count,
+      dailyActiveUsers: dailyCount.data().count,
+      topCountries,
+      topStates,
+      topUsers: [], // Simplified to save costs
+      featureUsage: [],
+      topSearches: [],
+      topMovies: [],
+      peakHours: [],
+      topPlatforms: [],
+      topDevices,
+      
+      // High-Fidelity
+      pageVisitsRanked,
+      userBehavior: {
+        clicks: data.actions?.click || 0,
+        taps: data.actions?.tap || 0,
+        abandonedActions: data.actions?.room_creation_abandoned || 0
+      },
+      watchHistoryCount: data.actions?.watch || 0,
+      roomCreationStats: { 
+        total: data.actions?.create_room || 0, 
+        frequency: "Live" 
+      },
+      inviteStats: { 
+        sent: data.invites?.sent || 0, 
+        accepted: data.invites?.accepted || 0, 
+        rate: data.invites?.sent > 0 ? Math.round((data.invites.accepted / data.invites.sent) * 100) : 0 
+      },
+      snackPurchases: { 
+        total: data.payments?.success?.count || 0, 
+        amount: data.payments?.success?.totalAmount || 0 
+      },
+      paymentStats: { 
+        successful: data.payments?.success?.count || 0, 
+        failed: data.payments?.failed?.count || 0, 
+        rate: ( (data.payments?.success?.count || 0) + (data.payments?.failed?.count || 0) ) > 0 
+          ? Math.round((data.payments.success.count / (data.payments.success.count + data.payments.failed.count)) * 100) 
+          : 0 
+      },
+      liveSystem: { 
+        activeRooms: liveRoomsSnap.size, 
+        totalMoviesR2: moviesCount.data().count 
+      }
+    };
+  } catch (error) { 
+    console.error('Stats Error:', error);
+    throw new Error('Failed to fetch system statistics'); 
+  }
+};
 
 export const clearUserHistory = async (userId: string): Promise<void> => {
   const snapshot = await getDocs(query(collection(db, 'downloads'), where('userId', '==', userId)));
