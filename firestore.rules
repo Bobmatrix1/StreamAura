@@ -1,0 +1,199 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =================================================================
+    // === HELPER FUNCTIONS ============================================
+    // =================================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isAdmin', false) == true;
+    }
+
+    // =================================================================
+    // === USER & REFERRAL SYSTEM ======================================
+    // =================================================================
+
+    match /users/{userId} {
+      allow list: if true;
+      allow get: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow create: if isAuthenticated() && isOwner(userId);
+
+      allow update: if isAdmin() || (
+        isAuthenticated() && isOwner(userId) &&
+        request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false) &&
+        request.resource.data.get('referralBalance', 0) == resource.data.get('referralBalance', 0) &&
+        request.resource.data.get('bonusBalance', 0) == resource.data.get('bonusBalance', 0) &&
+        request.resource.data.get('referredCount', 0) == resource.data.get('referredCount', 0)
+      );
+
+      allow delete: if isAdmin();
+
+      match /notifications/{notifId} {
+        allow read, update, delete: if isOwner(userId) || isAdmin();
+        allow create: if isAdmin();
+      }
+    }
+
+    // =================================================================
+    // === WALLET & FINANCIALS =========================================
+    // =================================================================
+
+    match /room_wallets/{userId} {
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    match /transactions/{txId} {
+      allow read: if isAuthenticated() && (resource.data.user_uid == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    match /withdrawals/{wdId} {
+      allow create: if isAuthenticated() && request.resource.data.user_uid == request.auth.uid;
+      allow read, list: if isAuthenticated() && (resource.data.user_uid == request.auth.uid || isAdmin());
+      allow update, delete: if isAdmin();
+    }
+
+    match /withdrawal_requests/{reqId} {
+      allow create: if isAuthenticated() && request.resource.data.user_uid == request.auth.uid;
+      allow read, list: if isAuthenticated() && (resource.data.user_uid == request.auth.uid || isAdmin());
+      allow update, delete: if isAdmin();
+    }
+
+    // =================================================================
+    // === VIRTUAL CINEMA SYSTEM =======================================
+    // =================================================================
+
+    match /cinema_rooms/{roomId} {
+      allow read, list: if true;
+      allow write: if isAdmin();
+    }
+
+    match /room_access_passes/{passId} {
+      allow read: if isAuthenticated() && (resource.data.user_uid == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // =================================================================
+    // === GAMES SYSTEM (Split or Steal) ===============================
+    // =================================================================
+
+    match /game_rooms/{roomId} {
+      allow read, list: if true;
+      allow write: if isAdmin();
+    }
+
+    match /game_wallets/{userId} {
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow write: if isAdmin();
+
+      match /activity/{activityId} {
+        allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      }
+    }
+
+    // =================================================================
+    // === CORE MEDIA & HISTORY ========================================
+    // =================================================================
+
+    match /movies/{movieId} {
+      allow read, list: if true;
+      allow write: if isAdmin();
+    }
+
+    match /preorders/{preorderId} {
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow read, list: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+      allow update, delete: if isAdmin();
+    }
+
+    match /downloads/{downloadId} {
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow read, list: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // =================================================================
+    // === TRAFFIC & ANALYTICS =========================================
+    // =================================================================
+
+    match /system_analytics/{docId} {
+      allow get, list: if isAdmin();
+      allow create, update: if true;
+    }
+
+    match /visits/{visitId} {
+      allow create: if true;
+      allow read, list, delete: if isAdmin();
+    }
+
+    match /page_visits/{id} {
+      allow create: if true;
+      allow read, list, delete: if isAdmin();
+    }
+
+    match /user_actions/{id} {
+      allow create: if true;
+      allow read, list, delete: if isAdmin();
+    }
+
+    match /payment_events/{id} {
+      allow create: if true;
+      allow read, list, delete: if isAdmin();
+    }
+
+    match /invite_events/{id} {
+      allow create: if true;
+      allow read, list, delete: if isAdmin();
+    }
+
+    match /feature_usage/{id} {
+      allow create: if true;
+      allow read, list, delete: if isAdmin();
+    }
+
+    match /searches/{id} {
+      allow create: if true;
+      allow read, list, delete: if isAdmin();
+    }
+
+    match /interactions/{id} {
+      allow create: if true;
+      allow read, list, delete: if isAdmin();
+    }
+
+    // =================================================================
+    // === STORE, PARTNERS & BROADCASTS ================================
+    // =================================================================
+
+    match /vendors/{vendorId} { allow read: if true; allow write: if isAdmin(); }
+    match /products/{productId} { allow read: if true; allow write: if isAdmin(); }
+    match /partners/{partnerId} { allow read: if true; allow write: if isAdmin(); }
+
+    match /orders/{orderId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /notifications_broadcast/{id} {
+      allow read: if isAuthenticated();
+      allow create, delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

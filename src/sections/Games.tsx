@@ -11,7 +11,8 @@ import {
   ShieldAlert,
   Loader2,
   Swords,
-  History
+  History,
+  Trash2
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -67,12 +68,16 @@ export default function Games() {
   // Wallet & Insufficient Funds State
   const [gameWalletBalance, setGameWalletBalance] = useState(0);
   const [mainWalletBalance, setMainWalletBalance] = useState(0);
+  const [referralBalance, setReferralBalance] = useState(0);
   const [gameActivity, setGameActivity] = useState<any[]>([]);
-  const [insufficientFunds, setInsufficientFunds] = useState<{ show: boolean; required: number } | null>(null);
+  const [insufficientFunds, setInsufficientFunds] = useState<{ show: boolean; type: 'normal' | 'referral'; required: number } | null>(null);
+
+  // Payment Selection
+  const [paymentWallet, setPaymentWallet] = useState<'normal' | 'referral'>('normal');
 
   // Fetch Balances & Activity
   useEffect(() => {
-    if (user) {
+    if (user?.uid) {
       const fetchData = async () => {
         try {
           const gameWalletRef = doc(db, 'game_wallets', user.uid);
@@ -82,6 +87,10 @@ export default function Games() {
           const mainWalletRef = doc(db, 'room_wallets', user.uid);
           const mainWalletSnap = await getDoc(mainWalletRef);
           if (mainWalletSnap.exists()) setMainWalletBalance(mainWalletSnap.data().balance || 0);
+
+          const userRef = doc(db, 'users', user.uid);
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) setReferralBalance(userSnap.data().referralBalance || 0);
           
           // Activity
           const activitySnap = await getDocs(query(collection(db, 'game_wallets', user.uid, 'activity'), orderBy('timestamp', 'desc'), limit(10)));
@@ -135,9 +144,15 @@ export default function Games() {
     const totalCost = calculateTotalPrizeCost();
 
     // Check Balance (Admins bypass funding requirement)
-    if (!isAdmin && totalCost > mainWalletBalance) {
-      setInsufficientFunds({ show: true, required: totalCost });
-      return;
+    if (!isAdmin && totalCost > 0) {
+      if (paymentWallet === 'referral' && totalCost > referralBalance) {
+        setInsufficientFunds({ show: true, type: 'referral', required: totalCost });
+        return;
+      }
+      if (paymentWallet === 'normal' && totalCost > mainWalletBalance) {
+        setInsufficientFunds({ show: true, type: 'normal', required: totalCost });
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -196,13 +211,74 @@ export default function Games() {
   // Active Game Fetching Logic
   const [rooms, setRooms] = useState<any[]>([]);
   useEffect(() => {
-    const q = query(collection(db, 'game_rooms'), where('status', 'in', ['waiting', 'live']));
+    // Include all statuses to ensure rooms don't "disappear" from the lobby until actually deleted
+    const q = query(
+      collection(db, 'game_rooms'), 
+      where('status', 'in', ['waiting', 'selecting', 'convincing', 'choosing', 'revealing', 'round_finished', 'finished'])
+    );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const activeRooms = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setRooms(activeRooms);
     });
     return () => unsubscribe();
   }, []);
+
+  const [joiningGame, setJoiningGame] = useState<any | null>(null);
+  const [showJoinChoice, setShowJoinChoice] = useState(false);
+  const [paymentWalletJoin, setPaymentWalletJoin] = useState<'normal' | 'referral'>('normal');
+
+  const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
+
+  const handleDeleteRoom = async (e: React.MouseEvent, game: any) => {
+    e.stopPropagation();
+    if (!isAdmin && game.hostUid !== user?.uid) return;
+    
+    if (!window.confirm(`Are you sure you want to delete "${game.roomName}"? This will close the room for everyone.`)) return;
+    
+    setIsDeletingId(game.id);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/games/${game.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}` // Or however you handle auth
+        }
+      });
+      
+      const result = await response.json();
+      if (!result.success) throw new Error(result.detail || 'Failed to delete room');
+      
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message);
+    } finally {
+      setIsDeletingId(null);
+    }
+  };
+
+  const handleJoinClick = (game: any) => {
+    requireAuth(() => {
+      // If already a participant, join immediately
+      if (game.participants?.some((p: any) => p.uid === user?.uid) || isAdmin || game.hostUid === user?.uid) {
+        handleJoinGameById(game.id);
+        return;
+      }
+      setJoiningGame(game);
+      setPaymentWalletJoin('normal');
+      setShowJoinChoice(true);
+    });
+  };
+
+  const handleSelectRole = (role: 'player' | 'viewer') => {
+    if (!joiningGame) return;
+    
+    if (role === 'player') {
+      handleEnterPool(joiningGame);
+    } else {
+      handleJoinGameById(joiningGame.id);
+    }
+    setShowJoinChoice(false);
+    setJoiningGame(null);
+  };
 
   const handleEnterPool = async (game: any) => {
     requireAuth(async () => {
@@ -212,9 +288,12 @@ export default function Games() {
           return;
         }
 
-        if (mainWalletBalance < game.entryFee) {
+        if (paymentWalletJoin === 'referral' && referralBalance < game.entryFee) {
+          setInsufficientFunds({ show: true, type: 'referral', required: game.entryFee });
+          return;
+        } else if (paymentWalletJoin === 'normal' && mainWalletBalance < game.entryFee) {
           // Trigger the Add Funds modal overlay instead of a simple toast
-          setInsufficientFunds({ show: true, required: game.entryFee });
+          setInsufficientFunds({ show: true, type: 'normal', required: game.entryFee });
           return;
         }
 
@@ -223,13 +302,17 @@ export default function Games() {
         const resp = await fetch(`${API_BASE_URL}/api/games/join-pool`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ gameId: game.id })
+          body: JSON.stringify({ gameId: game.id, payment_wallet: paymentWalletJoin })
         });
 
         if (!resp.ok) throw new Error('Failed to join pool.');
 
         showSuccess('Entered Pool Successfully!');
-        setMainWalletBalance(prev => prev - game.entryFee); // Optimistic UI update
+        if (paymentWalletJoin === 'referral') {
+          setReferralBalance(prev => prev - game.entryFee);
+        } else {
+          setMainWalletBalance(prev => prev - game.entryFee);
+        }
         handleJoinGameById(game.id);
       } catch (err) {
         showError('Error entering pool.');
@@ -387,9 +470,20 @@ export default function Games() {
                   <Badge className={game.status === 'live' ? 'bg-rose-500 text-white' : 'bg-blue-500/20 text-blue-400'}>
                     {game.status === 'live' ? 'LIVE NOW' : 'WAITING FOR PLAYERS'}
                   </Badge>
-                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/5 text-[10px] font-black tracking-widest">
-                    <Users className="w-3.5 h-3.5 text-muted-foreground" />
-                    {game.participants?.length || 0} / {game.autoStartUsers || '∞'}
+                  <div className="flex items-center gap-2">
+                    {(isAdmin || game.hostUid === user?.uid) && (
+                      <button 
+                        onClick={(e) => handleDeleteRoom(e, game)}
+                        disabled={isDeletingId === game.id}
+                        className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all disabled:opacity-50"
+                      >
+                        {isDeletingId === game.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/5 text-[10px] font-black tracking-widest text-white/60">
+                      <Users className="w-3.5 h-3.5" />
+                      {game.participants?.length || 0} / {game.autoStartUsers || '∞'}
+                    </div>
                   </div>
                 </div>
                 
@@ -405,10 +499,10 @@ export default function Games() {
                    </div>
                    <Button 
                     disabled={isSubmitting}
-                    onClick={() => handleEnterPool(game)}
+                    onClick={() => handleJoinClick(game)}
                     className="h-9 px-6 rounded-xl font-black uppercase text-[10px] bg-white/10 hover:bg-yellow-500 hover:text-black transition-all"
                    >
-                     {isSubmitting ? '...' : 'Enter Pool'}
+                     {isSubmitting ? '...' : 'Enter Room'}
                    </Button>
                 </div>
               </div>
@@ -519,6 +613,29 @@ export default function Games() {
                          </div>
                        )}
 
+                       {/* Payment Method */}
+                       {!isAdmin && calculateTotalPrizeCost() > 0 && (
+                         <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Pay Prize Pool With</p>
+                            <div className="flex p-1 bg-black/40 rounded-lg border border-white/5">
+                               <button 
+                                type="button" 
+                                onClick={() => setPaymentWallet('normal')}
+                                className={`flex-1 py-2 rounded text-[10px] font-black transition-all ${paymentWallet === 'normal' ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20' : 'text-muted-foreground hover:bg-white/5'}`}
+                               >
+                                 MAIN WALLET
+                               </button>
+                               <button 
+                                type="button" 
+                                onClick={() => setPaymentWallet('referral')}
+                                className={`flex-1 py-2 rounded text-[10px] font-black transition-all ${paymentWallet === 'referral' ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20' : 'text-muted-foreground hover:bg-white/5'}`}
+                               >
+                                 REFERRAL WALLET
+                               </button>
+                            </div>
+                         </div>
+                       )}
+
                        <div className="flex gap-4">
                          <div className="flex-1 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 flex flex-col justify-center">
                             <div className="space-y-1">
@@ -543,6 +660,76 @@ export default function Games() {
                        {isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</> : <>{calculateTotalPrizeCost() > 0 ? `Pay ₦${calculateTotalPrizeCost().toLocaleString()} & Create Pool` : 'Create & Open Pool'}</>}
                     </Button>
                  </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+
+      {/* Join Choice Modal */}
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {showJoinChoice && (
+            <div className="fixed inset-0 z-[5001] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowJoinChoice(false)} className="absolute inset-0 bg-black/95 backdrop-blur-md" />
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card border-white/10 shadow-2xl p-8 text-center space-y-8">
+                 <div className="space-y-2">
+                    <h2 className="text-2xl font-black uppercase tracking-tight text-white">How do you want to join?</h2>
+                    <p className="text-xs text-muted-foreground font-bold uppercase tracking-widest">Room Fee: ₦{joiningGame?.entryFee || 0}</p>
+                 </div>
+
+                 {joiningGame?.entryFee > 0 && (
+                   <div className="space-y-2 text-left">
+                     <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Pay Fee With</label>
+                     <div className="flex p-1 bg-black/40 rounded-lg border border-white/5">
+                        <button 
+                         type="button" 
+                         onClick={() => setPaymentWalletJoin('normal')}
+                         className={`flex-1 py-2 rounded text-[10px] font-black transition-all ${paymentWalletJoin === 'normal' ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20' : 'text-muted-foreground hover:bg-white/5'}`}
+                        >
+                          MAIN WALLET
+                        </button>
+                        <button 
+                         type="button" 
+                         onClick={() => setPaymentWalletJoin('referral')}
+                         className={`flex-1 py-2 rounded text-[10px] font-black transition-all ${paymentWalletJoin === 'referral' ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20' : 'text-muted-foreground hover:bg-white/5'}`}
+                        >
+                          REFERRAL WALLET
+                        </button>
+                     </div>
+                   </div>
+                 )}
+
+                 <div className="grid grid-cols-1 gap-4">
+                    <button 
+                      onClick={() => handleSelectRole('player')}
+                      className="group p-6 rounded-2xl bg-yellow-500/10 border border-yellow-500/30 hover:bg-yellow-500 hover:text-black transition-all text-left flex items-center gap-4"
+                    >
+                       <div className="w-12 h-12 rounded-xl bg-yellow-500/20 group-hover:bg-black/10 flex items-center justify-center shrink-0">
+                          <Swords className="w-6 h-6 text-yellow-500 group-hover:text-black" />
+                       </div>
+                       <div>
+                          <p className="font-black uppercase text-sm">Join to Compete</p>
+                          <p className="text-[10px] font-bold opacity-60">Pay fee and enter prize pool</p>
+                       </div>
+                    </button>
+
+                    <button 
+                      onClick={() => handleSelectRole('viewer')}
+                      className="group p-6 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all text-left flex items-center gap-4"
+                    >
+                       <div className="w-12 h-12 rounded-xl bg-white/5 group-hover:bg-white/10 flex items-center justify-center shrink-0">
+                          <Users className="w-6 h-6 text-muted-foreground group-hover:text-white" />
+                       </div>
+                       <div>
+                          <p className="font-black uppercase text-sm">Watch Only</p>
+                          <p className="text-[10px] font-bold opacity-60">Free entry. View only access.</p>
+                       </div>
+                    </button>
+                 </div>
+
+                 <Button variant="ghost" onClick={() => setShowJoinChoice(false)} className="text-[10px] font-black uppercase tracking-widest opacity-40 hover:opacity-100">Cancel</Button>
               </motion.div>
             </div>
           )}

@@ -310,10 +310,10 @@ const CinemaRoom: React.FC = () => {
   const [episodes, setEpisodes] = useState<{ number: number; title: string; file: File | null }[]>([
     { number: 1, title: '', file: null }
   ]);
-  const [paymentWallet, setPaymentWallet] = useState<'normal' | 'referral'>('normal');
+  const [paymentWallet, setPaymentWallet] = useState<'normal' | 'referral' | 'bonus'>('normal');
   const [privateWallet, setPrivateWallet] = useState<'normal' | 'referral'>('normal');
-  const [userBalances, setUserBalances] = useState({ normal: 0, referral: 0 });
-  const [insufficientFunds, setInsufficientFunds] = useState<{ show: boolean; type: 'normal' | 'referral'; required: number } | null>(null);
+  const [userBalances, setUserBalances] = useState({ normal: 0, referral: 0, bonus: 0 });
+  const [insufficientFunds, setInsufficientFunds] = useState<{ show: boolean; type: 'normal' | 'referral' | 'bonus'; required: number } | null>(null);
 
   // Fetch Balances when modal opens
   useEffect(() => {
@@ -329,12 +329,14 @@ const CinemaRoom: React.FC = () => {
       const walletDoc = await getDoc(walletRef);
       const normalBal = walletDoc.exists() ? (walletDoc.data().balance || 0) : 0;
 
-      // 2. Referral Balance
+      // 2. Referral & Bonus Balances
       const userRef = doc(db, 'users', auth.currentUser!.uid);
       const userDoc = await getDoc(userRef);
-      const referralBal = userDoc.exists() ? (userDoc.data().referralBalance || 0) : 0;
+      const userData = userDoc.exists() ? userDoc.data() : {};
+      const referralBal = userData.referralBalance || 0;
+      const bonusBal = userData.bonusBalance || 0;
 
-      setUserBalances({ normal: normalBal, referral: referralBal });
+      setUserBalances({ normal: normalBal, referral: referralBal, bonus: bonusBal });
     } catch (err) {
       console.error('Error fetching balances:', err);
     }
@@ -357,25 +359,30 @@ const CinemaRoom: React.FC = () => {
   const calculateTotalCost = () => {
     let normalRequired = 0;
     let referralRequired = 0;
-    
+    let bonusRequired = 0;
+
     // 1. Episode Cost (if series)
     if (contentType === 'series') {
-      const perEp = paymentWallet === 'referral' ? 50 : 100;
-      if (paymentWallet === 'referral') referralRequired += (episodes.length * perEp);
+      const perEp = paymentWallet === 'bonus' ? 50 : 100;
+      if (paymentWallet === 'bonus') bonusRequired += (episodes.length * perEp);
+      else if (paymentWallet === 'referral') referralRequired += (episodes.length * perEp);
       else normalRequired += (episodes.length * perEp);
     }
-    
+
     // 2. Private Room Cost
     if (roomType === 'private') {
-      const perSeat = privateWallet === 'referral' ? 2500 : 1000;
+      const perSeat = 1000; // Same cost for both wallets
       if (privateWallet === 'referral') referralRequired += (privateSeats * perSeat);
       else normalRequired += (privateSeats * perSeat);
     }
-    
-    return { normal: normalRequired, referral: referralRequired, total: normalRequired + referralRequired };
-  };
 
-  // Pre-filled states from Deep Links
+    return { 
+      normal: normalRequired, 
+      referral: referralRequired, 
+      bonus: bonusRequired,
+      total: normalRequired + referralRequired + bonusRequired 
+    };
+    };  // Pre-filled states from Deep Links
   const [preFilledMovieUrl, setPreFilledMovieUrl] = useState<string | null>(null);
   const [preFilledCoverUrl, setPreFilledCoverUrl] = useState<string | null>(null);
 
@@ -1213,7 +1220,7 @@ const CinemaRoom: React.FC = () => {
                                       <p className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Episode Hosting Cost</p>
                                       <p className="text-xl font-black text-white">₦{(episodes.length * (paymentWallet === 'referral' ? 50 : 100)).toLocaleString()}</p>
                                    </div>
-                                   <div className="flex flex-col gap-2 w-1/2">
+                                   <div className="flex flex-col gap-2 w-full max-w-[200px]">
                                       <p className="text-[8px] font-black text-muted-foreground uppercase text-right">Choose Wallet</p>
                                       <div className="flex p-1 bg-black/40 rounded-lg border border-white/5">
                                          <button 
@@ -1225,17 +1232,17 @@ const CinemaRoom: React.FC = () => {
                                          </button>
                                          <button 
                                           type="button" 
-                                          onClick={() => setPaymentWallet('referral')}
-                                          className={`flex-1 py-1 rounded text-[8px] font-black transition-all ${paymentWallet === 'referral' ? 'bg-orange-600 text-white shadow-lg' : 'text-muted-foreground'}`}
+                                          onClick={() => setPaymentWallet('bonus')}
+                                          className={`flex-1 py-1 rounded text-[8px] font-black transition-all ${paymentWallet === 'bonus' ? 'bg-emerald-600 text-white shadow-lg' : 'text-muted-foreground'}`}
                                          >
-                                           REF (50)
+                                           BONUS (50)
                                          </button>
                                       </div>
                                    </div>
                                 </div>
                                 <p className="text-[9px] text-muted-foreground leading-relaxed italic">
-                                  {paymentWallet === 'referral' 
-                                    ? "Using your Aura Referral Balance. get 50% off per episode!" 
+                                  {paymentWallet === 'bonus' 
+                                    ? "Using your Signup Bonus Balance. Get episodes at just ₦50 each!" 
                                     : "Standard rate applied. Episodes are hosted until the entire season is watched."}
                                 </p>
                              </div>
@@ -1644,11 +1651,13 @@ const CinemaRoom: React.FC = () => {
               </div>
               <div className="space-y-2">
                  <h3 className="text-xl font-black uppercase text-white tracking-tighter">
-                   {insufficientFunds.type === 'referral' ? 'Referral Balance Low' : 'Wallet Balance Low'}
+                   {insufficientFunds.type === 'referral' ? 'Referral Balance Low' : insufficientFunds.type === 'bonus' ? 'Bonus Balance Low' : 'Wallet Balance Low'}
                  </h3>
                  <p className="text-xs text-muted-foreground font-medium uppercase leading-relaxed tracking-wider">
                     {insufficientFunds.type === 'referral' 
-                      ? "You don't have enough referral earnings. Refer more friends to get 50% off or pay with your main wallet balance." 
+                      ? "You don't have enough referral earnings. Refer more friends to earn sales commissions or pay with your main wallet balance." 
+                      : insufficientFunds.type === 'bonus'
+                      ? "You don't have enough Signup Bonuses. Refer more friends to get ₦100 per person and access the ₦50/episode discount!"
                       : `You need ₦${insufficientFunds.required.toLocaleString()} in your wallet to create this room.`}
                  </p>
               </div>

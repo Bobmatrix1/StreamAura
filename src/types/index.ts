@@ -7,6 +7,7 @@ export interface User {
   isAdmin: boolean;
   createdAt: number;
   referralBalance: number;
+  bonusBalance?: number; // Non-withdrawable signup bonuses (₦100 per referral)
   referredCount: number;
   referredBy: string | null;
 }

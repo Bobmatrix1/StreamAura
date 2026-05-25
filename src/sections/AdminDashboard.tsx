@@ -51,7 +51,7 @@ import {
   type UserFinancials,
   type UserActivitySummary
 } from '../lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { API_BASE_URL } from '../api/mediaApi';
 import type { User, GlobalHistoryItem } from '../types';
 import {
@@ -66,6 +66,8 @@ import { PreOrderManager } from './PreOrderManager';
 import { StoreManager } from './StoreManager';
 import { PartnersManager } from './PartnersManager';
 import { Badge } from '../components/ui/badge';
+import { CheckCircle2, X } from 'lucide-react';
+import { auth } from '../lib/firebase';
 
 const AdminDashboard: React.FC = () => {
   const { user: currentUser } = useAuth();
@@ -74,7 +76,20 @@ const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'users' | 'history' | 'preorders' | 'traffic' | 'insights' | 'messages' | 'store' | 'cinema' | 'payouts' | 'partners'>('users');
   const [users, setUsers] = useState<User[]>([]);
   const [history, setHistory] = useState<GlobalHistoryItem[]>([]);
+  const [withdrawals, setWithdrawals] = useState<any[]>([]);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+
+  const loadWithdrawals = () => {
+    const q = query(collection(db, 'withdrawals'), orderBy('created_at', 'desc'));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setWithdrawals(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setIsLoading(false);
+    }, (err) => {
+      console.error('Failed to stream withdrawals', err);
+      setIsLoading(false);
+    });
+    return unsubscribe;
+  };
   
   // Detailed User Info State
   const [userDetails, setUserDetailsMap] = useState<Record<string, { financials: UserFinancials, activity: UserActivitySummary }>>({});
@@ -304,11 +319,38 @@ const AdminDashboard: React.FC = () => {
     });
   };
 
+  const handlePayoutAction = async (id: string, action: 'approve' | 'reject') => {
+    setConfirmModal({
+      isOpen: true,
+      title: `${action.toUpperCase()} Payout?`,
+      message: action === 'approve' 
+        ? "This will trigger a real Paystack transfer to the user's bank account." 
+        : "This will reject the request and refund the user's referral balance.",
+      type: action === 'approve' ? 'warning' : 'danger',
+      onConfirm: async () => {
+        try {
+          const token = await auth.currentUser?.getIdToken();
+          const resp = await fetch(`${API_BASE_URL}/api/cinema/admin/payouts/${id}/process?action=${action}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const result = await resp.json();
+          if (result.success) {
+            showSuccess(result.message);
+          } else {
+            showError(result.detail || "Action failed");
+          }
+        } catch (err) { showError("Network error"); }
+        closeConfirmModal();
+      }
+    });
+  };
+
   useEffect(() => {
     loadStats();
     if (activeTab === 'users') loadUsers();
     else if (activeTab === 'history') loadHistory();
-    else if (activeTab === 'preorders') setIsLoading(false);
+    else if (activeTab === 'payouts') loadWithdrawals();
     else setIsLoading(false);
   }, [activeTab]);
 
@@ -494,56 +536,100 @@ const AdminDashboard: React.FC = () => {
                   <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                     <Banknote className="w-4 h-4 text-emerald-500" /> Withdrawal Requests
                   </h3>
-                  <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 font-black px-3">PENDING: 3</Badge>
+                  <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 font-black px-3">
+                    PENDING: {withdrawals.filter(w => w.status === 'pending').length}
+                  </Badge>
                </div>
 
-               <Table>
-                 <TableHeader>
-                    <TableRow className="border-white/5 bg-white/[0.02]">
-                       <TableHead className="font-bold">REQUESTER</TableHead>
-                       <TableHead className="font-bold">TYPE</TableHead>
-                       <TableHead className="font-bold">BANK DETAILS</TableHead>
-                       <TableHead className="font-bold">AMOUNT</TableHead>
-                       <TableHead className="text-right font-bold pr-10">ACTIONS</TableHead>
-                    </TableRow>
-                 </TableHeader>
-                 <TableBody>
-                    {[
-                      { id: 'W-001', name: 'John Doe', email: 'john@example.com', type: 'User', bank: 'Kuda Bank', account: '2019485721', amount: 5400, status: 'pending' },
-                      { id: 'W-002', name: 'Bobbizy', email: 'admin@streamaura.site', type: 'Host', bank: 'Zenith Bank', account: '1122334455', amount: 577500, status: 'pending' }
-                    ].map(payout => (
-                      <TableRow key={payout.id} className="border-white/5 hover:bg-white/[0.03]">
-                         <TableCell>
-                            <div className="flex flex-col">
-                               <span className="font-bold text-sm">{payout.name}</span>
-                               <span className="text-[10px] text-muted-foreground uppercase">{payout.email}</span>
-                            </div>
-                         </TableCell>
-                         <TableCell>
-                            <Badge className={payout.type === 'Host' ? 'bg-amber-500/20 text-amber-500' : 'bg-blue-500/20 text-blue-500'}>{payout.type}</Badge>
-                         </TableCell>
-                         <TableCell>
-                            <div className="flex flex-col">
-                               <span className="text-xs font-bold text-white">{payout.bank}</span>
-                               <span className="text-[10px] text-muted-foreground font-mono">{payout.account}</span>
-                            </div>
-                         </TableCell>
-                         <TableCell>
-                            <div className="flex flex-col">
-                               <span className="text-sm font-black text-white">₦{payout.amount.toLocaleString()}</span>
-                               {payout.type === 'Host' && <span className="text-[9px] text-orange-400 font-bold">Incl. 30% Fee Deducted</span>}
-                            </div>
-                         </TableCell>
-                         <TableCell className="text-right pr-6">
-                            <div className="flex items-center justify-end gap-2">
-                               <button onClick={() => showSuccess('Payout Approved')} className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 text-[10px] font-black uppercase transition-all">Approve</button>
-                               <button onClick={() => showError('Payout Rejected')} className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 text-[10px] font-black uppercase transition-all">Reject</button>
-                            </div>
-                         </TableCell>
-                      </TableRow>
-                    ))}
-                 </TableBody>
-               </Table>
+               <div className="overflow-x-auto custom-scrollbar no-scrollbar">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-white/5 text-[10px] font-black uppercase tracking-widest text-white/40">
+                        <th className="px-4 py-4">User</th>
+                        <th className="px-4 py-4">Type</th>
+                        <th className="px-4 py-4">Gross</th>
+                        <th className="px-4 py-4">Net Payout</th>
+                        <th className="px-4 py-4">Bank Details</th>
+                        <th className="px-4 py-4">Date</th>
+                        <th className="px-4 py-4">Status</th>
+                        <th className="px-4 py-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {withdrawals.length > 0 ? (
+                        withdrawals.map((wd) => (
+                          <tr key={wd.id} className="text-xs group hover:bg-white/[0.02] transition-colors">
+                            <td className="px-4 py-4">
+                               <div className="space-y-0.5">
+                                  <p className="font-black text-white uppercase">{wd.user_name}</p>
+                                  <p className="text-[10px] text-white/30 font-mono">{wd.user_uid?.substring(0, 8)}</p>
+                               </div>
+                            </td>
+                            <td className="px-4 py-4">
+                               <Badge className={`font-black text-[9px] ${
+                                 wd.type === 'funded' ? 'bg-blue-500/20 text-blue-400' :
+                                 wd.type === 'host' ? 'bg-amber-500/20 text-amber-400' :
+                                 'bg-purple-500/20 text-purple-400'
+                               }`}>
+                                 {wd.type?.toUpperCase()}
+                               </Badge>
+                            </td>
+                            <td className="px-4 py-4">
+                               <span className="font-bold text-white/40">₦{wd.amount?.toLocaleString()}</span>
+                            </td>
+                            <td className="px-4 py-4">
+                               <span className="font-black text-emerald-400 text-sm">₦{(wd.payout_amount || wd.amount)?.toLocaleString()}</span>
+                            </td>
+                            <td className="px-4 py-4">
+                               <div className="space-y-0.5 text-[10px]">
+                                  <p className="font-bold text-white/60">{wd.bank_name || wd.bank_code}</p>
+                                  <p className="font-mono text-white/40">{wd.account_number} • {wd.account_name}</p>
+                               </div>
+                            </td>
+                            <td className="px-4 py-4 text-white/40">
+                               {wd.created_at?.toDate ? wd.created_at.toDate().toLocaleDateString() : 'Recent'}
+                            </td>
+                            <td className="px-4 py-4">
+                               <Badge className={`font-black text-[9px] ${
+                                 wd.status === 'pending' ? 'bg-orange-500/20 text-orange-400 border-orange-500/20' :
+                                 wd.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/20' :
+                                 'bg-rose-500/20 text-rose-400 border-rose-500/20'
+                               }`}>
+                                 {wd.status?.toUpperCase()}
+                               </Badge>
+                            </td>
+                            <td className="px-4 py-4 text-right">
+                               {wd.status === 'pending' && (
+                                 <div className="flex items-center justify-end gap-2">
+                                    <button 
+                                      onClick={() => handlePayoutAction(wd.id, 'reject')}
+                                      className="p-2 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all"
+                                      title="Reject & Refund"
+                                    >
+                                       <X className="w-4 h-4" />
+                                    </button>
+                                    <button 
+                                      onClick={() => handlePayoutAction(wd.id, 'approve')}
+                                      className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all"
+                                      title="Approve & Send (Paystack)"
+                                    >
+                                       <CheckCircle2 className="w-4 h-4" />
+                                    </button>
+                                 </div>
+                               )}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={6} className="py-20 text-center text-muted-foreground opacity-50 uppercase font-black text-[10px] tracking-widest">
+                             No payout requests found
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+               </div>
             </div>
           ) : activeTab === 'partners' ? (
             <PartnersManager />

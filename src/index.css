@@ -243,3 +243,12 @@
     text-wrap: balance;
   }
 }
+
+/* Hide scrollbars globally */
+* {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+*::-webkit-scrollbar {
+  display: none !important;
+}

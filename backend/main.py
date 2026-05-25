@@ -56,10 +56,19 @@ except Exception as e:
     print(f"Firebase Init Error: {e}")
     db_admin = None
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Start the periodic cleanup worker
+    from websockets.game_sync import start_periodic_cleanup
+    asyncio.create_task(start_periodic_cleanup())
+    yield
+
 # =========================
 # APP INITIALIZATION
 # =========================
-app = FastAPI(title="StreamAura API Master")
+app = FastAPI(title="StreamAura API Master", lifespan=lifespan)
 
 # Cinema Routers (Must be imported AFTER Firebase init because they call firestore.client() at module level)
 from routers import cinema as cinema_router

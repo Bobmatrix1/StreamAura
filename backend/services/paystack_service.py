@@ -9,7 +9,7 @@ def get_headers():
         "Content-Type": "application/json"
     }
 
-async def initialize_transaction(email: str, amount: int, reference: str, callback_url: str):
+async def initialize_transaction(email: str, amount: int, reference: str, callback_url: str, metadata: dict = None):
     url = f"{PAYSTACK_URL}/transaction/initialize"
     payload = {
         "email": email,
@@ -17,6 +17,8 @@ async def initialize_transaction(email: str, amount: int, reference: str, callba
         "reference": reference,
         "callback_url": callback_url
     }
+    if metadata:
+        payload["metadata"] = metadata
     async with httpx.AsyncClient() as client:
         response = await client.post(url, json=payload, headers=get_headers())
         return response.json()

@@ -193,7 +193,7 @@ export const signInWithGoogle = async (): Promise<User | null> => {
       const userData: User = {
         uid: user.uid, email: user.email, displayName: user.displayName,
         photoURL: user.photoURL, isAdmin: false, createdAt: Date.now(),
-        referralBalance: 0, referredCount: 0, referredBy: referralCode || null
+        referralBalance: 0, bonusBalance: 0, referredCount: 0, referredBy: referralCode || null
       };
       await setDoc(userDocRef, userData);
       
@@ -201,7 +201,7 @@ export const signInWithGoogle = async (): Promise<User | null> => {
       if (referralCode && referralCode !== user.uid) {
         const referrerRef = doc(db, 'users', referralCode);
         await updateDoc(referrerRef, {
-          referralBalance: increment(100),
+          bonusBalance: increment(100),
           referredCount: increment(1)
         });
         localStorage.removeItem('aura_referral_code');

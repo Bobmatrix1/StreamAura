@@ -16,7 +16,6 @@ import {
   Share2,
   Ticket,
   Users,
-  UserMinus,
   DollarSign,
   ShieldAlert,
   Crown,
@@ -32,8 +31,8 @@ import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { useAuth } from '../contexts/AuthContext';
-import { toast } from 'sonner';
-import { doc, collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
+import { useToast } from '../contexts/ToastContext';
+import { doc, collection, query, where, onSnapshot, orderBy, getDoc, updateDoc, limit } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { API_BASE_URL } from '../api/mediaApi';
 import { initializePaystackPayment, fetchBanks, resolveBankAccount } from '../api/paymentApi';
@@ -62,6 +61,7 @@ interface TicketItem {
 
 const Wallet: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
+  const { showSuccess, showError, showInfo } = useToast();
   
   if (!isAuthenticated) {
     return (
@@ -101,8 +101,8 @@ const Wallet: React.FC = () => {
   }, []);
 
   const [balance, setBalance] = useState({
-    available: 0,
-    total: 0,
+    available: 0, // funded
+    host_earnings: 0,
     currency: 'NGN'
   });
 
@@ -112,18 +112,70 @@ const Wallet: React.FC = () => {
     if (user?.uid) {
       const unsubBalance = onSnapshot(doc(db, 'room_wallets', user.uid), (docSnap) => {
          if (docSnap.exists()) {
-             setBalance({ available: docSnap.data().balance || 0, total: docSnap.data().balance || 0, currency: 'NGN' });
+             const data = docSnap.data();
+             setBalance({ 
+               available: data.funded_balance || 0, 
+               host_earnings: data.host_balance || 0, 
+               currency: 'NGN' 
+             });
          }
       });
-      const q = query(collection(db, 'transactions'), where('user_uid', '==', user.uid), orderBy('timestamp', 'desc'));
-      const unsubTx = onSnapshot(q, (snapshot) => {
-         setTransactions(snapshot.docs.map(d => {
+
+      // Load Bank Details from Profile
+      const loadBank = async () => {
+         const userRef = doc(db, 'users', user.uid);
+         const userSnap = await getDoc(userRef);
+         if (userSnap.exists() && userSnap.data().bankDetails) {
+            setBankDetails(userSnap.data().bankDetails);
+            setHasBankSet(true);
+         }
+      };
+      loadBank();
+
+      // Combined History Listener (Transactions + Withdrawals)
+      const qTx = query(collection(db, 'transactions'), where('user_uid', '==', user.uid), orderBy('timestamp', 'desc'));
+      const qWd = query(collection(db, 'withdrawals'), where('user_uid', '==', user.uid), orderBy('created_at', 'desc'));
+      
+      let allItems: any[] = [];
+      const updateHistory = () => {
+         const sorted = [...allItems].sort((a, b) => {
+            const tsA = a.timestamp?.seconds || (a.created_at?.seconds) || 0;
+            const tsB = b.timestamp?.seconds || (b.created_at?.seconds) || 0;
+            return tsB - tsA;
+         });
+         setTransactions(sorted);
+      };
+
+      const unsubTx = onSnapshot(qTx, (snapshot) => {
+         const txs = snapshot.docs.map(d => {
             const data = d.data();
             const dateStr = data.timestamp?.toDate ? data.timestamp.toDate().toLocaleDateString() : data.date || 'Recent';
-            return { id: d.id, ...data, date: dateStr };
-         }));
+            return { id: d.id, ...data, date: dateStr, category: 'transaction' };
+         });
+         allItems = [...allItems.filter(i => i.category !== 'transaction'), ...txs];
+         updateHistory();
       });
-      return () => { unsubBalance(); unsubTx(); };
+
+      const unsubWd = onSnapshot(qWd, (snapshot) => {
+         const wds = snapshot.docs.map(d => {
+            const data = d.data();
+            const dateStr = data.created_at?.toDate ? data.created_at.toDate().toLocaleDateString() : 'Recent';
+            return { 
+               id: d.id, 
+               ...data, 
+               title: `Withdrawal (${data.type})`,
+               amount: data.amount,
+               type: 'withdrawal',
+               status: data.status,
+               date: dateStr,
+               category: 'withdrawal' 
+            };
+         });
+         allItems = [...allItems.filter(i => i.category !== 'withdrawal'), ...wds];
+         updateHistory();
+      });
+
+      return () => { unsubBalance(); unsubTx(); unsubWd(); };
     }
   }, [user?.uid]);
 
@@ -182,27 +234,26 @@ const Wallet: React.FC = () => {
 
   // Smart Resolution Logic (Auto-Resolve when Acc# and Bank are present)
   useEffect(() => {
-    if (bankDetails.account.length === 10 && bankDetails.bankCode) {
+    if (bankDetails.account.length === 10 && bankDetails.bankCode && !bankDetails.name) {
       resolveAccount();
-    } else {
+    } else if (bankDetails.account.length < 10) {
       // Clear name if account becomes invalid
       if (bankDetails.name) setBankDetails(prev => ({ ...prev, name: '' }));
     }
   }, [bankDetails.account, bankDetails.bankCode]);
-
   const resolveAccount = async () => {
     setIsResolving(true);
     try {
       const result = await resolveBankAccount(bankDetails.account, bankDetails.bankCode);
       if (result.status && result.data?.account_name) {
         setBankDetails(prev => ({ ...prev, name: result.data.account_name }));
-        toast.success("Account verified successfully!");
+        showSuccess("Account verified successfully!");
       } else {
-        toast.error("Could not verify account. Please check number and bank.");
+        showError("Could not verify account. Please check number and bank.");
         setBankDetails(prev => ({ ...prev, name: '' }));
       }
     } catch (err) {
-      toast.error("Verification failed.");
+      showError("Verification failed.");
       setBankDetails(prev => ({ ...prev, name: '' }));
     } finally {
       setIsResolving(false);
@@ -230,19 +281,23 @@ const Wallet: React.FC = () => {
     return true;
   });
 
-  const hostStats = {
-    visitors: 450,
-    unpaid: 120,
-    ticketsSold: 330,
-    grossRevenue: 825000,
-    platformFee: 247500, // 30%
-    netEarnings: 577500  // 70%
-  };
+  const [hostRooms, setHostRooms] = useState<any[]>([]);
 
-  const hostRooms = [
-    { id: 'room-01', name: 'Weekend Movie Marathon', price: 2000, seatsTaken: 45, maxSeats: 100, date: 'Oct 30, 2023', time: '08:00 PM', status: 'upcoming' },
-    { id: 'room-02', name: 'Late Night Chill', price: 1500, seatsTaken: 12, maxSeats: 20, date: 'Oct 31, 2023', time: '11:00 PM', status: 'upcoming' }
-  ];
+  useEffect(() => {
+    if (user?.uid && activeTab === 'host') {
+      const unsubWallet = onSnapshot(doc(db, 'room_wallets', user.uid), () => {
+        // Just keeping the listener alive if needed for specific host things,
+        // but stats are now room-specific.
+      });
+
+      const q = query(collection(db, 'cinema_rooms'), where('host_uid', '==', user.uid), orderBy('created_at', 'desc'), limit(10));
+      const unsubRooms = onSnapshot(q, (snap) => {
+        setHostRooms(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      });
+
+      return () => { unsubWallet(); unsubRooms(); };
+    }
+  }, [user?.uid, activeTab]);
 
   const paginatedTransactions = transactions.slice(0, historyPage * itemsPerPage);
 
@@ -277,12 +332,12 @@ const Wallet: React.FC = () => {
 
   const handleAddFunds = () => {
     if (!fundAmount || parseFloat(fundAmount) <= 0) {
-      toast.error('Please enter a valid amount');
+      showError('Please enter a valid amount');
       return;
     }
     const email = user?.email;
     if (!email) {
-      toast.error('Your account requires an email to process payments.');
+      showError('Your account requires an email to process payments.');
       return;
     }
 
@@ -302,20 +357,20 @@ const Wallet: React.FC = () => {
           });
           const result = await resp.json();
           if (result.success) {
-            toast.success(`₦${parseFloat(fundAmount).toLocaleString()} successfully added!`);
+            showSuccess(`₦${parseFloat(fundAmount).toLocaleString()} successfully added!`);
             setFundAmount('');
           } else {
-            toast.error(result.message || 'Verification failed. Please contact support.');
+            showError(result.message || 'Verification failed. Please contact support.');
           }
         } catch (err) {
-          toast.error('Error communicating with server.');
+          showError('Error communicating with server.');
         } finally {
           setIsAddingFunds(false);
         }
       },
       () => {
         setIsAddingFunds(false);
-        toast.error('Payment window closed.');
+        showError('Payment window closed.');
       }
     );
   };
@@ -325,7 +380,7 @@ const Wallet: React.FC = () => {
     const scheduledTime = new Date(ticketDateStr).getTime();
     
     if (Date.now() < scheduledTime - (15 * 60000)) {
-      toast.info(`The movie hasn't started yet! Please check back on ${ticket.date} at ${ticket.time}.`);
+      showInfo(`The movie hasn't started yet! Please check back on ${ticket.date} at ${ticket.time}.`);
       return;
     }
     
@@ -339,30 +394,126 @@ const Wallet: React.FC = () => {
       navigator.share({ title: `StreamAura Ticket - ${ticket.movie}`, text: shareText, url: shareUrl }).catch(console.error);
     } else {
       navigator.clipboard.writeText(`${shareText} ${shareUrl}`);
-      toast.success('Share link copied!');
+      showSuccess('Share link copied!');
     }
   };
 
   const handleViewTicketCode = (id: string) => {
      navigator.clipboard.writeText(id);
-     toast.success(`Ticket Code ${id} copied!`);
+     showSuccess(`Ticket Code ${id} copied!`);
   };
 
-  const handleRequestPayout = () => {
-     if (!withdrawAmount || parseFloat(withdrawAmount) <= 0) {
-        toast.error('Enter a valid amount to withdraw.');
-        return;
-     }
-     if (parseFloat(withdrawAmount) > balance.available) {
-        toast.error('Insufficient funds.');
-        return;
-     }
-     toast.success('Payout request sent for processing!');
-     setWithdrawAmount('');
+  const [withdrawSource, setWithdrawSource] = useState<'funded' | 'host'>('funded');
+
+  const [isSubmittingWithdrawal, setIsSubmittingWithdrawal] = useState(false);
+
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+
+  const handleRequestPayout = async () => {
+    const amt = parseFloat(withdrawAmount);
+    if (!withdrawAmount || isNaN(amt) || amt <= 0) {
+      showError('Enter a valid amount to withdraw.');
+      return;
+    }
+
+    if (!bankDetails.name || !bankDetails.account || !bankDetails.bankCode) {
+      showError('Please verify and save your bank details first.');
+      return;
+    }
+
+    const available = withdrawSource === 'funded' ? balance.available : balance.host_earnings;
+    if (amt > available) {
+      showError(`Insufficient ${withdrawSource} balance.`);
+      return;
+    }
+
+    setIsConfirmModalOpen(true);
+  };
+
+  const confirmWithdrawal = async () => {
+    const amt = parseFloat(withdrawAmount);
+    setIsConfirmModalOpen(false);
+    setIsSubmittingWithdrawal(true);
+    
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const payload = {
+        amount: amt,
+        balance_type: withdrawSource,
+        bank_code: bankDetails.bankCode,
+        account_number: bankDetails.account,
+        account_name: bankDetails.name
+      };
+
+      const response = await fetch(`${API_BASE_URL}/api/cinema/withdraw`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        showSuccess("Withdrawal request submitted successfully!");
+        setWithdrawAmount('');
+      } else {
+        showError(result.detail || "Withdrawal failed.");
+      }
+    } catch (err) {
+      showError("Connection error. Please try again.");
+    } finally {
+      setIsSubmittingWithdrawal(false);
+    }
   };
 
   return (
     <div className="space-y-8 pb-20">
+      {/* Confirmation Modal */}
+      <AnimatePresence>
+        {isConfirmModalOpen && (
+          <div className="fixed inset-0 z-[5000] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsConfirmModalOpen(false)} className="absolute inset-0 bg-black/90 backdrop-blur-md" />
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card p-6 border-white/10 shadow-2xl space-y-6">
+               <div className="text-center space-y-2">
+                  <div className="w-12 h-12 rounded-full bg-orange-500/10 text-orange-500 flex items-center justify-center mx-auto mb-4">
+                     <ShieldAlert className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-xl font-black uppercase text-white">Confirm Payout</h3>
+                  <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-widest px-4">Please verify the details below before proceeding.</p>
+               </div>
+
+               <div className="space-y-2 p-4 rounded-xl bg-white/[0.02] border border-white/5">
+                  <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest border-b border-white/5 pb-2">
+                     <span className="text-muted-foreground">Source</span>
+                     <span className={withdrawSource === 'funded' ? 'text-primary' : 'text-amber-500'}>{withdrawSource} Balance</span>
+                  </div>
+                  <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest border-b border-white/5 py-2">
+                     <span className="text-muted-foreground">Amount</span>
+                     <span className="text-white">₦{parseFloat(withdrawAmount || '0').toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px] font-black uppercase tracking-widest pt-2">
+                     <span className="text-emerald-500/60">Net to receive</span>
+                     <span className="text-emerald-400 text-sm">
+                       ₦{(parseFloat(withdrawAmount || '0') * (withdrawSource === 'funded' ? 0.95 : 0.99)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                     </span>
+                  </div>
+               </div>
+
+               <div className="flex gap-3 pt-2">
+                  <Button variant="ghost" onClick={() => setIsConfirmModalOpen(false)} className="flex-1 h-12 text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white hover:bg-white/5 rounded-xl border border-white/10">
+                     Cancel
+                  </Button>
+                  <Button onClick={confirmWithdrawal} disabled={isSubmittingWithdrawal} className="flex-1 h-12 gradient-bg rounded-xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20">
+                     {isSubmittingWithdrawal ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm'}
+                  </Button>
+               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-1">
         <div className="space-y-1">
           <h1 className="text-3xl font-black tracking-tight text-foreground uppercase tracking-tighter">My Secure Wallet</h1>
@@ -389,9 +540,30 @@ const Wallet: React.FC = () => {
           <motion.div whileHover={{ scale: 1.02 }} className="relative aspect-[1.6/1] w-full rounded-[2rem] overflow-hidden shadow-2xl border border-white/5">
             <div className="absolute inset-0 bg-gradient-to-br from-indigo-900 via-slate-900 to-black p-6 flex flex-col justify-between">
               <div className="flex justify-between items-start">
-                <div className="space-y-1">
-                  <p className="text-white/40 text-[10px] uppercase font-black tracking-widest">Available Balance</p>
-                  <h2 className="text-3xl font-black text-white tracking-tighter">₦{balance.available.toLocaleString()}</h2>
+                <div className="space-y-4">
+                  <div className="flex flex-wrap justify-between items-start gap-4 w-full">
+                    <div className="space-y-1 min-w-[120px] flex-1">
+                      <p className="text-white/40 text-[9px] uppercase font-black tracking-widest flex items-center gap-1.5">
+                        <WalletIconLucide className="w-3 h-3 text-primary" /> Funded
+                      </p>
+                      <h2 className="text-[clamp(1.25rem,4.5vw,1.75rem)] font-black text-white tracking-tighter break-all">₦{balance.available.toLocaleString()}</h2>
+                    </div>
+                    <div className="text-left sm:text-right space-y-1 min-w-[120px] flex-1">
+                      <p className="text-white/40 text-[9px] uppercase font-black tracking-widest flex items-center sm:justify-end gap-1.5">
+                        Earnings <Crown className="w-3 h-3 text-amber-500" />
+                      </p>
+                      <h2 className="text-[clamp(1.25rem,4.5vw,1.75rem)] font-black text-amber-500 tracking-tighter break-all">₦{balance.host_earnings.toLocaleString()}</h2>
+                    </div>
+                  </div>
+                  <div className="pt-3 border-t border-white/10 flex items-center gap-4">
+                    <div className="space-y-0.5">
+                       <p className="text-[10px] text-white/60 font-black uppercase tracking-widest leading-tight">
+                          Total Spending Power
+                       </p>
+                       <p className="text-[7px] text-white/30 font-bold uppercase tracking-tighter">Combined Deposits & Sales</p>
+                    </div>
+                    <span className="text-xl font-black text-white leading-none">₦{(balance.available + balance.host_earnings).toLocaleString()}</span>
+                  </div>
                 </div>
                 <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/10">
                    <img src="/logo.png" alt="Aura" className="w-6 h-6 opacity-80" />
@@ -406,7 +578,7 @@ const Wallet: React.FC = () => {
                    <div className="flex gap-1 shrink-0">
                      <button onClick={() => {
                         navigator.clipboard.writeText(user?.uid || '');
-                        toast.success("Aura ID Copied!");
+                        showSuccess("Aura ID Copied!");
                      }} className="p-2 text-white/40 hover:text-primary transition-colors">
                        <Copy className="w-3.5 h-3.5" />
                      </button>
@@ -601,59 +773,72 @@ const Wallet: React.FC = () => {
             {activeTab === 'host' && (
                <motion.div key="host" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
                  <div className="space-y-4">
-                    <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground">Earnings Overview</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                      {[
-                        { label: 'Visitors', value: hostStats.visitors, icon: Users, color: 'text-blue-500' },
-                        { label: 'Unpaid', value: hostStats.unpaid, icon: UserMinus, color: 'text-rose-500' },
-                        { label: 'Sold', value: hostStats.ticketsSold, icon: Ticket, color: 'text-primary' },
-                        { label: 'Gross', value: `₦${hostStats.grossRevenue.toLocaleString()}`, icon: DollarSign, color: 'text-white' },
-                        { label: 'Net (70%)', value: `₦${hostStats.netEarnings.toLocaleString()}`, icon: WalletIconLucide, color: 'text-emerald-500' },
-                        { label: 'Fee (30%)', value: `-₦${hostStats.platformFee.toLocaleString()}`, icon: ShieldAlert, color: 'text-orange-500' }
-                      ].map((stat, i) => (
-                        <Card key={i} className="p-4 glass-card border-white/5 bg-white/[0.02]">
-                            <div className="flex items-center gap-2 mb-2 opacity-50">
-                              <stat.icon className="w-3 h-3" />
-                              <span className="text-[8px] font-black uppercase tracking-widest">{stat.label}</span>
-                            </div>
-                            <p className={`text-lg font-black ${stat.color}`}>{stat.value}</p>
-                        </Card>
-                      ))}
-                    </div>
-                 </div>
+                    <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground">My Hosted Rooms & Performance</h3>
+                    <div className="grid grid-cols-1 gap-6">
+                       {hostRooms.length > 0 ? hostRooms.map(room => {
+                         const gross = room.gross_revenue || 0;
+                         const net = room.total_earned || 0;
+                         const fee = gross * 0.3;
+                         
+                         return (
+                           <Card key={room.id} className="p-6 glass-card border-white/5 space-y-6 overflow-hidden relative">
+                              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                                 <div className="space-y-1">
+                                    <div className="flex items-center gap-2">
+                                       <span className={`w-1.5 h-1.5 rounded-full ${room.status === 'live' ? 'bg-emerald-500 animate-pulse' : 'bg-orange-500'}`} />
+                                       <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">{room.status}</p>
+                                    </div>
+                                    <h4 className="font-black text-lg text-white uppercase truncate">{room.room_name}</h4>
+                                    <p className="text-[10px] text-muted-foreground font-bold uppercase flex items-center gap-1.5">
+                                      <Clock className="w-3 h-3" /> {new Date(room.created_at?.seconds * 1000).toLocaleDateString()} • ₦{room.ticket_price?.toLocaleString()} / ticket
+                                    </p>
+                                 </div>
+                                 <div className="flex gap-2">
+                                    <Button onClick={() => window.location.href = `/?tab=cinema&room=${room.id}`} className="h-9 rounded-lg gradient-bg text-[10px] font-black uppercase tracking-widest px-6 shadow-lg shadow-primary/20">
+                                       Enter Room
+                                    </Button>
+                                 </div>
+                              </div>
 
-                 <div className="space-y-4">
-                    <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground">My Hosted Rooms</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                       {hostRooms.map(room => (
-                         <Card key={room.id} className="p-4 glass-card border-white/5 space-y-4">
-                            <div className="flex justify-between items-start">
-                               <div>
-                                  <h4 className="font-bold text-sm text-white truncate">{room.name}</h4>
-                                  <p className="text-[10px] text-muted-foreground flex items-center gap-2 mt-1">
-                                    <Clock className="w-3 h-3" /> {room.date}, {room.time}
-                                  </p>
-                               </div>
-                               <Badge variant="outline" className="text-primary border-primary/20 bg-primary/10 text-[9px] uppercase font-black">
-                                  ₦{room.price.toLocaleString()}
-                                </Badge>
-                            </div>
-                            
-                            <div className="space-y-1.5">
-                               <div className="flex justify-between text-[10px] font-bold">
-                                  <span className="text-muted-foreground">Seats Taken: {room.seatsTaken}</span>
-                                  <span className="text-white">{room.maxSeats - room.seatsTaken} Left</span>
-                               </div>
-                               <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
-                                  <div className="h-full bg-primary" style={{ width: `${(room.seatsTaken / room.maxSeats) * 100}%` }} />
-                               </div>
-                            </div>
+                              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                                 {[
+                                   { label: 'Visits', value: room.active_viewers || 0, icon: Users, color: 'text-blue-400' },
+                                   { label: 'Sold', value: room.tickets_sold || 0, icon: Ticket, color: 'text-primary' },
+                                   { label: 'Gross', value: `₦${gross.toLocaleString()}`, icon: DollarSign, color: 'text-white' },
+                                   { label: 'Net (70%)', value: `₦${net.toLocaleString()}`, icon: WalletIconLucide, color: 'text-emerald-400' },
+                                   { label: 'Fee (30%)', value: `-₦${fee.toLocaleString()}`, icon: ShieldAlert, color: 'text-orange-400' }
+                                 ].map((stat, i) => (
+                                   <div key={i} className="p-3 rounded-xl bg-white/[0.02] border border-white/5 space-y-1">
+                                      <div className="flex items-center gap-1.5 opacity-40">
+                                         <stat.icon className="w-2.5 h-2.5" />
+                                         <span className="text-[7px] font-black uppercase tracking-widest">{stat.label}</span>
+                                      </div>
+                                      <p className={`text-xs font-black ${stat.color}`}>{stat.value}</p>
+                                   </div>
+                                 ))}
+                              </div>
 
-                            <Button className="w-full h-9 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-[10px] font-black uppercase tracking-widest gap-2">
-                               <Film className="w-3.5 h-3.5" /> Setup Room
-                            </Button>
-                         </Card>
-                       ))}
+                              <div className="space-y-2">
+                                 <div className="flex justify-between text-[9px] font-black uppercase tracking-widest">
+                                    <span className="text-white/40">Seat Occupancy</span>
+                                    <span className="text-primary">{room.tickets_sold || 0} / {room.max_seats || '∞'}</span>
+                                 </div>
+                                 <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden border border-white/5">
+                                    <motion.div 
+                                      initial={{ width: 0 }} 
+                                      animate={{ width: room.max_seats ? `${((room.tickets_sold || 0) / room.max_seats) * 100}%` : '0%' }} 
+                                      className="h-full bg-primary" 
+                                    />
+                                 </div>
+                              </div>
+                           </Card>
+                         );
+                       }) : (
+                         <div className="py-20 text-center glass-card border-white/5 border-dashed border-2 rounded-[2rem]">
+                            <Film className="w-12 h-12 mx-auto mb-4 opacity-10" />
+                            <p className="text-[10px] font-black uppercase text-white/20 tracking-[0.2em]">No hosted rooms found</p>
+                         </div>
+                       )}
                     </div>
                  </div>
                </motion.div>
@@ -661,11 +846,11 @@ const Wallet: React.FC = () => {
 
             {activeTab === 'withdraw' && (
               <motion.div key="withdraw" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-                <Card className="p-8 glass-card border-white/10 max-w-xl mx-auto">
+                <Card className="p-8 glass-card border-white/10 max-w-xl mx-auto overflow-hidden relative">
                    <div className="space-y-8">
                       <div className="space-y-1 text-center">
-                        <h3 className="text-2xl font-black uppercase tracking-tight">Cash Out</h3>
-                        <p className="text-xs text-muted-foreground font-medium">Funds will be sent to your verified bank account.</p>
+                        <h3 className="text-2xl font-black uppercase tracking-tight text-white">Cash Out</h3>
+                        <p className="text-xs text-muted-foreground font-medium uppercase tracking-widest opacity-60">Verified Bank Transfer</p>
                       </div>
 
                       {!hasBankSet ? (
@@ -819,9 +1004,15 @@ const Wallet: React.FC = () => {
                                  </Button>
                                  <Button 
                                     disabled={!bankDetails.name || bankDetails.account.length !== 10 || isResolving}
-                                    onClick={() => {
-                                      setHasBankSet(true); 
-                                      toast.success('Bank details saved for payouts!');
+                                    onClick={async () => {
+                                      try {
+                                        const userRef = doc(db, 'users', user!.uid);
+                                        await updateDoc(userRef, { bankDetails });
+                                        setHasBankSet(true); 
+                                        showSuccess('Bank details saved for payouts!');
+                                      } catch (err) {
+                                        showError("Failed to save bank info.");
+                                      }
                                     }} 
                                     className="flex-[2] h-12 gradient-bg rounded-xl font-black uppercase tracking-widest text-[10px] disabled:opacity-50"
                                  >
@@ -846,25 +1037,80 @@ const Wallet: React.FC = () => {
                                <Button variant="ghost" size="sm" onClick={() => setHasBankSet(false)} className="text-emerald-400 hover:bg-emerald-500/20 text-[10px] font-black uppercase tracking-widest px-4">Edit</Button>
                             </div>
 
-                            <div className="space-y-3">
-                               <div className="flex justify-between items-end">
-                                 <label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Amount to Withdraw</label>
-                                 <span className="text-[10px] text-muted-foreground font-black">Available: ₦{balance.available.toLocaleString()}</span>
+                            <div className="space-y-4">
+                               <div className="space-y-2">
+                                  <label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Select Withdrawal Source</label>
+                                  <div className="grid grid-cols-2 gap-3">
+                                     <button 
+                                       onClick={() => setWithdrawSource('funded')}
+                                       className={`p-4 rounded-xl border transition-all text-left space-y-1 ${withdrawSource === 'funded' ? 'bg-primary/10 border-primary shadow-lg shadow-primary/10' : 'bg-white/5 border-white/10 opacity-60 hover:opacity-100'}`}
+                                     >
+                                        <div className="flex justify-between items-center">
+                                           <WalletIconLucide className="w-4 h-4 text-primary" />
+                                           {withdrawSource === 'funded' && <CheckCircle2 className="w-3.5 h-3.5 text-primary" />}
+                                        </div>
+                                        <p className="text-[10px] font-black uppercase text-white">Funded</p>
+                                        <p className="text-[9px] font-bold text-muted-foreground">₦{balance.available.toLocaleString()}</p>
+                                     </button>
+                                     <button 
+                                       onClick={() => setWithdrawSource('host')}
+                                       className={`p-4 rounded-xl border transition-all text-left space-y-1 ${withdrawSource === 'host' ? 'bg-amber-500/10 border-amber-500 shadow-lg shadow-amber-500/10' : 'bg-white/5 border-white/10 opacity-60 hover:opacity-100'}`}
+                                     >
+                                        <div className="flex justify-between items-center">
+                                           <Crown className="w-4 h-4 text-amber-500" />
+                                           {withdrawSource === 'host' && <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />}
+                                        </div>
+                                        <p className="text-[10px] font-black uppercase text-white">Earnings</p>
+                                        <p className="text-[9px] font-bold text-muted-foreground">₦{balance.host_earnings.toLocaleString()}</p>
+                                     </button>
+                                  </div>
                                </div>
-                               <div className="relative">
-                                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-xl">₦</span>
-                                  <input type="text" inputMode="numeric" value={withdrawAmount} onChange={e => setWithdrawAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-2xl font-black outline-none focus:border-primary/50" />
+
+                               <div className="space-y-3">
+                                  <div className="flex justify-between items-end">
+                                    <label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Amount to Withdraw</label>
+                                    <span className="text-[10px] text-muted-foreground font-black">
+                                       Max: ₦{(withdrawSource === 'funded' ? balance.available : balance.host_earnings).toLocaleString()}
+                                    </span>
+                                  </div>
+                                  <div className="relative">
+                                     <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-xl">₦</span>
+                                     <input type="text" inputMode="numeric" value={withdrawAmount} onChange={e => setWithdrawAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-2xl font-black outline-none focus:border-primary/50" />
+                                  </div>
+
+                                  {withdrawAmount && parseFloat(withdrawAmount) > 0 && (
+                                     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex justify-between items-center">
+                                        <span className="text-[9px] font-black uppercase text-emerald-500/60 tracking-widest">You will receive:</span>
+                                        <span className="text-sm font-black text-white">
+                                           ₦{(parseFloat(withdrawAmount) * (withdrawSource === 'funded' ? 0.95 : 0.99)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
+                                     </motion.div>
+                                  )}
+                                  
+                                  <div className={`p-4 rounded-xl border flex items-start gap-3 transition-all ${withdrawSource === 'funded' ? 'bg-blue-500/5 border-blue-500/20 text-blue-200' : 'bg-amber-500/5 border-amber-500/20 text-amber-200'}`}>
+                                     <ShieldAlert className={`w-5 h-5 shrink-0 mt-0.5 ${withdrawSource === 'funded' ? 'text-blue-500' : 'text-amber-500'}`} />
+                                     <div className="space-y-1">
+                                        <p className="text-[10px] font-black uppercase italic">Withdrawal Logic Applied</p>
+                                        <p className="text-[9px] font-medium leading-relaxed opacity-80">
+                                           {withdrawSource === 'funded' 
+                                             ? "100% Refundable deposit. A flat 5% handling fee applies to standard bank transfers. You will receive 95% of the requested amount."
+                                             : "Host Earnings. A flat 1% handling fee applies to standard bank transfers. You will receive 99% of the requested amount."
+                                           }
+                                        </p>
+                                     </div>
+                                  </div>
                                </div>
-                               <p className="text-[9px] text-center text-muted-foreground uppercase font-bold tracking-widest pt-2 flex items-center justify-center gap-1.5">
-                                  <ShieldAlert className="w-3 h-3 text-amber-500" />
-                                  Hosts: 70% Payout after 30% fee. Users: 100% full refund.
-                               </p>
+                               <Button 
+                                  onClick={handleRequestPayout} 
+                                  disabled={isSubmittingWithdrawal}
+                                  className="w-full h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-primary/20"
+                               >
+                                  {isSubmittingWithdrawal ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Confirm Payout Request'}
+                                </Button>
                             </div>
-                            <Button onClick={handleRequestPayout} className="w-full h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-primary/20">
-                               Confirm Payout Request
-                            </Button>
                          </div>
                       )}
+
                    </div>
                 </Card>
               </motion.div>
