@@ -51,7 +51,7 @@ service cloud.firestore {
 
     match /room_wallets/{userId} {
       allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
-      allow write: if isAdmin();
+      allow write: if isAdmin() || (isAuthenticated() && isOwner(userId));
     }
 
     match /transactions/{txId} {
@@ -96,10 +96,11 @@ service cloud.firestore {
 
     match /game_wallets/{userId} {
       allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
-      allow write: if isAdmin();
+      allow write: if isAdmin() || (isAuthenticated() && isOwner(userId));
 
       match /activity/{activityId} {
         allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+        allow create: if isAdmin() || (isAuthenticated() && isOwner(userId));
       }
     }
 

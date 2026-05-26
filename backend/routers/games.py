@@ -13,6 +13,37 @@ router = APIRouter()
 def get_db():
     return firestore.client()
 
+class WinningsClaimRequest(BaseModel):
+    amount: float
+
+@router.post("/v1/claim")
+async def claim_game_winnings_v1(request: WinningsClaimRequest, user: dict = Depends(get_current_user)):
+    db = get_db()
+    uid = user['uid']
+    try:
+        amt = request.amount
+        if amt <= 0: raise HTTPException(status_code=400, detail="Invalid amount")
+        game_wallet_ref = db.collection("game_wallets").document(uid)
+        wallet_doc = game_wallet_ref.get()
+        if not wallet_doc.exists or wallet_doc.to_dict().get("balance", 0) < amt:
+            raise HTTPException(status_code=400, detail="Insufficient game winnings.")
+        game_wallet_ref.update({"balance": firestore.Increment(-amt)})
+        main_wallet_ref = db.collection("room_wallets").document(uid)
+        main_wallet_ref.set({
+            "host_balance": firestore.Increment(amt),
+            "balance": firestore.Increment(amt)
+        }, merge=True)
+        db.collection("game_wallets").document(uid).collection("activity").add({
+            "type": "transfer_to_main",
+            "amount": amt,
+            "desc": f"Moved ₦{amt:,.2f} to main earnings wallet",
+            "timestamp": firestore.SERVER_TIMESTAMP
+        })
+        return {"success": True, "message": f"₦{amt:,.2f} moved successfully"}
+    except HTTPException: raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 class JoinPoolRequest(BaseModel):
     gameId: str
     payment_wallet: Optional[str] = 'normal'
@@ -29,6 +60,120 @@ class CreateGameRequest(BaseModel):
     playerAId: Optional[str] = None
     playerBId: Optional[str] = None
     payment_wallet: Optional[str] = 'normal'
+
+class FundGameWalletRequest(BaseModel):
+    amount: float
+    source_wallet: str # 'funded', 'host', 'referral'
+
+class WinningsClaimRequest(BaseModel):
+    amount: float
+
+# =================================================================
+# === WALLET INTERNAL TRANSFERS ===================================
+# =================================================================
+
+@router.post("/fund-from-main")
+async def fund_game_wallet_from_main(request: FundGameWalletRequest, user: dict = Depends(get_current_user)):
+    """
+    Move funds from Main Wallets (Funded/Host/Referral) to Game Wallet.
+    """
+    db = get_db()
+    uid = user['uid']
+    
+    try:
+        if request.amount <= 0:
+            raise HTTPException(status_code=400, detail="Invalid amount")
+            
+        # 1. Deduct from Source
+        if request.source_wallet == "referral":
+            source_ref = db.collection("users").document(uid)
+            source_field = "referralBalance"
+        else:
+            source_ref = db.collection("room_wallets").document(uid)
+            source_field = "funded_balance" if request.source_wallet == "funded" else "host_balance"
+            
+        source_doc = source_ref.get()
+        if not source_doc.exists or source_doc.to_dict().get(source_field, 0) < request.amount:
+            raise HTTPException(status_code=400, detail=f"Insufficient {request.source_wallet} balance.")
+            
+        # Deduct
+        updates = {source_field: firestore.Increment(-request.amount)}
+        if request.source_wallet != "referral":
+            updates["balance"] = firestore.Increment(-request.amount)
+        source_ref.update(updates)
+        
+        # 2. Add to Game Wallet
+        game_wallet_ref = db.collection("game_wallets").document(uid)
+        game_wallet_ref.set({"balance": firestore.Increment(request.amount)}, merge=True)
+        
+        # 3. Log Activity
+        db.collection("game_wallets").document(uid).collection("activity").add({
+            "type": "fund_from_main",
+            "amount": request.amount,
+            "desc": f"Funded game wallet with ₦{request.amount:,.2f} from {request.source_wallet} wallet",
+            "timestamp": firestore.SERVER_TIMESTAMP
+        })
+        
+        return {"success": True, "message": "Game wallet funded successfully"}
+    except HTTPException: raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =================================================================
+# === GAME LOBBY & CREATION =======================================
+# =================================================================
+
+@router.post("/v1/claim")
+async def claim_game_winnings_v1(request: WinningsClaimRequest, user: dict = Depends(get_current_user)):
+    db = get_db()
+    uid = user['uid']
+    try:
+        amt = request.amount
+        if amt <= 0: raise HTTPException(status_code=400, detail="Invalid amount")
+        game_wallet_ref = db.collection("game_wallets").document(uid)
+        wallet_doc = game_wallet_ref.get()
+        if not wallet_doc.exists or wallet_doc.to_dict().get("balance", 0) < amt:
+            raise HTTPException(status_code=400, detail="Insufficient game winnings.")
+        game_wallet_ref.update({"balance": firestore.Increment(-amt)})
+        main_wallet_ref = db.collection("room_wallets").document(uid)
+        main_wallet_ref.set({
+            "host_balance": firestore.Increment(amt),
+            "balance": firestore.Increment(amt)
+        }, merge=True)
+        db.collection("game_wallets").document(uid).collection("activity").add({
+            "type": "transfer_to_main",
+            "amount": amt,
+            "desc": f"Moved ₦{amt:,.2f} to main earnings wallet",
+            "timestamp": firestore.SERVER_TIMESTAMP
+        })
+        return {"success": True, "message": f"₦{amt:,.2f} moved successfully"}
+    except HTTPException: raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/referrals/list")
+async def get_referred_users(user: dict = Depends(get_current_user)):
+    db = get_db()
+    uid = user['uid']
+    try:
+        # Fetch users referred by this UID
+        users_ref = db.collection("users").where("referredBy", "==", uid).stream()
+        
+        referred_list = []
+        for u in users_ref:
+            data = u.to_dict()
+            referred_list.append({
+                "uid": u.id,
+                "displayName": data.get("displayName", "Anonymous"),
+                "photoURL": data.get("photoURL"),
+                "createdAt": data.get("createdAt")
+            })
+            
+        return {"success": True, "referrals": referred_list}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/create")
 async def create_game_room(request: CreateGameRequest, user: dict = Depends(get_current_user)):
@@ -55,7 +200,7 @@ async def create_game_room(request: CreateGameRequest, user: dict = Depends(get_
                 raise HTTPException(status_code=400, detail="Insufficient wallet balance to fund the prize.")
             wallet_ref.update({"balance": firestore.Increment(-total_prize_cost)})
         
-        # Log Transaction for History
+        # Log Transaction
         db.collection("transactions").add({
             "user_uid": uid,
             "type": "purchase",
@@ -63,7 +208,7 @@ async def create_game_room(request: CreateGameRequest, user: dict = Depends(get_
             "title": f"Funded Game Prize: {request.roomName} ({request.payment_wallet.capitalize()} Wallet)",
             "status": "completed",
             "timestamp": firestore.SERVER_TIMESTAMP,
-            "date": "Just Now" # Frontend handles real formatting
+            "date": "Just Now"
         })
     
     game_id = f"game_{uuid.uuid4().hex[:12]}"
@@ -86,37 +231,12 @@ async def create_game_room(request: CreateGameRequest, user: dict = Depends(get_
         "status": 'waiting',
         "createdAt": firestore.SERVER_TIMESTAMP,
         "participants": [],
-        "playedUsers": [], # To track users who already played in multi-round
+        "playedUsers": [],
         "hostEarningsRate": 1.0 if is_admin else 0.70
     }
     
     db.collection("game_rooms").document(game_id).set(payload)
     return {"success": True, "gameId": game_id}
-
-@router.get("/referrals/list")
-async def get_referred_users(user: dict = Depends(get_current_user)):
-    db = get_db()
-    uid = user['uid']
-    
-    try:
-        # Fetch users referred by this UID
-        users_ref = db.collection("users").where("referredBy", "==", uid).stream()
-        
-        referred_list = []
-        for u in users_ref:
-            data = u.to_dict()
-            referred_list.append({
-                "uid": u.id,
-                "displayName": data.get("displayName", "Anonymous"),
-                "photoURL": data.get("photoURL"),
-                "createdAt": data.get("createdAt")
-            })
-            
-        return {"success": True, "referrals": referred_list}
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/join-pool")
 async def join_game_pool(request: JoinPoolRequest, user: dict = Depends(get_current_user)):
@@ -139,53 +259,44 @@ async def join_game_pool(request: JoinPoolRequest, user: dict = Depends(get_curr
         if any(p["uid"] == uid for p in participants):
             return {"success": True, "message": "Already in pool."}
         
-        # 3. Process Payment
-        user_ref = db.collection("users").document(uid)
+        # 3. Process Payment (Exclusively from Game Wallet)
+        game_wallet_ref = db.collection("game_wallets").document(uid)
+        game_wallet_doc = game_wallet_ref.get()
         
-        if request.payment_wallet == "referral":
-            user_doc = user_ref.get()
-            if not user_doc.exists or user_doc.to_dict().get("referralBalance", 0) < entry_fee:
-                raise HTTPException(status_code=400, detail="Insufficient referral balance.")
-            user_ref.update({"referralBalance": firestore.Increment(-entry_fee)})
-        else:
-            wallet_ref = db.collection("room_wallets").document(uid)
-            wallet_doc = wallet_ref.get()
-            if not wallet_doc.exists or wallet_doc.to_dict().get("balance", 0) < entry_fee:
-                raise HTTPException(status_code=400, detail="Insufficient wallet balance.")
-            wallet_ref.update({"balance": firestore.Increment(-entry_fee)})
-        
+        if not game_wallet_doc.exists or game_wallet_doc.to_dict().get("balance", 0) < entry_fee:
+            raise HTTPException(status_code=400, detail="Insufficient game wallet balance.")
+            
+        game_wallet_ref.update({"balance": firestore.Increment(-entry_fee)})
+
         # Log Transaction
         db.collection("transactions").add({
             "user_uid": uid,
             "type": "purchase",
             "amount": entry_fee,
-            "title": f"Entry Fee: {game_data.get('roomName', 'Game')} ({request.payment_wallet.capitalize()} Wallet)",
+            "title": f"Entry Fee: {game_data.get('roomName', 'Game')} (Game Wallet)",
             "status": "completed",
             "timestamp": firestore.SERVER_TIMESTAMP,
             "date": "Just Now"
         })
         
-        # 4. Add Participant to Room
+        # 4. Add Participant
         user_info = {
             "uid": uid,
             "displayName": user.get("name", "Anonymous"),
-            "photoURL": user.get("picture"), # Fixed key
-            "joinedAt": time.time(), # Fixed: use standard time instead of SERVER_TIMESTAMP in ArrayUnion
+            "photoURL": user.get("picture"),
+            "joinedAt": time.time(),
             "isBot": False
         }
         game_ref.update({"participants": firestore.ArrayUnion([user_info])})
         
-        # 5. Handle Host/Admin Payout (Tiered Referral Logic)
+        # 5. Handle Payout
         host_uid = game_data.get("hostUid")
         host_name = game_data.get("hostName", "Host")
-        
-        # Apply the 30/70 split + 10% referral commission
         platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, entry_fee, db)
         
         if host_uid:
             host_wallet_ref = db.collection("game_wallets").document(host_uid)
             host_wallet_ref.set({"balance": firestore.Increment(host_final)}, merge=True)
-            # Add activity for host
             db.collection("game_wallets").document(host_uid).collection("activity").add({
                 "type": "entry_earnings",
                 "amount": host_final,
@@ -193,11 +304,9 @@ async def join_game_pool(request: JoinPoolRequest, user: dict = Depends(get_curr
                 "timestamp": firestore.SERVER_TIMESTAMP
             })
             
-        # Update Referrer if active
         if referrer_uid and referrer_cut > 0:
             ref_user_ref = db.collection("users").document(referrer_uid)
             ref_user_ref.update({"referralBalance": firestore.Increment(referrer_cut)})
-            # Log activity for referrer
             db.collection("game_wallets").document(referrer_uid).collection("activity").add({
                 "type": "referral_earning",
                 "amount": referrer_cut,
@@ -211,7 +320,7 @@ async def join_game_pool(request: JoinPoolRequest, user: dict = Depends(get_curr
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/{game_id}")
+@router.delete("/{game_id:re:^game_.*}")
 async def delete_game_room(game_id: str, user: dict = Depends(get_current_user)):
     db = get_db()
     uid = user['uid']
@@ -224,8 +333,6 @@ async def delete_game_room(game_id: str, user: dict = Depends(get_current_user))
             raise HTTPException(status_code=404, detail="Room not found")
             
         data = game_doc.to_dict()
-        
-        # Security: Only host or admin
         user_ref = db.collection("users").document(uid)
         user_doc = user_ref.get()
         is_admin = user_doc.to_dict().get("isAdmin", False) if user_doc.exists else False
@@ -233,8 +340,6 @@ async def delete_game_room(game_id: str, user: dict = Depends(get_current_user))
         if not is_admin and data.get("hostUid") != uid:
             raise HTTPException(status_code=403, detail="Unauthorized to delete this room")
             
-        # 1. Inform connected users via WebSocket if possible
-        # Import here to avoid circular dependencies
         from websockets.game_sync import manager
         if game_id in manager.active_connections:
             await manager.broadcast({
@@ -242,7 +347,6 @@ async def delete_game_room(game_id: str, user: dict = Depends(get_current_user))
                 "state": {"status": "deleted", "message": "Room has been closed."}
             }, game_id)
             
-            # Close connections
             for ws_conn in list(manager.active_connections[game_id]):
                 try: await ws_conn.close()
                 except: pass
@@ -251,9 +355,7 @@ async def delete_game_room(game_id: str, user: dict = Depends(get_current_user))
         if game_id in manager.game_states:
             del manager.game_states[game_id]
             
-        # 2. Delete from Firestore
         game_ref.delete()
-        
         return {"success": True, "message": "Room deleted successfully"}
     except Exception as e:
         import traceback

@@ -230,12 +230,11 @@ export const signUpWithEmail = async (email: string, password: string, displayNa
     if (referralCode && referralCode !== user.uid) {
       const referrerRef = doc(db, 'users', referralCode);
       await updateDoc(referrerRef, {
-        referralBalance: increment(100),
+        bonusBalance: increment(100),
         referredCount: increment(1)
       });
       localStorage.removeItem('aura_referral_code');
     }
-
     return userData;
   } catch (error: any) { throw error; }
 };

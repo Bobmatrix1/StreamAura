@@ -68,6 +68,21 @@ const Referral: React.FC = () => {
   
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Scroll Lock Effect
+  useEffect(() => {
+    if (isWithdrawModalOpen) {
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+    }
+    return () => { 
+      document.body.style.overflow = ''; 
+      document.documentElement.style.overflow = ''; 
+    };
+  }, [isWithdrawModalOpen]);
+
   useEffect(() => {
     if (user?.uid) {
       const baseUrl = window.location.origin;
@@ -283,111 +298,103 @@ const Referral: React.FC = () => {
         {isWithdrawModalOpen && (
           <div className="fixed inset-0 z-[5000] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsWithdrawModalOpen(false)} className="absolute inset-0 bg-black/90 backdrop-blur-md" />
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-md glass-card p-8 border-white/10 shadow-2xl space-y-6">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-md glass-card p-8 border-white/10 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto custom-scrollbar">
                <div className="text-center space-y-2">
                   <h3 className="text-2xl font-black uppercase text-white">Withdraw Earnings</h3>
-                  <p className="text-xs text-muted-foreground font-medium uppercase">Commission Payout to Bank</p>
+                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-widest opacity-60">Commission Payout to Bank</p>
                </div>
 
-               {stats.balance <= 0 ? (
-                 <div className="py-8 text-center space-y-4">
-                    <div className="w-16 h-16 rounded-2xl bg-rose-500/10 flex items-center justify-center mx-auto text-rose-500">
-                       <ShieldAlert className="w-8 h-8" />
+               <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex flex-col gap-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-black uppercase text-emerald-500/60 tracking-widest">Total Available</span>
+                    <span className="text-xl font-black text-white">₦{stats.balance.toLocaleString()}</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[8px] font-black uppercase tracking-widest text-white/40">Amount to Withdraw</label>
+                    <div className="relative">
+                      <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                      <input 
+                        type="number" 
+                        value={withdrawAmount} 
+                        onChange={e => setWithdrawAmount(e.target.value)} 
+                        className="w-full bg-black/40 border border-white/10 rounded-lg py-2 pl-9 pr-4 text-xs font-black outline-none focus:border-primary/50" 
+                        placeholder="0.00"
+                      />
                     </div>
-                    <div className="space-y-1">
-                       <p className="font-black text-white uppercase">Insufficient Funds</p>
-                       <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed px-6">You need to earn commissions from your referred host sales before you can withdraw.</p>
+                  </div>
+               </div>
+
+               {stats.balance <= 0 && (
+                 <div className="p-3 rounded-xl bg-rose-500/5 border border-rose-500/10 flex items-center gap-3">
+                    <ShieldAlert className="w-4 h-4 text-rose-500" />
+                    <p className="text-[9px] text-rose-200/70 font-bold uppercase tracking-tight leading-none">Commissions are earned when your referrals host rooms.</p>
+                 </div>
+               )}
+
+               {!hasBankSet ? (
+                 <div className="space-y-4">
+                    <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 flex items-start gap-3">
+                       <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                       <p className="text-[9px] text-amber-200/70 font-bold uppercase leading-relaxed">Please provide your bank details. We'll save them for future payouts.</p>
                     </div>
-                    <Button onClick={() => setIsWithdrawModalOpen(false)} variant="outline" className="h-12 px-8 rounded-xl font-black uppercase text-[10px] border-white/10">Got it</Button>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Account Number</label>
+                      <div className="relative">
+                        <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <input value={bankDetails.account} onChange={e => setBankDetails({...bankDetails, account: e.target.value.replace(/[^0-9]/g, '').slice(0, 10)})} placeholder="0123456789" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-sm outline-none focus:border-primary/50" />
+                      </div>
+                    </div>
+                    <div className="space-y-2 relative" ref={dropdownRef}>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select Bank</label>
+                      <div className="relative">
+                        <Building className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <input value={bankSearch || bankDetails.bankName} onFocus={() => setShowBankDropdown(true)} onChange={e => setBankSearch(e.target.value)} placeholder="Search bank..." className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-11 pr-12 text-sm outline-none focus:border-primary/50" />
+                      </div>
+                      <AnimatePresence>
+                        {showBankDropdown && (
+                          <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute z-10 left-0 right-0 top-full mt-2 max-h-48 overflow-y-auto bg-[#0f172a] border border-white/10 rounded-xl shadow-2xl no-scrollbar">
+                            {filteredBanks.map(bank => (
+                              <button key={bank.code} onClick={() => { setBankDetails({...bankDetails, bankName: bank.name, bankCode: bank.code}); setBankSearch(bank.name); setShowBankDropdown(false); }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-primary/10 transition-colors border-b border-white/5 last:border-0">{bank.name}</button>
+                            ))}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Account Name</label>
+                      <div className="relative">
+                        <Users className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <input value={bankDetails.name} readOnly placeholder={isResolving ? 'Verifying...' : 'Account Holder Name'} className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-sm outline-none text-primary font-black uppercase cursor-not-allowed" />
+                        {bankDetails.name && !isResolving && <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />}
+                      </div>
+                    </div>
                  </div>
                ) : (
-                 <>
-                   <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex flex-col gap-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-black uppercase text-emerald-500/60 tracking-widest">Total Available</span>
-                        <span className="text-xl font-black text-white">₦{stats.balance.toLocaleString()}</span>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[8px] font-black uppercase tracking-widest text-white/40">Amount to Withdraw</label>
-                        <div className="relative">
-                          <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                          <input 
-                            type="number" 
-                            value={withdrawAmount} 
-                            onChange={e => setWithdrawAmount(e.target.value)} 
-                            className="w-full bg-black/40 border border-white/10 rounded-lg py-2 pl-9 pr-4 text-xs font-black outline-none focus:border-primary/50" 
-                            placeholder="0.00"
-                          />
-                        </div>
-                      </div>
-                   </div>
-
-                   {!hasBankSet ? (
-                     <div className="space-y-4">
-                        <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 flex items-start gap-3">
-                           <Info className="w-4 h-4 text-amber-500 shrink-0" />
-                           <p className="text-[9px] text-amber-200/70 font-bold uppercase leading-relaxed">Please provide your bank details. We'll save them for future payouts.</p>
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Account Number</label>
-                          <div className="relative">
-                            <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <input value={bankDetails.account} onChange={e => setBankDetails({...bankDetails, account: e.target.value.replace(/[^0-9]/g, '').slice(0, 10)})} placeholder="0123456789" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-sm outline-none focus:border-primary/50" />
-                          </div>
-                        </div>
-                        <div className="space-y-2 relative" ref={dropdownRef}>
-                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select Bank</label>
-                          <div className="relative">
-                            <Building className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <input value={bankSearch || bankDetails.bankName} onFocus={() => setShowBankDropdown(true)} onChange={e => setBankSearch(e.target.value)} placeholder="Search bank..." className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-11 pr-12 text-sm outline-none focus:border-primary/50" />
-                          </div>
-                          <AnimatePresence>
-                            {showBankDropdown && (
-                              <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute z-10 left-0 right-0 top-full mt-2 max-h-48 overflow-y-auto bg-[#0f172a] border border-white/10 rounded-xl shadow-2xl no-scrollbar">
-                                {filteredBanks.map(bank => (
-                                  <button key={bank.code} onClick={() => { setBankDetails({...bankDetails, bankName: bank.name, bankCode: bank.code}); setBankSearch(bank.name); setShowBankDropdown(false); }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-primary/10 transition-colors border-b border-white/5 last:border-0">{bank.name}</button>
-                                ))}
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Account Name</label>
-                          <div className="relative">
-                            <Users className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <input value={bankDetails.name} readOnly placeholder={isResolving ? 'Verifying...' : 'Account Holder Name'} className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-sm outline-none text-primary font-black uppercase cursor-not-allowed" />
-                            {bankDetails.name && !isResolving && <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />}
-                          </div>
-                        </div>
-                     </div>
-                   ) : (
-                     <div className="p-5 rounded-2xl border border-white/10 bg-white/5 flex items-center justify-between group">
-                        <div className="flex items-center gap-4">
-                           <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                              <Building className="w-6 h-6" />
-                           </div>
-                           <div>
-                              <p className="text-[10px] font-black uppercase tracking-widest text-white/40 leading-none mb-1">Target Account</p>
-                              <p className="text-sm font-black text-white uppercase">{bankDetails.bankName}</p>
-                              <p className="text-[10px] text-muted-foreground font-bold tracking-widest">{bankDetails.account} • {bankDetails.name}</p>
-                           </div>
-                        </div>
-                        <Button variant="ghost" size="sm" onClick={() => setHasBankSet(false)} className="text-primary hover:bg-primary/10 text-[10px] font-black uppercase tracking-widest px-4">Edit</Button>
-                     </div>
-                   )}
-
-                   <div className="flex flex-col gap-3 pt-2">
-                      <Button 
-                        onClick={handleConfirmWithdrawal} 
-                        disabled={isSubmittingWithdrawal || (!hasBankSet && !bankDetails.name) || !withdrawAmount || parseFloat(withdrawAmount) <= 0 || parseFloat(withdrawAmount) > stats.balance} 
-                        className="w-full h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20"
-                      >
-                         {isSubmittingWithdrawal ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Withdrawal'}
-                      </Button>
-                      <Button variant="ghost" onClick={() => setIsWithdrawModalOpen(false)} className="text-[10px] font-black uppercase text-white/40 hover:text-white">Cancel Request</Button>
-                   </div>
-                 </>
+                 <div className="p-5 rounded-2xl border border-white/10 bg-white/5 flex items-center justify-between group">
+                    <div className="flex items-center gap-4">
+                       <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                          <Building className="w-6 h-6" />
+                       </div>
+                       <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-white/40 leading-none mb-1">Target Account</p>
+                          <p className="text-sm font-black text-white uppercase">{bankDetails.bankName}</p>
+                          <p className="text-[10px] text-muted-foreground font-bold tracking-widest">{bankDetails.account} • {bankDetails.name}</p>
+                       </div>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => setHasBankSet(false)} className="text-primary hover:bg-primary/10 text-[10px] font-black uppercase tracking-widest px-4">Edit</Button>
+                 </div>
                )}
+
+               <div className="flex flex-col gap-3 pt-2">
+                  <Button 
+                    onClick={handleConfirmWithdrawal} 
+                    disabled={isSubmittingWithdrawal || (!hasBankSet && !bankDetails.name) || !withdrawAmount || parseFloat(withdrawAmount) <= 0 || parseFloat(withdrawAmount) > stats.balance} 
+                    className="w-full h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20"
+                  >
+                     {isSubmittingWithdrawal ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Withdrawal'}
+                  </Button>
+                  <Button variant="ghost" onClick={() => setIsWithdrawModalOpen(false)} className="text-[10px] font-black uppercase text-white/40 hover:text-white">Cancel Request</Button>
+               </div>
             </motion.div>
           </div>
         )}

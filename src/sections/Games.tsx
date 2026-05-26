@@ -12,7 +12,8 @@ import {
   Loader2,
   Swords,
   History,
-  Trash2
+  Trash2,
+  ArrowUpRight
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -20,14 +21,14 @@ import { Badge } from '../components/ui/badge';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { db, auth } from '../lib/firebase';
-import { collection, doc, getDoc, getDocs, query, orderBy, limit, onSnapshot, where } from 'firebase/firestore';
+import { collection, doc, getDoc, query, orderBy, limit, onSnapshot, where, writeBatch, increment, serverTimestamp } from 'firebase/firestore';
 import { API_BASE_URL } from '../api/mediaApi';
 
 import SplitOrStealGame from './SplitOrStealGame';
 
 export default function Games() {
   const { user, isAdmin, requireAuth } = useAuth();
-  const { showSuccess, showError, showInfo } = useToast();
+  const { showSuccess, showError } = useToast();
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -75,31 +76,34 @@ export default function Games() {
   // Payment Selection
   const [paymentWallet, setPaymentWallet] = useState<'normal' | 'referral'>('normal');
 
+  const [hostBalance, setHostBalance] = useState(0);
+
   // Fetch Balances & Activity
   useEffect(() => {
     if (user?.uid) {
-      const fetchData = async () => {
-        try {
-          const gameWalletRef = doc(db, 'game_wallets', user.uid);
-          const gameWalletSnap = await getDoc(gameWalletRef);
-          if (gameWalletSnap.exists()) setGameWalletBalance(gameWalletSnap.data().balance || 0);
+      const unsubGameWallet = onSnapshot(doc(db, 'game_wallets', user.uid), (snap) => {
+        if (snap.exists()) setGameWalletBalance(snap.data().balance || 0);
+      });
 
-          const mainWalletRef = doc(db, 'room_wallets', user.uid);
-          const mainWalletSnap = await getDoc(mainWalletRef);
-          if (mainWalletSnap.exists()) setMainWalletBalance(mainWalletSnap.data().balance || 0);
+      const unsubMainWallet = onSnapshot(doc(db, 'room_wallets', user.uid), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          setMainWalletBalance(data.funded_balance || 0);
+          setHostBalance(data.host_balance || 0);
+        }
+      });
 
-          const userRef = doc(db, 'users', user.uid);
-          const userSnap = await getDoc(userRef);
-          if (userSnap.exists()) setReferralBalance(userSnap.data().referralBalance || 0);
-          
-          // Activity
-          const activitySnap = await getDocs(query(collection(db, 'game_wallets', user.uid, 'activity'), orderBy('timestamp', 'desc'), limit(10)));
-          setGameActivity(activitySnap.docs.map(d => ({ id: d.id, ...d.data() })));
-        } catch (e) {}
-      };
-      fetchData();
+      const unsubUser = onSnapshot(doc(db, 'users', user.uid), (snap) => {
+        if (snap.exists()) setReferralBalance(snap.data().referralBalance || 0);
+      });
+
+      const unsubActivity = onSnapshot(query(collection(db, 'game_wallets', user.uid, 'activity'), orderBy('timestamp', 'desc'), limit(10)), (snap) => {
+        setGameActivity(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      });
+
+      return () => { unsubGameWallet(); unsubMainWallet(); unsubUser(); unsubActivity(); };
     }
-  }, [user]);
+  }, [user?.uid]);
 
   // Projected Prize Pool (Total Cost to Host)
   const calculateTotalPrizeCost = () => {
@@ -118,14 +122,161 @@ export default function Games() {
     return totalEntryMoney * 0.70; // Regular host keeps 70%
   };
 
-  const handleWithdrawGameWallet = () => {
-    if (gameWalletBalance <= 0) {
-      showError("Your Game Wallet is empty.");
+  // Funding States
+  const [isFundingModalOpen, setIsFundingModalOpen] = useState(false);
+  const [fundingAmount, setFundingAmount] = useState('');
+  const [fundingSource, setFundingSource] = useState<'funded' | 'host' | 'referral'>('funded');
+  const [isSubmittingFunding, setIsSubmittingFunding] = useState(false);
+
+  // Withdrawal States
+  const [isWithdrawAmountModalOpen, setIsWithdrawAmountModalOpen] = useState(false);
+  const [withdrawAmountInput, setWithdrawAmountInput] = useState('');
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
+
+  const [isConfirmWithdrawModalOpen, setIsConfirmWithdrawModalOpen] = useState(false);
+
+  const handleWithdrawGameWallet = async () => {
+    const amt = parseFloat(withdrawAmountInput);
+    if (!withdrawAmountInput || isNaN(amt) || amt <= 0) {
+      showError("Enter a valid amount.");
       return;
     }
-    const fee = gameWalletBalance * 0.10;
-    const net = gameWalletBalance - fee;
-    showInfo(`Withdrawal requested. 10% fee (₦${fee.toLocaleString()}) applied. You will receive ₦${net.toLocaleString()} in your main wallet soon.`);
+
+    if (amt > gameWalletBalance) {
+      showError("Insufficient game wallet balance.");
+      return;
+    }
+
+    setIsConfirmWithdrawModalOpen(true);
+  };
+
+  const confirmWithdrawal = async () => {
+    const amt = parseFloat(withdrawAmountInput);
+    if (!user?.uid) return;
+
+    setIsConfirmWithdrawModalOpen(false);
+    setIsWithdrawing(true);
+
+    try {
+      const batch = writeBatch(db);
+      
+      // 1. Deduct from Game Wallet
+      const gameWalletRef = doc(db, 'game_wallets', user.uid);
+      batch.update(gameWalletRef, { balance: increment(-amt) });
+      
+      // 2. Add to Main Wallet (Host Earnings)
+      const mainWalletRef = doc(db, 'room_wallets', user.uid);
+      batch.set(mainWalletRef, { 
+        host_balance: increment(amt),
+        balance: increment(amt)
+      }, { merge: true });
+      
+      // 3. Log Game Activity
+      const activityRef = doc(collection(db, 'game_wallets', user.uid, 'activity'));
+      batch.set(activityRef, {
+        type: 'transfer_to_main',
+        amount: amt,
+        desc: `Moved ₦${amt.toLocaleString()} to main earnings wallet`,
+        timestamp: serverTimestamp()
+      });
+
+      // 4. Log Main Transaction (for Wallet History)
+      const txRef = doc(collection(db, 'transactions'));
+      batch.set(txRef, {
+        user_uid: user.uid,
+        type: 'transfer_in',
+        amount: amt,
+        title: 'Internal Transfer from Game Wallet',
+        status: 'completed',
+        timestamp: serverTimestamp(),
+        date: 'Just Now'
+      });
+
+      await batch.commit();
+
+      showSuccess(`₦${amt.toLocaleString()} moved successfully!`);
+      setIsWithdrawAmountModalOpen(false);
+      setWithdrawAmountInput('');
+    } catch (err: any) {
+      showError(err.message || "Withdrawal failed.");
+    } finally {
+      setIsWithdrawing(false);
+    }
+  };
+
+  const handleFundFromWallet = async () => {
+    const amt = parseFloat(fundingAmount);
+    if (!fundingAmount || isNaN(amt) || amt <= 0 || !user?.uid) {
+      showError("Enter a valid amount.");
+      return;
+    }
+
+    // Strict Balance Checks
+    if (fundingSource === 'referral' && amt > referralBalance) {
+      showError("Insufficient referral balance.");
+      return;
+    }
+    if (fundingSource === 'funded' && amt > mainWalletBalance) {
+      showError("Insufficient funded balance.");
+      return;
+    }
+    if (fundingSource === 'host' && amt > hostBalance) {
+      showError("Insufficient host earnings.");
+      return;
+    }
+
+    setIsSubmittingFunding(true);
+    try {
+      const batch = writeBatch(db);
+      
+      // 1. Deduct from Source
+      if (fundingSource === 'referral') {
+        const userRef = doc(db, 'users', user.uid);
+        batch.update(userRef, { referralBalance: increment(-amt) });
+      } else {
+        const walletRef = doc(db, 'room_wallets', user.uid);
+        const field = fundingSource === 'funded' ? 'funded_balance' : 'host_balance';
+        batch.update(walletRef, { 
+          [field]: increment(-amt),
+          balance: increment(-amt)
+        });
+      }
+      
+      // 2. Add to Game Wallet
+      const gameWalletRef = doc(db, 'game_wallets', user.uid);
+      batch.set(gameWalletRef, { balance: increment(amt) }, { merge: true });
+      
+      // 3. Log Game Activity
+      const activityRef = doc(collection(db, 'game_wallets', user.uid, 'activity'));
+      batch.set(activityRef, {
+        type: 'fund_from_main',
+        amount: amt,
+        desc: `Funded game wallet with ₦${amt.toLocaleString()} from ${fundingSource === 'host' ? 'host earnings' : fundingSource} wallet`,
+        timestamp: serverTimestamp()
+      });
+
+      // 4. Log Main Transaction (for Wallet History)
+      const txRef = doc(collection(db, 'transactions'));
+      batch.set(txRef, {
+        user_uid: user.uid,
+        type: 'transfer_out',
+        amount: amt,
+        title: `Game Funding from ${fundingSource === 'host' ? 'HOST EARNINGS' : fundingSource.toUpperCase()}`,
+        status: 'completed',
+        timestamp: serverTimestamp(),
+        date: 'Just Now'
+      });
+
+      await batch.commit();
+
+      showSuccess(`₦${amt.toLocaleString()} moved successfully!`);
+      setIsFundingModalOpen(false);
+      setFundingAmount('');
+    } catch (err: any) {
+      showError(err.message || "Funding failed.");
+    } finally {
+      setIsSubmittingFunding(false);
+    }
   };
 
   const handleCreateGame = async (e: React.FormEvent) => {
@@ -225,7 +376,6 @@ export default function Games() {
 
   const [joiningGame, setJoiningGame] = useState<any | null>(null);
   const [showJoinChoice, setShowJoinChoice] = useState(false);
-  const [paymentWalletJoin, setPaymentWalletJoin] = useState<'normal' | 'referral'>('normal');
 
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
 
@@ -263,7 +413,6 @@ export default function Games() {
         return;
       }
       setJoiningGame(game);
-      setPaymentWalletJoin('normal');
       setShowJoinChoice(true);
     });
   };
@@ -288,11 +437,7 @@ export default function Games() {
           return;
         }
 
-        if (paymentWalletJoin === 'referral' && referralBalance < game.entryFee) {
-          setInsufficientFunds({ show: true, type: 'referral', required: game.entryFee });
-          return;
-        } else if (paymentWalletJoin === 'normal' && mainWalletBalance < game.entryFee) {
-          // Trigger the Add Funds modal overlay instead of a simple toast
+        if (gameWalletBalance < game.entryFee) {
           setInsufficientFunds({ show: true, type: 'normal', required: game.entryFee });
           return;
         }
@@ -302,20 +447,18 @@ export default function Games() {
         const resp = await fetch(`${API_BASE_URL}/api/games/join-pool`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ gameId: game.id, payment_wallet: paymentWalletJoin })
+          body: JSON.stringify({ gameId: game.id })
         });
 
-        if (!resp.ok) throw new Error('Failed to join pool.');
+        if (!resp.ok) {
+          const errData = await resp.json();
+          throw new Error(errData.detail || 'Failed to join pool.');
+        }
 
         showSuccess('Entered Pool Successfully!');
-        if (paymentWalletJoin === 'referral') {
-          setReferralBalance(prev => prev - game.entryFee);
-        } else {
-          setMainWalletBalance(prev => prev - game.entryFee);
-        }
         handleJoinGameById(game.id);
-      } catch (err) {
-        showError('Error entering pool.');
+      } catch (err: any) {
+        showError(err.message || 'Error entering pool.');
       } finally {
         setIsSubmitting(false);
       }
@@ -382,18 +525,30 @@ export default function Games() {
           <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-6">
              <div className="p-6 rounded-3xl bg-gradient-to-br from-yellow-500/20 to-purple-600/20 border border-white/10 shadow-2xl relative overflow-hidden group">
                 <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                <div className="flex justify-between items-center relative z-10">
+                <div className="flex justify-between items-start relative z-10">
                    <div className="text-left space-y-1">
                      <p className="text-[10px] font-black uppercase tracking-widest text-yellow-500">My Game Wallet</p>
                      <p className="text-3xl font-black text-white">₦{gameWalletBalance.toLocaleString()}</p>
                    </div>
-                   <Button onClick={handleWithdrawGameWallet} className="h-10 px-6 rounded-xl font-black uppercase text-[10px] bg-yellow-500 hover:bg-yellow-400 text-black shadow-lg">
-                     Withdraw
-                   </Button>
+                   <div className="flex flex-col gap-2">
+                      <Button 
+                        onClick={() => {
+                          setWithdrawAmountInput(gameWalletBalance.toString());
+                          setIsWithdrawAmountModalOpen(true);
+                        }} 
+                        disabled={isWithdrawing} 
+                        className="h-9 px-5 rounded-xl font-black uppercase text-[10px] bg-yellow-500 hover:bg-yellow-400 text-black shadow-lg"
+                      >
+                        {isWithdrawing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Withdraw'}
+                      </Button>
+                      <Button onClick={() => setIsFundingModalOpen(true)} className="h-9 px-5 rounded-xl font-black uppercase text-[10px] bg-white/10 hover:bg-white/20 text-white border border-white/10">
+                        Add Funds
+                      </Button>
+                   </div>
                 </div>
                 <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between text-[9px] font-bold text-muted-foreground uppercase tracking-widest relative z-10">
                    <span>Winnings & Host Earnings</span>
-                   <span>10% Handling Fee</span>
+                   <span className="text-emerald-500">0% Internal Fee</span>
                 </div>
              </div>
 
@@ -409,8 +564,8 @@ export default function Games() {
                            <p className="text-[10px] font-bold text-white/90">{act.desc}</p>
                            <p className="text-[8px] text-muted-foreground uppercase">{new Date(act.timestamp?.toDate()).toLocaleDateString()}</p>
                         </div>
-                        <span className={`text-[10px] font-black ${act.type.includes('win') || act.type.includes('earning') ? 'text-emerald-400' : 'text-rose-400'}`}>
-                           {act.type.includes('win') || act.type.includes('earning') ? '+' : '-'}₦{act.amount.toLocaleString()}
+                        <span className={`text-[10px] font-black ${['win', 'entry_earnings', 'referral_earning', 'fund_from_main'].includes(act.type) ? 'text-emerald-400' : 'text-rose-400'}`}>
+                           {['win', 'entry_earnings', 'referral_earning', 'fund_from_main'].includes(act.type) ? '+' : '-'}₦{act.amount.toLocaleString()}
                         </span>
                      </div>
                    ))}
@@ -427,6 +582,75 @@ export default function Games() {
           <Plus className="w-4 h-4" /> Create Game Room
         </Button>
       </div>
+
+      {/* Funding Modal */}
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {isFundingModalOpen && (
+            <div className="fixed inset-0 z-[6000] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsFundingModalOpen(false)} className="absolute inset-0 bg-black/95 backdrop-blur-md" />
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card border-white/10 shadow-2xl p-8 space-y-8 max-h-[85vh] overflow-y-auto custom-scrollbar">
+                 <div className="text-center space-y-2">
+                    <div className="w-16 h-16 rounded-3xl bg-primary/10 flex items-center justify-center mx-auto mb-4 border border-primary/20">
+                       <Plus className="w-8 h-8 text-primary" />
+                    </div>
+                    <h2 className="text-2xl font-black uppercase tracking-tight text-white">Add Game Funds</h2>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">Internal Wallet Transfer</p>
+                 </div>
+
+                 <div className="space-y-4">
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select Source Balance</label>
+                       <div className="grid grid-cols-1 gap-2">
+                          {[
+                            { id: 'funded', label: 'Funded Balance', balance: mainWalletBalance, color: 'text-primary' },
+                            { id: 'host', label: 'Host Earnings', balance: hostBalance, color: 'text-amber-500' },
+                            { id: 'referral', label: 'Referral Balance', balance: referralBalance, color: 'text-orange-500' }
+                          ].map(src => (
+                            <button 
+                              key={src.id}
+                              onClick={() => setFundingSource(src.id as any)}
+                              className={`p-4 rounded-xl border flex items-center justify-between transition-all ${fundingSource === src.id ? 'bg-white/10 border-primary shadow-lg shadow-primary/10' : 'bg-black/40 border-white/5 opacity-60'}`}
+                            >
+                               <span className={`text-[10px] font-black uppercase ${fundingSource === src.id ? src.color : 'text-white/40'}`}>{src.label}</span>
+                               <span className="text-xs font-black text-white">₦{src.balance.toLocaleString()}</span>
+                            </button>
+                          ))}
+                       </div>
+                    </div>
+
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Amount to Transfer (₦)</label>
+                       <div className="relative">
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-white/40">₦</span>
+                          <input 
+                            type="number" 
+                            value={fundingAmount} 
+                            onChange={e => setFundingAmount(e.target.value)} 
+                            placeholder="0.00" 
+                            className="w-full bg-black/40 border border-white/10 rounded-xl py-3.5 pl-10 pr-4 text-sm font-black outline-none focus:border-primary/50" 
+                          />
+                       </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/10 flex items-start gap-3">
+                       <ShieldAlert className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                       <p className="text-[9px] text-emerald-200/70 font-medium uppercase leading-relaxed tracking-tight">Move funds between your wallets with <strong className="text-emerald-400">0% fees</strong>. Instant transfer.</p>
+                    </div>
+                 </div>
+
+                 <div className="flex flex-col gap-3">
+                    <Button onClick={handleFundFromWallet} disabled={isSubmittingFunding} className="w-full h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-xs">
+                       {isSubmittingFunding ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Transfer'}
+                    </Button>
+                    <Button variant="ghost" onClick={() => setIsFundingModalOpen(false)} className="text-[10px] font-black uppercase text-white/40 hover:text-white">Cancel</Button>
+                 </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       {/* Featured Game Info */}
       <div className="glass-card p-1 border-white/10 overflow-hidden relative group">
@@ -667,6 +891,87 @@ export default function Games() {
         document.body
       )}
 
+      {/* Withdrawal Amount Modal */}
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {isWithdrawAmountModalOpen && (
+            <div className="fixed inset-0 z-[6000] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsWithdrawAmountModalOpen(false)} className="absolute inset-0 bg-black/95 backdrop-blur-md" />
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card border-white/10 shadow-2xl p-8 space-y-8 max-h-[85vh] overflow-y-auto custom-scrollbar">
+                 <div className="text-center space-y-2">
+                    <div className="w-16 h-16 rounded-3xl bg-yellow-500/10 flex items-center justify-center mx-auto mb-4 border border-yellow-500/20">
+                       <ArrowUpRight className="w-8 h-8 text-yellow-500" />
+                    </div>
+                    <h2 className="text-2xl font-black uppercase tracking-tight text-white">Withdraw Winnings</h2>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">Move to Main Earnings Wallet</p>
+                 </div>
+
+                 <div className="space-y-6">
+                    <div className="p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex justify-between items-center">
+                       <span className="text-[10px] font-black uppercase text-yellow-500/60 tracking-widest">Available</span>
+                       <span className="text-xl font-black text-white">₦{gameWalletBalance.toLocaleString()}</span>
+                    </div>
+
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Amount to Withdraw (₦)</label>
+                       <div className="relative">
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-white/40">₦</span>
+                          <input 
+                            type="number" 
+                            value={withdrawAmountInput} 
+                            onChange={e => setWithdrawAmountInput(e.target.value)} 
+                            placeholder="0.00" 
+                            className="w-full bg-black/40 border border-white/10 rounded-xl py-3.5 pl-10 pr-4 text-sm font-black outline-none focus:border-primary/50" 
+                          />
+                       </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/10 flex items-start gap-3">
+                       <ShieldAlert className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                       <p className="text-[9px] text-emerald-200/70 font-medium uppercase leading-relaxed tracking-tight">Funds will be moved to your <strong className="text-emerald-400">Host Earnings</strong> wallet with <strong className="text-emerald-400">0% fees</strong>. Instant transfer.</p>
+                    </div>
+                 </div>
+
+                 <div className="flex flex-col gap-3">
+                    <Button onClick={handleWithdrawGameWallet} disabled={isWithdrawing || !withdrawAmountInput || parseFloat(withdrawAmountInput) <= 0 || parseFloat(withdrawAmountInput) > gameWalletBalance} className="w-full h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-xs">
+                       {isWithdrawing ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Withdrawal'}
+                    </Button>
+                    <Button variant="ghost" onClick={() => setIsWithdrawAmountModalOpen(false)} className="text-[10px] font-black uppercase text-white/40 hover:text-white">Cancel</Button>
+                 </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+
+      {/* Confirmation Modal */}
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {isConfirmWithdrawModalOpen && (
+            <div className="fixed inset-0 z-[7000] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsConfirmWithdrawModalOpen(false)} className="absolute inset-0 bg-black/95 backdrop-blur-md" />
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card border-white/10 shadow-2xl p-8 space-y-6 text-center">
+                 <div className="w-16 h-16 rounded-full bg-yellow-500/10 text-yellow-500 flex items-center justify-center mx-auto border border-yellow-500/20">
+                    <ShieldAlert className="w-8 h-8" />
+                 </div>
+                 <div className="space-y-2">
+                    <h3 className="text-xl font-black uppercase text-white">Confirm Transfer</h3>
+                    <p className="text-xs text-muted-foreground font-medium uppercase leading-relaxed px-4">
+                      Are you sure you want to move ₦{parseFloat(withdrawAmountInput).toLocaleString()} to your Main Earnings wallet?
+                    </p>
+                 </div>
+                 <div className="flex flex-col gap-3">
+                    <Button onClick={confirmWithdrawal} disabled={isWithdrawing} className="w-full h-12 gradient-bg rounded-xl font-black uppercase text-[10px]">Yes, Move Funds</Button>
+                    <Button variant="ghost" onClick={() => setIsConfirmWithdrawModalOpen(false)} className="text-[10px] font-black uppercase text-white/40 hover:text-white">Cancel</Button>
+                 </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+
       {/* Join Choice Modal */}
       {typeof document !== 'undefined' && createPortal(
         <AnimatePresence>
@@ -676,30 +981,8 @@ export default function Games() {
               <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card border-white/10 shadow-2xl p-8 text-center space-y-8">
                  <div className="space-y-2">
                     <h2 className="text-2xl font-black uppercase tracking-tight text-white">How do you want to join?</h2>
-                    <p className="text-xs text-muted-foreground font-bold uppercase tracking-widest">Room Fee: ₦{joiningGame?.entryFee || 0}</p>
+                    <p className="text-xs text-muted-foreground font-bold uppercase tracking-widest">Room Fee: ₦{joiningGame?.entryFee || 0} <span className="text-yellow-500 opacity-60">(Paid from Game Wallet)</span></p>
                  </div>
-
-                 {joiningGame?.entryFee > 0 && (
-                   <div className="space-y-2 text-left">
-                     <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Pay Fee With</label>
-                     <div className="flex p-1 bg-black/40 rounded-lg border border-white/5">
-                        <button 
-                         type="button" 
-                         onClick={() => setPaymentWalletJoin('normal')}
-                         className={`flex-1 py-2 rounded text-[10px] font-black transition-all ${paymentWalletJoin === 'normal' ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20' : 'text-muted-foreground hover:bg-white/5'}`}
-                        >
-                          MAIN WALLET
-                        </button>
-                        <button 
-                         type="button" 
-                         onClick={() => setPaymentWalletJoin('referral')}
-                         className={`flex-1 py-2 rounded text-[10px] font-black transition-all ${paymentWalletJoin === 'referral' ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20' : 'text-muted-foreground hover:bg-white/5'}`}
-                        >
-                          REFERRAL WALLET
-                        </button>
-                     </div>
-                   </div>
-                 )}
 
                  <div className="grid grid-cols-1 gap-4">
                     <button 

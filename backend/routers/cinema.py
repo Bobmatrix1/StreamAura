@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
+from pydantic import BaseModel
 from core.security import get_current_user, get_current_admin
 from core.config import settings
 from models.cinema import RoomCreateRequest, PresignedUrlRequest, PaystackInitRequest, AgoraTokenRequest, WithdrawalRequest
@@ -663,7 +664,6 @@ async def process_payout(withdrawal_id: str, action: str, admin: dict = Depends(
             })
             
             return {"success": True, "message": "Payout processed successfully"}
-            
     except HTTPException: raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -675,12 +675,8 @@ async def get_agora_token(request: AgoraTokenRequest, user: dict = Depends(get_c
     """
     db = get_db()
     room_doc = db.collection("cinema_rooms").document(request.room_id).get()
-    if not room_doc.exists:
-         raise HTTPException(status_code=404, detail="Room not found")
-
+    if not room_doc.exists: raise HTTPException(status_code=404, detail="Room not found")
     import hashlib
     numeric_uid = int(hashlib.md5(user['uid'].encode()).hexdigest()[:8], 16)
-
     token = generate_rtc_token(request.room_id, numeric_uid, request.role)
-    return {"token": token, "uid": numeric_uid, "app_id": settings.AGORA_APP_ID}
-
+    return {'token': token, 'uid': numeric_uid, 'app_id': settings.AGORA_APP_ID}

@@ -754,8 +754,8 @@ const Wallet: React.FC = () => {
                            </div>
                         </div>
                         <div className="text-right">
-                           <p className={`text-sm font-black ${tx.type === 'earning' || tx.type === 'deposit' ? 'text-emerald-500' : 'text-foreground'}`}>
-                              {tx.type === 'earning' || tx.type === 'deposit' ? '+' : '-'}₦{tx.amount.toLocaleString()}
+                           <p className={`text-sm font-black ${['earning', 'deposit', 'transfer_in', 'payout_refund'].includes(tx.type) ? 'text-emerald-500' : 'text-foreground'}`}>
+                              {['earning', 'deposit', 'transfer_in', 'payout_refund'].includes(tx.type) ? '+' : '-'}₦{tx.amount.toLocaleString()}
                            </p>
                            <Badge variant="outline" className={`mt-1 text-[8px] uppercase tracking-widest ${tx.status === 'completed' ? 'border-emerald-500/30 text-emerald-500' : 'border-amber-500/30 text-amber-500'}`}>{tx.status}</Badge>
                         </div>
