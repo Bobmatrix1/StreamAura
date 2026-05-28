@@ -10,6 +10,7 @@ import CinemaRoom from '@/sections/CinemaRoom';
 import Games from '@/sections/Games';
 import Wallet from '@/sections/Wallet';
 import Referral from '@/sections/Referral';
+import Profile from '@/sections/Profile';
 import BulkDownloader from '@/sections/BulkDownloader';
 import History from '@/sections/History';
 import AdminDashboard from '@/sections/AdminDashboard';
@@ -36,7 +37,7 @@ export const AppContent: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as ViewType;
-    const allowedTabs = ['home', 'video', 'music', 'movie', 'cinema', 'games', 'wallet', 'bulk', 'admin', 'notifications', 'history', 'referral', 'about', 'privacy', 'contact'];
+    const allowedTabs = ['home', 'video', 'music', 'movie', 'cinema', 'games', 'wallet', 'bulk', 'admin', 'notifications', 'history', 'referral', 'profile', 'about', 'privacy', 'contact'];
     
     // Handle Referral Code FIRST so it's captured even if routing changes
     const refCode = params.get('ref');
@@ -276,6 +277,7 @@ export const AppContent: React.FC = () => {
             {activeView === 'wallet' && <Wallet />}
             {activeView === 'bulk' && <BulkDownloader />}
             {activeView === 'referral' && <Referral />}
+            {activeView === 'profile' && <Profile />}
             {activeView === 'notifications' && <Notifications />}
             {activeView === 'history' && <History />}
             {activeView === 'about' && <About />}

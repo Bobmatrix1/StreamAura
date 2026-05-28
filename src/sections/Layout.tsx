@@ -53,6 +53,7 @@ interface Tab {
 
 const tabs: Tab[] = [
   { id: 'home', label: 'Home', icon: Home, color: 'indigo' },
+  { id: 'profile', label: 'My Profile', icon: User, color: 'neon' },
   { id: 'video', label: 'Video', icon: Video, color: 'blue' },
   { id: 'music', label: 'Music', icon: Music, color: 'orange' },
   { id: 'movie', label: 'Movies', icon: Film, color: 'cyan' },
@@ -193,12 +194,12 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
               cyan: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20 shadow-cyan-500/10',
               rose: 'bg-rose-500/10 text-rose-500 border-rose-500/20 shadow-rose-500/10',
               indigo: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20 shadow-indigo-500/10',
-              emerald: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shadow-emerald-500/10',
-              fuchsia: 'bg-fuchsia-500/10 text-fuchsia-500 border-fuchsia-500/20 shadow-fuchsia-500/10',
+              emerald: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shadow-emerald-500/10',        
+              fuchsia: 'bg-fuchsia-500/10 text-fuchsia-500 border-fuchsia-500/20 shadow-fuchsia-500/10',        
               lime: 'bg-lime-500/10 text-lime-500 border-lime-500/20 shadow-lime-500/10',
-              yellow: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20 shadow-yellow-500/10'
-            };
-
+              yellow: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20 shadow-yellow-500/10',
+              neon: 'bg-gradient-to-r from-cyan-500/15 to-pink-500/15 text-cyan-400 border-white/10 shadow-[0_0_15px_rgba(34,211,238,0.2)]'
+              };
             const activeClass = colorClasses[tab.color] || colorClasses.blue;
             
             return (
