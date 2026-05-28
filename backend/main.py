@@ -107,6 +107,73 @@ def format_size(size_bytes):
         return f"{size_bytes:.1f} TB"
     except: return "Fast"
 
+async def try_smvd_api(url: str, platform: str):
+    """
+    Attempts to extract media info using the Social Media Video Downloader API.
+    Returns formatted data if successful, else None.
+    """
+    smvd_url = os.getenv("SMVD_API_URL")
+    smvd_key = os.getenv("SMVD_API_KEY")
+    
+    if not smvd_url:
+        return None
+        
+    try:
+        platform_lower = platform.lower()
+        # Common mapping for SMVD API
+        smvd_type = platform_lower
+        if "twitter" in platform_lower: smvd_type = "twitter"
+        elif "youtube" in platform_lower: smvd_type = "youtube"
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = {}
+            if smvd_key:
+                headers["X-API-Key"] = smvd_key
+                headers["Authorization"] = f"Bearer {smvd_key}"
+            
+            payload = {
+                "video_url": url,
+                "type": smvd_type
+            }
+            
+            # Attempt self-hosted endpoint
+            endpoint = f"{smvd_url.rstrip('/')}/api/download/videos"
+            response = await client.post(endpoint, json=payload, headers=headers)
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("success") and result.get("data"):
+                    data = result["data"]
+                    
+                    formats = []
+                    for m in data.get("media", []):
+                        meta = m.get("metadata", {})
+                        formats.append({
+                            "quality": meta.get("quality") or m.get("label", "Standard"),
+                            "format": meta.get("extension", "MP4").upper(),
+                            "resolution": "Video" if meta.get("hasAudio", True) else "Video (No Audio)",
+                            "size": meta.get("size") or "Fast",
+                            "url": m.get("url")
+                        })
+                    
+                    if not formats: return None
+                        
+                    return {
+                        "id": str(uuid.uuid4()),
+                        "url": url,
+                        "title": data.get("title", "Media Content"),
+                        "thumbnail": data.get("thumbnail"),
+                        "duration": data.get("duration") or "0m",
+                        "author": data.get("author", {}).get("name") if isinstance(data.get("author"), dict) else platform,
+                        "platform": platform,
+                        "mediaType": "video",
+                        "qualities": formats[:15]
+                    }
+    except Exception as e:
+        print(f"SMVD API Request Failed: {str(e)}")
+        
+    return None
+
 # =========================
 # ENDPOINTS
 # =========================
@@ -169,7 +236,15 @@ async def extract_info(request: ExtractRequest):
         platform = "Audiomack"
         media_type = "music"
     
-    # 1. SoundCloud Mirror Engine (Most Stable on Render)
+    # 0. Primary API Attempt (Social Media Video Downloader API)
+    # Only try for video platforms, or as a general attempt
+    if media_type == "video" or platform == "YouTube":
+        smvd_data = await try_smvd_api(url, platform)
+        if smvd_data:
+            print(f"SMVD API Success for {platform}")
+            return {"success": True, "data": smvd_data}
+    
+    # 1. SoundCloud Mirror Engine (Most Stable on Render) fallback
     if platform in ["Spotify", "Audiomack"]:
         try:
             if platform == "Spotify" and sp:
