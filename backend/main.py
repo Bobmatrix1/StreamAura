@@ -116,61 +116,103 @@ async def try_smvd_api(url: str, platform: str):
     smvd_key = os.getenv("SMVD_API_KEY")
     
     if not smvd_url:
+        print(f"SMVD API skipped: SMVD_API_URL not configured.")
         return None
         
     try:
-        platform_lower = platform.lower()
-        # Common mapping for SMVD API
-        smvd_type = platform_lower
-        if "twitter" in platform_lower: smvd_type = "twitter"
-        elif "youtube" in platform_lower: smvd_type = "youtube"
-        
         async with httpx.AsyncClient(timeout=30.0) as client:
-            headers = {}
+            headers = {"Content-Type": "application/json"}
             if smvd_key:
-                headers["X-API-Key"] = smvd_key
+                headers["x-api-key"] = smvd_key
                 headers["Authorization"] = f"Bearer {smvd_key}"
             
+            # Based on your NestJS logs, the extraction route is /info
+            # payload usually expects {"url": "..."} for extraction
             payload = {
-                "video_url": url,
-                "type": smvd_type
+                "url": url
             }
             
-            # Attempt self-hosted endpoint
-            endpoint = f"{smvd_url.rstrip('/')}/api/download/videos"
+            endpoint = f"{smvd_url.rstrip('/')}/info"
+            print(f"Attempting SMVD API: {endpoint} for {platform}")
+            
             response = await client.post(endpoint, json=payload, headers=headers)
             
-            if response.status_code == 200:
+            if response.status_code in [200, 201]:
                 result = response.json()
-                if result.get("success") and result.get("data"):
-                    data = result["data"]
-                    
+                
+                # If result is a raw yt-dlp info object (common for /info routes)
+                if result.get("formats"):
+                    info = result
                     formats = []
-                    for m in data.get("media", []):
-                        meta = m.get("metadata", {})
+                    seen_qualities = set()
+                    
+                    for f in info.get("formats", []):
+                        url_val = f.get("url")
+                        if not url_val: continue
+                        res = f.get("resolution")
+                        note = f.get("format_note")
+                        ext = f.get("ext", "mp4").upper()
+                        vcodec = f.get('vcodec', 'none')
+                        is_audio = vcodec == 'none'
+                        
+                        quality = note or res or ("HQ" if is_audio else "STD")
+                        q_key = f"{quality}_{ext}_{'A' if is_audio else 'V'}"
+                        if q_key in seen_qualities: continue
+                        seen_qualities.add(q_key)
+                        
                         formats.append({
-                            "quality": meta.get("quality") or m.get("label", "Standard"),
-                            "format": meta.get("extension", "MP4").upper(),
-                            "resolution": "Video" if meta.get("hasAudio", True) else "Video (No Audio)",
-                            "size": meta.get("size") or "Fast",
-                            "url": m.get("url")
+                            "quality": quality,
+                            "format": ext,
+                            "resolution": "Audio" if is_audio else "Video",
+                            "size": format_size(f.get('filesize') or f.get('filesize_approx')),
+                            "url": url_val
                         })
                     
-                    if not formats: return None
-                        
                     return {
                         "id": str(uuid.uuid4()),
                         "url": url,
-                        "title": data.get("title", "Media Content"),
-                        "thumbnail": data.get("thumbnail"),
-                        "duration": data.get("duration") or "0m",
-                        "author": data.get("author", {}).get("name") if isinstance(data.get("author"), dict) else platform,
+                        "title": info.get("title", "Media Content"),
+                        "thumbnail": info.get("thumbnail"),
+                        "duration": f"{int(info.get('duration', 0)) // 60}m",
+                        "author": info.get("uploader") or platform,
                         "platform": platform,
                         "mediaType": "video",
                         "qualities": formats[:15]
                     }
+                
+                # If result is the structured 'data' format
+                elif result.get("success") and result.get("data"):
+                    raw_data = result["data"]
+                    formats = []
+                    media_list = raw_data.get("media", [])
+                    
+                    for m in media_list:
+                        meta = m.get("metadata", {})
+                        formats.append({
+                            "quality": meta.get("quality") or m.get("label", "Standard"),
+                            "format": (meta.get("extension") or "MP4").upper(),
+                            "resolution": "Video" if meta.get("hasAudio", True) else "Video (No Audio)",
+                            "size": meta.get("size") or "Fast",
+                            "url": m.get("url")
+                        })
+                        
+                    return {
+                        "id": str(uuid.uuid4()),
+                        "url": url,
+                        "title": raw_data.get("title") or "Media Content",
+                        "thumbnail": raw_data.get("thumbnail"),
+                        "duration": raw_data.get("duration") or "0m",
+                        "author": raw_data.get("author", {}).get("name") if isinstance(raw_data.get("author"), dict) else platform,
+                        "platform": platform,
+                        "mediaType": "video",
+                        "qualities": formats[:15]
+                    }
+                else:
+                    print(f"SMVD API returned unknown format: {result}")
+            else:
+                print(f"SMVD API HTTP Error: {response.status_code} - {response.text}")
     except Exception as e:
-        print(f"SMVD API Request Failed: {str(e)}")
+        print(f"SMVD API Request Exception: {str(e)}")
         
     return None
 
@@ -270,11 +312,18 @@ async def extract_info(request: ExtractRequest):
             'Accept-Language': 'en-US,en;q=0.9',
         },
         'extract_flat': False,
-        'skip_download': True
+        'skip_download': True,
+        'ignoreerrors': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios'],
+                'skip': ['dash', 'hls']
+            }
+        }
     }
     
     try:
-        print(f"--- Extraction Start ---")
+        print(f"--- Fallback Extraction Start ---")
         print(f"Platform: {platform} | Media Type: {media_type}")
         print(f"Query: {search_query}")
         
