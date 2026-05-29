@@ -110,14 +110,14 @@ def format_size(size_bytes):
 async def try_smvd_api(url: str, platform: str):
     """
     Attempts to extract media info using the Social Media Video Downloader API.
-    Returns formatted data if successful, else None.
+    Returns (formatted_data, status_code).
     """
     smvd_url = os.getenv("SMVD_API_URL")
     smvd_key = os.getenv("SMVD_API_KEY")
     
     if not smvd_url:
         print(f"SMVD API skipped: SMVD_API_URL not configured.")
-        return None
+        return None, None
         
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -126,8 +126,6 @@ async def try_smvd_api(url: str, platform: str):
                 headers["x-api-key"] = smvd_key
                 headers["Authorization"] = f"Bearer {smvd_key}"
             
-            # Based on your NestJS logs, the extraction route is /info
-            # payload usually expects {"url": "..."} for extraction
             payload = {
                 "url": url
             }
@@ -140,7 +138,7 @@ async def try_smvd_api(url: str, platform: str):
             if response.status_code in [200, 201]:
                 result = response.json()
                 
-                # If result is a raw yt-dlp info object (common for /info routes)
+                # Format A: Raw yt-dlp info object
                 if result.get("formats"):
                     info = result
                     formats = []
@@ -168,7 +166,7 @@ async def try_smvd_api(url: str, platform: str):
                             "url": url_val
                         })
                     
-                    return {
+                    data = {
                         "id": str(uuid.uuid4()),
                         "url": url,
                         "title": info.get("title", "Media Content"),
@@ -179,8 +177,9 @@ async def try_smvd_api(url: str, platform: str):
                         "mediaType": "video",
                         "qualities": formats[:15]
                     }
+                    return data, response.status_code
                 
-                # If result is the structured 'data' format
+                # Format B: Structured 'data' object
                 elif result.get("success") and result.get("data"):
                     raw_data = result["data"]
                     formats = []
@@ -196,7 +195,7 @@ async def try_smvd_api(url: str, platform: str):
                             "url": m.get("url")
                         })
                         
-                    return {
+                    data = {
                         "id": str(uuid.uuid4()),
                         "url": url,
                         "title": raw_data.get("title") or "Media Content",
@@ -207,14 +206,18 @@ async def try_smvd_api(url: str, platform: str):
                         "mediaType": "video",
                         "qualities": formats[:15]
                     }
+                    return data, response.status_code
                 else:
                     print(f"SMVD API returned unknown format: {result}")
+                    return None, response.status_code
             else:
                 print(f"SMVD API HTTP Error: {response.status_code} - {response.text}")
+                return None, response.status_code
     except Exception as e:
         print(f"SMVD API Request Exception: {str(e)}")
+        return None, 500
         
-    return None
+    return None, None
 
 # =========================
 # ENDPOINTS
