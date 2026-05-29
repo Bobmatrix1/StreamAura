@@ -284,11 +284,11 @@ async def extract_info(request: ExtractRequest):
         if not os.getenv("SMVD_API_URL"):
             smvd_status = "Not configured (Missing SMVD_API_URL in Render)"
         else:
-            smvd_data = await try_smvd_api(url, platform)
+            smvd_data, smvd_status_code = await try_smvd_api(url, platform)
             if smvd_data:
                 print(f"SMVD API Success for {platform}")
                 return {"success": True, "data": smvd_data}
-            smvd_status = "Failed (Check SMVD logs or Key)"
+            smvd_status = f"Failed (HTTP {smvd_status_code})" if smvd_status_code else "Connection Timeout"
     
     # 1. SoundCloud Mirror Engine (Most Stable on Render) fallback
     if platform in ["Spotify", "Audiomack"]:
