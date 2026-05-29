@@ -279,12 +279,16 @@ async def extract_info(request: ExtractRequest):
         media_type = "music"
     
     # 0. Primary API Attempt (Social Media Video Downloader API)
-    # Only try for video platforms, or as a general attempt
+    smvd_status = "Skipped"
     if media_type == "video" or platform == "YouTube":
-        smvd_data = await try_smvd_api(url, platform)
-        if smvd_data:
-            print(f"SMVD API Success for {platform}")
-            return {"success": True, "data": smvd_data}
+        if not os.getenv("SMVD_API_URL"):
+            smvd_status = "Not configured (Missing SMVD_API_URL in Render)"
+        else:
+            smvd_data = await try_smvd_api(url, platform)
+            if smvd_data:
+                print(f"SMVD API Success for {platform}")
+                return {"success": True, "data": smvd_data}
+            smvd_status = "Failed (Check SMVD logs or Key)"
     
     # 1. SoundCloud Mirror Engine (Most Stable on Render) fallback
     if platform in ["Spotify", "Audiomack"]:
@@ -316,14 +320,14 @@ async def extract_info(request: ExtractRequest):
         'ignoreerrors': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios'],
+                'player_client': ['web_embedded', 'android', 'ios'],
                 'skip': ['dash', 'hls']
             }
         }
     }
     
     try:
-        print(f"--- Fallback Extraction Start ---")
+        print(f"--- Fallback Extraction Start (SMVD: {smvd_status}) ---")
         print(f"Platform: {platform} | Media Type: {media_type}")
         print(f"Query: {search_query}")
         
@@ -341,7 +345,7 @@ async def extract_info(request: ExtractRequest):
                 info = info['entries'][0]
 
             if not info:
-                raise Exception("Could not retrieve media info.")
+                raise Exception(f"Could not retrieve media info. (Engine: {smvd_status})")
 
             # Process formats
             raw_formats = info.get("formats", [])
