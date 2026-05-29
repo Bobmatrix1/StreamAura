@@ -301,11 +301,15 @@ async def extract_info(request: ExtractRequest):
         if not os.getenv("SMVD_API_URL"):
             smvd_status = "Not configured (Missing SMVD_API_URL in Render)"
         else:
-            smvd_data, smvd_status_code = await try_smvd_api(url, platform)
+            smvd_data, smvd_status_code, smvd_error = await try_smvd_api(url, platform)
             if smvd_data:
                 print(f"SMVD API Success for {platform}")
                 return {"success": True, "data": smvd_data}
-            smvd_status = f"Failed (HTTP {smvd_status_code})" if smvd_status_code else "Connection Timeout"
+            
+            if smvd_status_code:
+                smvd_status = f"Failed (HTTP {smvd_status_code}: {smvd_error})"
+            else:
+                smvd_status = f"Connection Timeout ({smvd_error})"
     
     # 1. SoundCloud Mirror Engine (Most Stable on Render) fallback
     if platform in ["Spotify", "Audiomack"]:
@@ -448,36 +452,62 @@ async def download_media(url: str, background_tasks: BackgroundTasks, filename: 
 async def search_movies(query: str = Query(...), type: str = "movie"):
     try:
         client_session = Session()
-        subject_type = SubjectType.MOVIES if type == "movie" else SubjectType.TV_SERIES
-        search = Search(client_session, query, subject_type=subject_type)
-        results = await search.get_content()
-        
-        items = results.get('items', [])
+
+        async def perform_search(search_type_str):
+            st = SubjectType.MOVIES if search_type_str == "movie" else SubjectType.TV_SERIES
+            search = Search(client_session, query, subject_type=st)
+            try:
+                res = await search.get_content()
+                if isinstance(res, list): return res
+                if isinstance(res, dict):
+                    return res.get('items') or res.get('list') or res.get('resData', {}).get('list') or []
+                return getattr(res, 'items', []) or getattr(res, 'list', [])
+            except:
+                try:
+                    model = await search.get_content_model()
+                    return getattr(model, 'items', []) or getattr(model, 'list', [])
+                except: return []
+
+        items = await perform_search(type)
+        if not items:
+            other = "series" if type == "movie" else "movie"
+            items = await perform_search(other)
+
+        # 3. Final Fallback: Trending (If still empty)
+        if not items:
+            from moviebox_api.v1 import Trending
+            tr = Trending(client_session)
+            tr_res = await tr.get_content()
+            items = tr_res.get('subjectList', [])[:12]
+            print(f"Search found nothing, returning trending items instead.")
+
+        def get_val(obj, key, default=None):
+            if isinstance(obj, dict): return obj.get(key, default)
+            return getattr(obj, key, default)
+
         formatted_results = []
-        
         for item in items:
-            # Map correctly from the actual API response structure
-            movie_id = str(item.get('subjectId'))
-            poster_data = item.get('cover') or {}
-            poster_url = poster_data.get('url') if isinstance(poster_data, dict) else None
-            
-            # Fallbacks
-            if not poster_url:
-                poster_url = item.get('poster') or item.get('thumbnail')
+            movie_id = str(get_val(item, 'subjectId', ''))
+            if not movie_id: continue
+
+            poster_data = get_val(item, 'cover') or get_val(item, 'poster') or {}
+            poster_url = get_val(poster_data, 'url') if isinstance(poster_data, dict) else poster_data
+            if not poster_url or not isinstance(poster_url, str):
+                poster_url = get_val(item, 'poster') or get_val(item, 'thumbnail')
 
             formatted_results.append({
                 "id": movie_id,
-                "title": item.get('title') or item.get('name') or "Unknown Title",
+                "title": get_val(item, 'title') or get_val(item, 'name') or "Unknown Title",
                 "thumbnail": poster_url,
-                "year": item.get('releaseDate', '').split('-')[0] if item.get('releaseDate') else "N/A",
-                "rating": str(item.get('imdbRatingValue', '0.0')),
-                "description": item.get('description', 'No description available.'),
-                "mediaType": type
+                "year": str(get_val(item, 'releaseDate', 'N/A')).split('-')[0],
+                "rating": str(get_val(item, 'imdbRatingValue', '0.0')),
+                "description": get_val(item, 'description', 'No description available.'),
+                "mediaType": "movie" if type == "movie" else "series"
             })
-            
+
         return {"success": True, "data": formatted_results}
     except Exception as e:
-        print(f"Movie Search Error: {str(e)}")
+        print(f"Movie Search Critical Error: {str(e)}")
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
@@ -491,67 +521,66 @@ async def get_movie_details(
 ):
     try:
         client_session = Session()
-        subject_type = SubjectType.MOVIES if type == "movie" else SubjectType.TV_SERIES
-        
-        # If we have a title, search by title first and find matching ID
-        # because the API Search class doesn't always support direct ID queries
-        search_query = title if title else subject_id
-        search = Search(client_session, search_query, subject_type=subject_type)
-        search_model = await search.get_content_model()
-        
-        items = []
-        if hasattr(search_model, 'items') and search_model.items:
-            items = search_model.items
-        elif hasattr(search_model, 'list') and search_model.list:
-            items = search_model.list
-            
-        target_item = None
-        for item in items:
-            if str(item.get('subjectId')) == subject_id:
-                target_item = item
-                break
-        
-        # Fallback to first item if title search was used but ID match failed
-        if not target_item and items:
-            target_item = items[0]
-            
-        if not target_item:
-            return JSONResponse(status_code=404, content={"success": False, "error": "Content not found"})
 
-        seasons_info = []
-        
         if type == "series":
-            md_instance = TVSeriesDetails(target_item, client_session)
+            # Initialize with string ID for v0.5.3 compatibility
+            md_instance = TVSeriesDetails(subject_id, client_session)
             details = await md_instance.get_content()
             resData = details.get('resData', {})
             subject = resData.get('subject', {})
             resource = resData.get('resource', {})
             seasons_raw = resource.get('seasons', [])
-            
+
+            seasons_info = []
             for s in seasons_raw:
                 se_num = s.get('se')
                 max_ep = s.get('maxEp', 0)
-                seasons_info.append({
-                    "season": se_num,
-                    "episodes": list(range(1, max_ep + 1))
-                })
-            
-            # If season/episode provided, get specific files
+                seasons_info.append({"season": se_num, "episodes": list(range(1, max_ep + 1))})
+
             if season is not None and episode is not None:
                 md_model = await md_instance.get_content_model()
                 files_instance = DownloadableTVSeriesFilesDetail(client_session, md_model)
                 files_data = await files_instance.get_content(season=season, episode=episode)
             else:
                 files_data = {"list": []}
-                
+
             details_data = subject
         else:
-            md_instance = MovieDetails(target_item, client_session)
+            # Initialize with string ID for v0.5.3 compatibility
+            md_instance = MovieDetails(subject_id, client_session)
             details_data = await md_instance.get_content()
             md_model = await md_instance.get_content_model()
             downloadable_files = DownloadableMovieFilesDetail(client_session, md_model)
             files_data = await downloadable_files.get_content()
-        
+
+        qualities = []
+        raw_files = files_data.get('list', [])
+        for f in raw_files:
+            qualities.append({
+                "quality": f.get('quality', '720p'),
+                "format": "MP4",
+                "size": format_size(f.get('size')),
+                "url": f.get('path') or f.get('url')
+            })
+
+        return {
+            "success": True,
+            "data": {
+                "id": subject_id,
+                "title": details_data.get('name') or details_data.get('title'),
+                "description": details_data.get('description'),
+                "thumbnail": details_data.get('poster') or details_data.get('cover'),
+                "year": details_data.get('year') or details_data.get('releaseDate', '').split('-')[0],
+                "rating": str(details_data.get('rating', details_data.get('imdbRatingValue', '0.0'))),
+                "qualities": qualities,
+                "seasons": seasons_info if type == "series" else [],
+                "mediaType": type
+            }
+        }
+    except Exception as e:
+        print(f"Movie Details Error: {str(e)}")
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
         qualities = []
         raw_files = files_data.get('list', [])
         for f in raw_files:
