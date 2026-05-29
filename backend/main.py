@@ -121,39 +121,56 @@ async def try_smvd_api(url: str, platform: str):
         
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            headers = {"Content-Type": "application/json"}
-            if smvd_key:
-                headers["x-api-key"] = smvd_key
-                headers["Authorization"] = f"Bearer {smvd_key}"
-            
-            payload = {
-                "url": url
+            # Standardize headers for NestJS AuthGuard
+            headers = {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "X-API-Key": smvd_key,
+                "x-api-key": smvd_key,
+                "Authorization": f"Bearer {smvd_key}"
             }
             
+            # Try multiple payload formats (NestJS can be picky)
+            payload = {
+                "url": url,
+                "video_url": url,
+                "type": platform.lower(),
+                "with_metadata": True
+            }
+            
+            # Attempt 1: /info route (from logs)
             endpoint = f"{smvd_url.rstrip('/')}/info"
-            print(f"Attempting SMVD API: {endpoint} for {platform}")
+            print(f"Attempting SMVD Info: {endpoint}...")
             
             response = await client.post(endpoint, json=payload, headers=headers)
             
+            # If /info fails, attempt 2: /download/video (from README)
+            if response.status_code not in [200, 201]:
+                print(f"SMVD Info failed ({response.status_code}), trying /download/video...")
+                endpoint = f"{smvd_url.rstrip('/')}/download/video"
+                response = await client.post(endpoint, json=payload, headers=headers)
+
             if response.status_code in [200, 201]:
                 result = response.json()
                 
-                # Format A: Raw yt-dlp info object
-                if result.get("formats"):
+                # Format A: Raw yt-dlp info object (often returned by /info)
+                if isinstance(result, dict) and (result.get("formats") or result.get("url")):
                     info = result
                     formats = []
                     seen_qualities = set()
                     
-                    for f in info.get("formats", []):
+                    # Some versions return media in a 'media' key, some in 'formats'
+                    raw_formats = info.get("formats") or info.get("media") or []
+                    
+                    for f in raw_formats:
                         url_val = f.get("url")
                         if not url_val: continue
-                        res = f.get("resolution")
+                        res = f.get("resolution") or f.get("label")
                         note = f.get("format_note")
                         ext = f.get("ext", "mp4").upper()
-                        vcodec = f.get('vcodec', 'none')
-                        is_audio = vcodec == 'none'
+                        is_audio = f.get('vcodec') == 'none' or 'audio' in str(res).lower()
                         
-                        quality = note or res or ("HQ" if is_audio else "STD")
+                        quality = str(note or res or "STD")
                         q_key = f"{quality}_{ext}_{'A' if is_audio else 'V'}"
                         if q_key in seen_qualities: continue
                         seen_qualities.add(q_key)
@@ -166,26 +183,27 @@ async def try_smvd_api(url: str, platform: str):
                             "url": url_val
                         })
                     
-                    data = {
+                    # Fallback for single URL results
+                    if not formats and info.get("url"):
+                        formats.append({"quality": "HD", "format": "MP4", "resolution": "Video", "size": "Fast", "url": info["url"]})
+
+                    return {
                         "id": str(uuid.uuid4()),
                         "url": url,
-                        "title": info.get("title", "Media Content"),
-                        "thumbnail": info.get("thumbnail"),
-                        "duration": f"{int(info.get('duration', 0)) // 60}m",
-                        "author": info.get("uploader") or platform,
+                        "title": info.get("title") or info.get("description", "Media Content")[:50],
+                        "thumbnail": info.get("thumbnail") or info.get("cover"),
+                        "duration": f"{int(info.get('duration', 0)) // 60}m" if info.get('duration') else "0m",
+                        "author": info.get("uploader") or info.get("author", platform),
                         "platform": platform,
                         "mediaType": "video",
                         "qualities": formats[:15]
-                    }
-                    return data, response.status_code
+                    }, response.status_code
                 
-                # Format B: Structured 'data' object
-                elif result.get("success") and result.get("data"):
+                # Format B: The structured 'success/data' format
+                elif isinstance(result, dict) and result.get("success") and result.get("data"):
                     raw_data = result["data"]
                     formats = []
-                    media_list = raw_data.get("media", [])
-                    
-                    for m in media_list:
+                    for m in raw_data.get("media", []):
                         meta = m.get("metadata", {})
                         formats.append({
                             "quality": meta.get("quality") or m.get("label", "Standard"),
@@ -195,24 +213,20 @@ async def try_smvd_api(url: str, platform: str):
                             "url": m.get("url")
                         })
                         
-                    data = {
+                    return {
                         "id": str(uuid.uuid4()),
                         "url": url,
                         "title": raw_data.get("title") or "Media Content",
                         "thumbnail": raw_data.get("thumbnail"),
                         "duration": raw_data.get("duration") or "0m",
-                        "author": raw_data.get("author", {}).get("name") if isinstance(raw_data.get("author"), dict) else platform,
+                        "author": platform,
                         "platform": platform,
                         "mediaType": "video",
                         "qualities": formats[:15]
-                    }
-                    return data, response.status_code
-                else:
-                    print(f"SMVD API returned unknown format: {result}")
-                    return None, response.status_code
-            else:
-                print(f"SMVD API HTTP Error: {response.status_code} - {response.text}")
-                return None, response.status_code
+                    }, response.status_code
+                    
+            print(f"SMVD API reached but returned unknown format: {response.text[:200]}")
+            return None, response.status_code
     except Exception as e:
         print(f"SMVD API Request Exception: {str(e)}")
         return None, 500
