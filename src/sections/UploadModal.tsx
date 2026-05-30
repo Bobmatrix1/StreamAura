@@ -20,6 +20,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ preOrder, onClose, onS
   const [year, setYear] = useState(new Date().getFullYear().toString());
   const [rating, setRating] = useState('8.5');
   const [isFulfilling, setIsFulfilling] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const { showSuccess, showError } = useToast();
 
   const movieInputRef = React.useRef<HTMLInputElement>(null);
@@ -30,15 +31,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({ preOrder, onClose, onS
       showError('Please fill all fields and upload required media');
       return;
     }
-    
+
     setIsFulfilling(true);
+    setUploadProgress(0);
     try {
       // 1. Upload cover image to R2 (assets)
       const coverUrl = await uploadFile(coverFile, 'preorders/covers', 'assets');
-      
-      // 2. Upload movie file to R2 (movies)
-      const movieUrl = await uploadFile(movieFile, 'preorders/movies', 'movies');
 
+      // 2. Upload movie file to R2 (movies) with high-speed parallel chunks
+      const movieUrl = await uploadFile(movieFile, 'preorders/movies', 'movies', (p) => {
+        setUploadProgress(p);
+      });
       const movieData: CloudMovie = {
         id: preOrder.movieId,
         title: preOrder.title,
@@ -202,23 +205,31 @@ export const UploadModal: React.FC<UploadModalProps> = ({ preOrder, onClose, onS
           </div>
         </div>
 
-        {/* Footer Actions */}
         <div className="p-8 border-t border-white/10 bg-black/40 relative z-20">
           <button
             onClick={handleFulfill}
             disabled={isFulfilling}
-            className="w-full h-16 gradient-bg text-white rounded-2xl font-black uppercase tracking-[0.25em] text-xs shadow-2xl shadow-primary/20 flex items-center justify-center gap-4 disabled:opacity-50 transition-all active:scale-[0.98]"
+            className="w-full h-16 gradient-bg text-white rounded-2xl font-black uppercase tracking-[0.25em] text-xs shadow-2xl shadow-primary/20 flex flex-col items-center justify-center gap-1 disabled:opacity-50 transition-all active:scale-[0.98]"
           >
             {isFulfilling ? (
               <>
-                <Loader2 className="w-6 h-6 animate-spin" />
-                Deducting Cores & Uploading...
+                <div className="flex items-center gap-3">
+                   <Loader2 className="w-5 h-5 animate-spin" />
+                   <span>Uploading {uploadProgress}%</span>
+                </div>
+                <div className="w-48 h-1 bg-white/10 rounded-full mt-1 overflow-hidden">
+                   <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${uploadProgress}%` }}
+                    className="h-full bg-white" 
+                   />
+                </div>
               </>
             ) : (
-              <>
+              <div className="flex items-center gap-4">
                 <Check className="w-6 h-6" />
-                Finalize Delivery
-              </>
+                <span>Finalize Delivery</span>
+              </div>
             )}
           </button>
         </div>

@@ -48,3 +48,20 @@ class WithdrawalRequest(BaseModel):
 class AgoraTokenRequest(BaseModel):
     room_id: str
     role: str = "publisher" # publisher or subscriber
+
+class MultipartInitiateRequest(BaseModel):
+    file_name: str
+    content_type: str
+    bucket_type: str # 'assets' or 'movies'
+
+class MultipartPartRequest(BaseModel):
+    upload_id: str
+    key: str
+    part_number: int
+    bucket_type: str
+
+class MultipartCompleteRequest(BaseModel):
+    upload_id: str
+    key: str
+    parts: List[Dict[str, Any]] # [{'ETag': '...', 'PartNumber': 1}, ...]
+    bucket_type: str

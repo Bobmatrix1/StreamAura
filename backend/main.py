@@ -60,9 +60,11 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Start the periodic cleanup worker
+    # Startup: Start the periodic cleanup workers
     from websockets.game_sync import start_periodic_cleanup
+    from websockets.room_sync import start_periodic_cinema_cleanup
     asyncio.create_task(start_periodic_cleanup())
+    asyncio.create_task(start_periodic_cinema_cleanup())
     yield
 
 # =========================

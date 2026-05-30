@@ -30,6 +30,66 @@ def generate_presigned_upload_url(bucket_name: str, object_name: str, content_ty
     public_url = f"{settings.R2_PUBLIC_BASE_URL}/{object_name}"
     return {"upload_url": response, "public_url": public_url}
 
+def initiate_multipart_upload(bucket_name: str, object_name: str, content_type: str):
+    """
+    Initiate a multipart upload and return the UploadId
+    """
+    s3_client = get_s3_client()
+    try:
+        response = s3_client.create_multipart_upload(
+            Bucket=bucket_name,
+            Key=object_name,
+            ContentType=content_type
+        )
+        public_url = f"{settings.R2_PUBLIC_BASE_URL}/{object_name}"
+        return {
+            "upload_id": response['UploadId'],
+            "key": object_name,
+            "public_url": public_url
+        }
+    except Exception as e:
+        print(f"Error initiating multipart: {e}")
+        return None
+
+def generate_presigned_part_url(bucket_name: str, object_name: str, upload_id: str, part_number: int, expiration=3600):
+    """
+    Generate a presigned URL for a specific part of a multipart upload
+    """
+    s3_client = get_s3_client()
+    try:
+        url = s3_client.generate_presigned_url(
+            'upload_part',
+            Params={
+                'Bucket': bucket_name,
+                'Key': object_name,
+                'UploadId': upload_id,
+                'PartNumber': part_number
+            },
+            ExpiresIn=expiration
+        )
+        return url
+    except Exception as e:
+        print(f"Error generating part URL: {e}")
+        return None
+
+def complete_multipart_upload(bucket_name: str, object_name: str, upload_id: str, parts: list):
+    """
+    Complete a multipart upload by joining all parts
+    Parts list should look like: [{'ETag': '...', 'PartNumber': 1}, ...]
+    """
+    s3_client = get_s3_client()
+    try:
+        response = s3_client.complete_multipart_upload(
+            Bucket=bucket_name,
+            Key=object_name,
+            UploadId=upload_id,
+            MultipartUpload={'Parts': parts}
+        )
+        return True
+    except Exception as e:
+        print(f"Error completing multipart: {e}")
+        return False
+
 def generate_presigned_download_url(bucket_name: str, object_name: str, expiration=3600):
     """
     Generate a presigned URL to download an S3 object securely.

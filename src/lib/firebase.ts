@@ -865,28 +865,111 @@ export const placeOrder = async (order: Omit<Order, 'id' | 'createdAt' | 'status
   return docRef.id;
 };
 
-export const uploadFile = async (file: File, _path: string, bucketType: 'assets' | 'movies' = 'assets'): Promise<string> => {
+export const uploadFile = async (
+  file: File, 
+  _path: string, 
+  bucketType: 'assets' | 'movies' = 'assets',
+  onProgress?: (percent: number) => void
+): Promise<string> => {
   if (!auth.currentUser) throw new Error("Must be logged in to upload files.");
   const token = await auth.currentUser.getIdToken();
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks for high speed
 
-  const response = await fetch(`${API_URL}/api/cinema/presigned-url`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-    body: JSON.stringify({ file_name: file.name, content_type: file.type, bucket_type: bucketType })
-  });
+  // --- OPTION A: Small files (< 5MB) use single-shot upload ---
+  if (file.size <= CHUNK_SIZE) {
+    const response = await fetch(`${API_URL}/api/cinema/presigned-url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ file_name: file.name, content_type: file.type, bucket_type: bucketType })
+    });
 
-  if (!response.ok) throw new Error('Failed to get upload URL');
-  const { upload_url, public_url } = await response.json();
+    if (!response.ok) throw new Error('Failed to get upload URL');
+    const { upload_url, public_url } = await response.json();
 
-  const uploadResponse = await fetch(upload_url, {
-    method: 'PUT',
-    body: file,
-    headers: { 'Content-Type': file.type }
-  });
+    const uploadResponse = await fetch(upload_url, {
+      method: 'PUT',
+      body: file,
+      headers: { 'Content-Type': file.type }
+    });
 
-  if (!uploadResponse.ok) throw new Error('Failed to upload file to storage');
-  return public_url;
+    if (!uploadResponse.ok) throw new Error('Failed to upload file');
+    if (onProgress) onProgress(100);
+    return public_url;
+  }
+
+  // --- OPTION B: Large files (> 5MB) use Multipart Upload for speed ---
+  try {
+    // 1. Initiate
+    const initResp = await fetch(`${API_URL}/api/cinema/multipart/initiate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ file_name: file.name, content_type: file.type, bucket_type: bucketType })
+    });
+    const { upload_id, key, public_url } = await initResp.json();
+
+    // 2. Chunking logic
+    const totalParts = Math.ceil(file.size / CHUNK_SIZE);
+    const parts: { ETag: string, PartNumber: number }[] = [];
+    
+    // We upload in parallel batches of 3 for extreme speed without crashing the browser
+    for (let i = 0; i < totalParts; i += 3) {
+      const batch = [];
+      for (let j = 0; j < 3 && (i + j) < totalParts; j++) {
+        const partNumber = i + j + 1;
+        const start = (partNumber - 1) * CHUNK_SIZE;
+        const end = Math.min(partNumber * CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+        
+        batch.push((async () => {
+          // Get presigned URL for this part
+          const signResp = await fetch(`${API_URL}/api/cinema/multipart/presign-part`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ upload_id, key, part_number: partNumber, bucket_type: bucketType })
+          });
+          const { upload_url } = await signResp.json();
+
+          // Upload the chunk
+          const uploadResp = await fetch(upload_url, {
+            method: 'PUT',
+            body: chunk
+          });
+          
+          if (!uploadResp.ok) throw new Error(`Part ${partNumber} failed`);
+          const etag = uploadResp.headers.get('ETag');
+          if (!etag) throw new Error(`Part ${partNumber} missing ETag`);
+          
+          parts.push({ ETag: etag.replace(/\"/g, ''), PartNumber: partNumber });
+          
+          if (onProgress) {
+            const uploadedSoFar = parts.length;
+            onProgress(Math.round((uploadedSoFar / totalParts) * 100));
+          }
+        })());
+      }
+      await Promise.all(batch);
+    }
+
+    // 3. Complete
+    const completeResp = await fetch(`${API_URL}/api/cinema/multipart/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ 
+        upload_id, 
+        key, 
+        parts: parts.sort((a, b) => a.PartNumber - b.PartNumber),
+        bucket_type: bucketType 
+      })
+    });
+
+    if (!completeResp.ok) throw new Error('Failed to join movie parts');
+    return public_url;
+
+  } catch (err: any) {
+    console.error("High-speed upload failed:", err);
+    throw new Error(err.message || "Parallel upload failed");
+  }
 };
 
 export const deleteVendor = async (id: string): Promise<void> => {

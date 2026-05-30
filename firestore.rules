@@ -78,6 +78,12 @@ service cloud.firestore {
     match /cinema_rooms/{roomId} {
       allow read, list: if true;
       allow write: if isAdmin();
+
+      match /chat/{messageId} {
+        allow read: if true;
+        allow create: if isAuthenticated();
+        allow update, delete: if isAdmin() || (isAuthenticated() && request.auth.uid == resource.data.uid);
+      }
     }
 
     match /room_access_passes/{passId} {

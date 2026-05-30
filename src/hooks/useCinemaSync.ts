@@ -2,11 +2,32 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import type { IAgoraRTCClient, ILocalAudioTrack } from 'agora-rtc-sdk-ng';
 import { API_BASE_URL } from '../api/mediaApi';
+import { auth, db } from '@/lib/firebase';
+import { 
+  collection, 
+  addDoc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  limit, 
+  serverTimestamp,
+  doc,
+  getDoc,
+  updateDoc,
+  arrayUnion,
+  arrayRemove,
+  deleteField
+} from 'firebase/firestore';
+import { toast } from 'sonner';
 
 interface ChatMessage {
+  id: string;
   uid: string;
   text: string;
-  timestamp: number;
+  userName: string;
+  userPhoto: string | null;
+  timestamp: any;
+  reactions?: Record<string, string[]>; // emoji -> array of uids
 }
 
 interface CinemaState {
@@ -17,9 +38,10 @@ interface CinemaState {
   currentEpisodeIndex?: number;
 }
 
-export const useCinemaSync = (roomId: string | null, user: any, isAdmin: boolean = false) => {
+export const useCinemaSync = (roomId: string | null, user: any) => {
   const [roomState, setRoomState] = useState<CinemaState | null>(null);
   const [viewers, setViewers] = useState<number>(0);
+  const [activeUserUids, setActiveUserUids] = useState<string[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
@@ -28,7 +50,7 @@ export const useCinemaSync = (roomId: string | null, user: any, isAdmin: boolean
   const agoraClient = useRef<IAgoraRTCClient | null>(null);
   const localAudioTrack = useRef<ILocalAudioTrack | null>(null);
 
-  // WebSocket Logic
+  // WebSocket Logic (Synchronization Only)
   useEffect(() => {
     if (!roomId || !user) return;
 
@@ -37,9 +59,7 @@ export const useCinemaSync = (roomId: string | null, user: any, isAdmin: boolean
 
     ws.current.onopen = () => {
       console.log('Cinema WS Connected');
-      if (!isAdmin) {
-        ws.current?.send(JSON.stringify({ type: 'join', uid: user.uid }));
-      }
+      ws.current?.send(JSON.stringify({ type: 'join', uid: user.uid }));
     };
 
     ws.current.onmessage = (event) => {
@@ -55,14 +75,16 @@ export const useCinemaSync = (roomId: string | null, user: any, isAdmin: boolean
         case 'episode_sync':
           setRoomState(prev => prev ? { ...prev, currentEpisodeIndex: data.index, movieTime: 0, status: 'playing' } : null);
           break;
-        case 'chat':
-          setMessages(prev => [...prev, data.message].slice(-100));
+        case 'user_list':
+          setActiveUserUids(data.users);
+          setViewers(data.users.length);
           break;
-        case 'user_joined':
-          setViewers(prev => prev + 1);
+        case 'kicked':
+          toast.warning("You have been kicked from the room.");
+          window.location.reload(); // Force exit via reload
           break;
-        case 'user_left':
-          setViewers(prev => Math.max(0, prev - 1));
+        case 'error':
+          toast.error(data.message);
           break;
       }
     };
@@ -71,6 +93,24 @@ export const useCinemaSync = (roomId: string | null, user: any, isAdmin: boolean
       ws.current?.close();
     };
   }, [roomId, user]);
+
+  // Persistent Firestore Chat Logic
+  useEffect(() => {
+    if (!roomId) return;
+
+    const chatRef = collection(db, 'cinema_rooms', roomId, 'chat');
+    const q = query(chatRef, orderBy('timestamp', 'asc'), limit(100));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const newMessages = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as ChatMessage[];
+      setMessages(newMessages);
+    });
+
+    return () => unsubscribe();
+  }, [roomId]);
 
   // Sync controls (Host Only)
   const syncPlayback = useCallback((status: 'play' | 'pause' | 'seek', time: number) => {
@@ -85,23 +125,86 @@ export const useCinemaSync = (roomId: string | null, user: any, isAdmin: boolean
     }
   }, [user]);
 
-  const sendChatMessage = useCallback((text: string) => {
-    if (ws.current?.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify({ type: 'chat', text, uid: user?.uid }));
+  const sendChatMessage = useCallback(async (text: string) => {
+    if (!roomId || !user || !text.trim()) return;
+
+    try {
+      await addDoc(collection(db, 'cinema_rooms', roomId, 'chat'), {
+        uid: user.uid,
+        userName: user.displayName || 'Anonymous',
+        userPhoto: user.photoURL,
+        text: text.trim(),
+        timestamp: serverTimestamp(),
+        reactions: {}
+      });
+    } catch (err) {
+      console.error('Failed to send message:', err);
     }
-  }, [user]);
+  }, [roomId, user]);
+
+  const reactToMessage = useCallback(async (messageId: string, emoji: string) => {
+    if (!roomId || !user) return;
+
+    try {
+      const msgRef = doc(db, 'cinema_rooms', roomId, 'chat', messageId);
+      const msgSnap = await getDoc(msgRef);
+      
+      if (msgSnap.exists()) {
+        const reactions = msgSnap.data().reactions || {};
+        const uids = reactions[emoji] || [];
+        
+        if (uids.includes(user.uid)) {
+          // Remove reaction
+          const newUids = uids.filter((id: string) => id !== user.uid);
+          if (newUids.length === 0) {
+            await updateDoc(msgRef, {
+              [`reactions.${emoji}`]: deleteField()
+            });
+          } else {
+            await updateDoc(msgRef, {
+              [`reactions.${emoji}`]: arrayRemove(user.uid)
+            });
+          }
+        } else {
+          // Add reaction
+          await updateDoc(msgRef, {
+            [`reactions.${emoji}`]: arrayUnion(user.uid)
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to react:', err);
+    }
+  }, [roomId, user]);
 
   // Agora Logic
   const joinVoice = async () => {
     if (!roomId || !user) return;
     
     try {
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error('Authentication token missing');
+
       const response = await fetch(`${API_BASE_URL}/api/cinema/agora/token`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
         body: JSON.stringify({ room_id: roomId, role: 'publisher' })
       });
-      const { token, uid, app_id } = await response.json();
+      
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || `Server returned ${response.status}`);
+      }
+      
+      const data = await response.json();
+      if (!data.app_id || !data.token) {
+        throw new Error('Invalid response from token server');
+      }
+
+      const { token, uid, app_id } = data;
 
       agoraClient.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
       await agoraClient.current.join(app_id, roomId, token, uid);
@@ -141,6 +244,7 @@ export const useCinemaSync = (roomId: string | null, user: any, isAdmin: boolean
   return {
     roomState,
     viewers,
+    activeUserUids,
     messages,
     isVoiceActive,
     isMuted,
@@ -149,6 +253,33 @@ export const useCinemaSync = (roomId: string | null, user: any, isAdmin: boolean
     sendChatMessage,
     joinVoice,
     leaveVoice,
-    toggleMute
+    toggleMute,
+    reactToMessage,
+    moderateUser: async (uid: string, action: 'kick' | 'ban' | 'mute' | 'unmute' | 'cohost') => {
+      if (!roomId) return;
+      const roomRef = doc(db, 'cinema_rooms', roomId);
+      
+      if (action === 'kick') {
+        // 1. Update Firestore (optional, for record)
+        await updateDoc(roomRef, { [`kickedUsers.${uid}`]: serverTimestamp() });
+        // 2. Send WS message for immediate disconnection
+        if (ws.current?.readyState === WebSocket.OPEN) {
+          ws.current.send(JSON.stringify({ type: 'kick', target_uid: uid }));
+        }
+        toast.success("User kicked");
+      } else if (action === 'ban') {
+        await updateDoc(roomRef, { [`bannedUsers.${uid}`]: true });
+        toast.success("User banned");
+      } else if (action === 'mute') {
+        await updateDoc(roomRef, { [`mutedUsers.${uid}`]: true });
+        toast.success("User muted");
+      } else if (action === 'unmute') {
+        await updateDoc(roomRef, { [`mutedUsers.${uid}`]: deleteField() });
+        toast.success("User unmuted");
+      } else if (action === 'cohost') {
+        await updateDoc(roomRef, { [`coHosts.${uid}`]: true });
+        toast.success("Appointed as Co-Host");
+      }
+    }
   };
 };

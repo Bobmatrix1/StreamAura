@@ -21,6 +21,7 @@ import {
   Share2,
   Check,
   Loader2,
+  Trash2,
   Wallet as WalletIcon
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
@@ -31,22 +32,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { CinemaStoreModal } from './CinemaStoreModal';
 import { API_BASE_URL } from '../api/mediaApi';
 import { auth, db, uploadFile, logUserAction, logPaymentEvent, logInviteEvent } from '@/lib/firebase';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { initializePaystackPayment, verifyPaymentOnBackend } from '../api/paymentApi';
 import { CinemaLiveRoom } from './CinemaLiveRoom';
-
-interface Room {
-  id: string;
-  title: string;
-  movie: string;
-  poster: string;
-  host: string;
-  viewers: number;
-  status: 'live' | 'upcoming';
-  startTime: string;
-  capacity: number | 'unlimited';
-  type: 'free' | 'paid' | 'private';
-}
 
 interface Trailer {
   id: string;
@@ -79,6 +67,8 @@ const CinemaRoom: React.FC = () => {
   // Live Room State
   const [activeRoom, setActiveRoom] = useState<any | null>(null);
   const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
+  const [roomToDelete, setRoomToDelete] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const dateInputRef = React.useRef<HTMLInputElement>(null);
   const timeInputRef = React.useRef<HTMLInputElement>(null);
@@ -211,13 +201,6 @@ const CinemaRoom: React.FC = () => {
     });
   };
 
-  const handleJoinRoom = (room: Room) => {
-    requireAuth(() => {
-      // Mock join logic
-      showSuccess(`Joining ${room.title}...`);
-    });
-  };
-
   const handleMyTickets = () => {
     requireAuth(() => {
        showInfo('No active tickets found.');
@@ -305,6 +288,7 @@ const CinemaRoom: React.FC = () => {
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [trailerFile, setTrailerFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   // Series Specific State
   const [episodes, setEpisodes] = useState<{ number: number; title: string; file: File | null }[]>([
@@ -407,45 +391,16 @@ const CinemaRoom: React.FC = () => {
     return `${h12.toString().padStart(2, '0')}:${minutes} ${ampm}`;
   };
 
-  // Mock data for cinema rooms
-  const rooms: Room[] = [
-    {
-      id: '1',
-      title: 'IMAX Experience',
-      movie: 'Interstellar',
-      poster: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=2094&auto=format&fit=crop',
-      host: 'Bobbizy',
-      viewers: 124,
-      status: 'live',
-      startTime: '8:00 PM',
-      capacity: 'unlimited',
-      type: 'paid'
-    },
-    {
-      id: '2',
-      title: 'Midnight Classics',
-      movie: 'The Matrix',
-      poster: 'https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?q=80&w=2070&auto=format&fit=crop',
-      host: 'Neo',
-      viewers: 86,
-      status: 'live',
-      startTime: '10:00 PM',
-      capacity: 100,
-      type: 'free'
-    },
-    {
-      id: '3',
-      title: 'Action Arena',
-      movie: 'John Wick 4',
-      poster: 'https://images.unsplash.com/photo-1594909122845-11baa439b7bf?q=80&w=2070&auto=format&fit=crop',
-      host: 'Baba Yaga',
-      viewers: 0,
-      status: 'upcoming',
-      startTime: 'Tomorrow, 6:00 PM',
-      capacity: 50,
-      type: 'paid'
-    }
-  ];
+  const [rooms, setRooms] = useState<any[]>([]);
+
+  // Real-time Rooms Listener
+  useEffect(() => {
+    const q = query(collection(db, 'cinema_rooms'), orderBy('created_at', 'desc'), limit(12));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setRooms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
+  }, []);
 
   const trailers: Trailer[] = [
     {
@@ -462,18 +417,43 @@ const CinemaRoom: React.FC = () => {
     }
   ];
 
-  const handleShareRoom = (room: Room) => {
-    const shareUrl = `${API_BASE_URL}/share?title=${encodeURIComponent(`Live Cinema: ${room.title}`)}&desc=${encodeURIComponent(`Watching ${room.movie} with ${room.viewers} others. Join now!`)}&img=${encodeURIComponent(room.poster)}&target=${encodeURIComponent(`/?tab=cinema&room=${room.id}`)}`;
+  const handleShareRoom = (room: any) => {
+    const shareUrl = `${API_BASE_URL}/share?title=${encodeURIComponent(`Live Cinema: ${room.room_name}`)}&desc=${encodeURIComponent(`Watching ${room.movie_title} with ${room.active_viewers || 0} others. Join now!`)}&img=${encodeURIComponent(room.movie_cover_image)}&target=${encodeURIComponent(`/?tab=cinema&room=${room.id}`)}`;
     
     if (navigator.share) {
       navigator.share({
-        title: `Join StreamAura Cinema - ${room.title}`,
-        text: `🍿 I'm watching ${room.movie} on StreamAura! Come join the room.`,
+        title: `Join StreamAura Cinema - ${room.room_name}`,
+        text: `🍿 I'm watching ${room.movie_title} on StreamAura! Come join the room.`,
         url: shareUrl
       }).catch(console.error);
     } else {
       navigator.clipboard.writeText(shareUrl);
       showSuccess('Room link copied for sharing!');
+    }
+  };
+
+  const handleDeleteRoom = async (roomId: string) => {
+    setRoomToDelete(roomId);
+  };
+
+  const confirmDeleteRoom = async () => {
+    if (!roomToDelete) return;
+    setIsDeleting(true);
+    
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      const response = await fetch(`${API_BASE_URL}/api/cinema/rooms/${roomToDelete}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${idToken}` }
+      });
+
+      if (!response.ok) throw new Error('Failed to delete room');
+      showSuccess("Room and all associated files deleted successfully");
+      setRoomToDelete(null);
+    } catch (err) {
+      showError("Failed to delete room");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -562,7 +542,8 @@ const CinemaRoom: React.FC = () => {
       // 1. Resolve Cover URL
       let coverUrl = preFilledCoverUrl;
       if (coverFile) {
-        coverUrl = await uploadFile(coverFile, 'cinema/covers', 'assets');
+        setUploadProgress(0);
+        coverUrl = await uploadFile(coverFile, 'cinema/covers', 'assets', (p) => setUploadProgress(p));
       }
       
       // 2. Resolve Content (Movie or Series)
@@ -571,7 +552,8 @@ const CinemaRoom: React.FC = () => {
 
       if (contentType === 'movie') {
         if (movieFile) {
-          movieUrl = await uploadFile(movieFile, 'cinema/movies', 'movies');
+          setUploadProgress(0);
+          movieUrl = await uploadFile(movieFile, 'cinema/movies', 'movies', (p) => setUploadProgress(p));
         }
         // Even for single movie, we store it as a single element in episodes for the sync engine
         episodesData.push({
@@ -584,8 +566,9 @@ const CinemaRoom: React.FC = () => {
         // Handle Episodes Uploads
         for (const ep of episodes) {
            if (ep.file) {
+             setUploadProgress(0);
              showInfo(`Uploading Episode ${ep.number}...`);
-             const epUrl = await uploadFile(ep.file, `cinema/series/${movieTitle}/ep${ep.number}`, 'movies');
+             const epUrl = await uploadFile(ep.file, `cinema/series/${movieTitle}/ep${ep.number}`, 'movies', (p) => setUploadProgress(p));
              episodesData.push({
                number: ep.number,
                title: ep.title,
@@ -599,7 +582,8 @@ const CinemaRoom: React.FC = () => {
       // 3. Upload trailer if present
       let trailerUrl = null;
       if (trailerFile) {
-        trailerUrl = await uploadFile(trailerFile, 'cinema/trailers', 'assets');
+        setUploadProgress(0);
+        trailerUrl = await uploadFile(trailerFile, 'cinema/trailers', 'assets', (p) => setUploadProgress(p));
       }
 
       // 4. Prepare payload
@@ -888,8 +872,8 @@ const CinemaRoom: React.FC = () => {
             <Card className="overflow-hidden glass-card border-white/5 h-full flex flex-col">
               <div className="relative aspect-[16/9] overflow-hidden">
                 <img 
-                  src={room.poster} 
-                  alt={room.movie} 
+                  src={room.movie_cover_image} 
+                  alt={room.movie_title} 
                   className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
@@ -910,41 +894,53 @@ const CinemaRoom: React.FC = () => {
                 <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center border border-white/20 shadow-lg">
-                      <span className="text-[10px] font-black tracking-widest">{room.host[0]}</span>
+                      <span className="text-[10px] font-black tracking-widest">{(room.host_name || 'H')[0]}</span>
                     </div>
-                    <span className="text-xs font-bold text-white/90 drop-shadow-md">by {room.host}</span>
+                    <span className="text-xs font-bold text-white/90 drop-shadow-md">by {room.host_name}</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-white/90 bg-black/40 backdrop-blur-md px-2 py-1 rounded-lg border border-white/10">
                     <Users className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-bold">{room.viewers} watching</span>
+                    <span className="text-[10px] font-bold">{room.active_viewers || 0} watching</span>
                   </div>
                 </div>
 
-                <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute top-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                    <button 
                     onClick={(e) => { e.stopPropagation(); handleShareRoom(room); }}
                     className="p-2 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white hover:bg-primary transition-all"
                    >
                      <Share2 className="w-4 h-4" />
                    </button>
+                   {(isAdmin || room.host_uid === auth.currentUser?.uid) && (
+                     <button 
+                      onClick={(e) => { e.stopPropagation(); handleDeleteRoom(room.id); }}
+                      className="p-2 rounded-full bg-rose-500/20 backdrop-blur-md border border-rose-500/30 text-rose-500 hover:bg-rose-500 hover:text-white transition-all"
+                      title="Delete Room & Files"
+                     >
+                       <Trash2 className="w-4 h-4" />
+                     </button>
+                   )}
                 </div>
               </div>
               
               <div className="p-5 flex-1 flex flex-col">
                 <div className="flex justify-between items-start mb-2">
-                  <h3 className="font-black text-lg leading-tight line-clamp-1">{room.title}</h3>
+                  <h3 className="font-black text-lg leading-tight line-clamp-1">{room.room_name}</h3>
                 </div>
                 <p className="text-sm text-muted-foreground mb-4 flex items-center gap-1.5 font-medium">
                   <Film className="w-3.5 h-3.5 text-primary" />
-                  Showing: <span className="text-foreground font-bold">{room.movie}</span>
+                  Showing: <span className="text-foreground font-bold">{room.movie_title}</span>
                 </p>
                 
                 <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between">
                   <div className="flex flex-col">
                     <span className="text-[9px] text-muted-foreground uppercase font-black tracking-widest">Start Time</span>
-                    <span className="text-xs font-bold flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3" /> {room.startTime}</span>
+                    <span className="text-xs font-bold flex items-center gap-1 mt-0.5">
+                      <Clock className="w-3 h-3" /> 
+                      {room.scheduled_start_time ? new Date(room.scheduled_start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Live Now'}
+                    </span>
                   </div>
-                  <Button onClick={() => handleJoinRoom(room)} size="sm" className="rounded-xl px-6 font-bold shadow-lg transition-transform hover:scale-105 gradient-bg">
+                  <Button onClick={() => handleJoinRoomById(room.id)} size="sm" className="rounded-xl px-6 font-bold shadow-lg transition-transform hover:scale-105 gradient-bg">
                     Join Room
                   </Button>
                 </div>
@@ -1615,10 +1611,21 @@ const CinemaRoom: React.FC = () => {
                        <Button type="button" variant="ghost" onClick={() => setIsCreateModalOpen(false)} disabled={isSubmitting}>Cancel</Button>
                        <Button type="submit" disabled={isSubmitting} className="gradient-bg px-8 font-black gap-2 disabled:opacity-50 min-w-[200px]">
                          {isSubmitting ? (
-                           <>
-                             <Loader2 className="w-4 h-4 animate-spin" />
-                             Processing...
-                           </>
+                           <div className="flex flex-col items-center justify-center gap-1">
+                             <div className="flex items-center gap-2">
+                               <Loader2 className="w-4 h-4 animate-spin" />
+                               <span>{uploadProgress > 0 ? `Uploading ${uploadProgress}%` : 'Processing...'}</span>
+                             </div>
+                             {uploadProgress > 0 && (
+                               <div className="w-full h-1 bg-white/20 rounded-full overflow-hidden mt-1">
+                                 <motion.div 
+                                   initial={{ width: 0 }}
+                                   animate={{ width: `${uploadProgress}%` }}
+                                   className="h-full bg-white"
+                                 />
+                               </div>
+                             )}
+                           </div>
                          ) : (
                            <>
                              {calculateTotalCost().total > 0 ? `Pay ₦${calculateTotalCost().total.toLocaleString()} & Create` : 'Create Room'}
@@ -1637,6 +1644,56 @@ const CinemaRoom: React.FC = () => {
       )}
 
       <CinemaStoreModal isOpen={isStoreOpen} onClose={() => setIsStoreOpen(false)} />
+
+      {/* Custom Delete Confirmation Modal */}
+      {roomToDelete && createPortal(
+        <div 
+          onClick={() => !isDeleting && setRoomToDelete(null)}
+          className="fixed inset-0 z-[5000] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md font-sans cursor-pointer"
+        >
+           <motion.div 
+            onClick={(e) => e.stopPropagation()}
+            initial={{ scale: 0.9, opacity: 0, y: 20 }} 
+            animate={{ scale: 1, opacity: 1, y: 0 }} 
+            className="glass-card max-w-sm w-full p-8 text-center space-y-6 border-white/10 shadow-2xl cursor-default"
+           >
+              <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center mx-auto border border-rose-500/20">
+                 <Trash2 className="text-rose-500 w-8 h-8" />
+              </div>
+              <div className="space-y-2">
+                 <h3 className="text-xl font-black uppercase text-white tracking-tighter">Delete Cinema Room?</h3>
+                 <p className="text-xs text-muted-foreground font-medium uppercase leading-relaxed tracking-wider">
+                   This will permanently remove the room and delete all associated media files from storage. This action cannot be undone.
+                 </p>
+              </div>
+              <div className="flex flex-col gap-3">
+                 <Button 
+                   onClick={confirmDeleteRoom} 
+                   disabled={isDeleting}
+                   className="w-full bg-rose-600 hover:bg-rose-500 text-white h-12 font-black uppercase text-[10px] shadow-lg shadow-rose-600/20"
+                 >
+                   {isDeleting ? (
+                     <>
+                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                       Deleting...
+                     </>
+                   ) : (
+                     'Confirm Deletion'
+                   )}
+                 </Button>
+                 <Button 
+                   variant="ghost" 
+                   disabled={isDeleting}
+                   onClick={() => setRoomToDelete(null)} 
+                   className="w-full h-11 text-[10px] font-black uppercase border border-white/5 hover:bg-white/5"
+                 >
+                   Cancel
+                 </Button>
+              </div>
+           </motion.div>
+        </div>, 
+        document.body
+      )}
 
       {/* Insufficient Funds Modal */}
       {insufficientFunds?.show && createPortal(

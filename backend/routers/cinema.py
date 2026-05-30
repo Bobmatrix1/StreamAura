@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel
 from core.security import get_current_user, get_current_admin
 from core.config import settings
-from models.cinema import RoomCreateRequest, PresignedUrlRequest, PaystackInitRequest, AgoraTokenRequest, WithdrawalRequest
-from services.r2_service import generate_presigned_upload_url, generate_presigned_download_url
+from models.cinema import RoomCreateRequest, PresignedUrlRequest, PaystackInitRequest, AgoraTokenRequest, WithdrawalRequest, MultipartInitiateRequest, MultipartPartRequest, MultipartCompleteRequest
+from services.r2_service import generate_presigned_upload_url, generate_presigned_download_url, initiate_multipart_upload, generate_presigned_part_url, complete_multipart_upload
 from services.agora_service import generate_rtc_token
 from services.paystack_service import initialize_transaction, verify_transaction, create_transfer_recipient, initiate_transfer, get_banks, resolve_account_number
 from services.redis_service import set_room_state
@@ -680,3 +680,104 @@ async def get_agora_token(request: AgoraTokenRequest, user: dict = Depends(get_c
     numeric_uid = int(hashlib.md5(user['uid'].encode()).hexdigest()[:8], 16)
     token = generate_rtc_token(request.room_id, numeric_uid, request.role)
     return {'token': token, 'uid': numeric_uid, 'app_id': settings.AGORA_APP_ID}
+
+# =================================================================
+# === MULTIPART UPLOAD ENDPOINTS (High Performance) ================
+# =================================================================
+
+@router.post("/multipart/initiate")
+async def initiate_upload(request: MultipartInitiateRequest, user: dict = Depends(get_current_user)):
+    """
+    Step 1: Start a multipart upload. Returns UploadId and Key.
+    """
+    bucket_name = settings.R2_BUCKET_ASSETS if request.bucket_type == "assets" else settings.R2_BUCKET_MOVIES
+    
+    # Generate unique key
+    ext = request.file_name.split('.')[-1] if '.' in request.file_name else ''
+    object_name = f"{user['uid']}/large_{uuid.uuid4().hex[:8]}.{ext}"
+    
+    result = initiate_multipart_upload(bucket_name, object_name, request.content_type)
+    if not result:
+        raise HTTPException(status_code=500, detail="Failed to initiate multipart upload")
+        
+    return result
+
+@router.post("/multipart/presign-part")
+async def presign_part(request: MultipartPartRequest, user: dict = Depends(get_current_user)):
+    """
+    Step 2: Get a signed URL for a specific part (e.g. part 1, 2, 3...)
+    """
+    bucket_name = settings.R2_BUCKET_ASSETS if request.bucket_type == "assets" else settings.R2_BUCKET_MOVIES
+    
+    url = generate_presigned_part_url(
+        bucket_name, 
+        request.key, 
+        request.upload_id, 
+        request.part_number
+    )
+    
+    if not url:
+        raise HTTPException(status_code=500, detail="Failed to generate part URL")
+        
+    return {"upload_url": url}
+
+@router.post("/multipart/complete")
+async def complete_upload(request: MultipartCompleteRequest, user: dict = Depends(get_current_user)):
+    """
+    Step 3: Tell R2 to join all the uploaded parts into a single file.
+    """
+    bucket_name = settings.R2_BUCKET_ASSETS if request.bucket_type == "assets" else settings.R2_BUCKET_MOVIES
+    
+    success = complete_multipart_upload(
+        bucket_name, 
+        request.key, 
+        request.upload_id, 
+        request.parts
+    )
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to complete multipart upload")
+        
+from services.r2_service import delete_object
+
+@router.delete("/rooms/{room_id}")
+async def delete_cinema_room(room_id: str, current_user = Depends(get_current_user)):
+    from firebase_admin import firestore
+    db = firestore.client()
+    
+    room_ref = db.collection("cinema_rooms").document(room_id)
+    room_doc = room_ref.get()
+    
+    if not room_doc.exists:
+        raise HTTPException(status_code=404, detail="Room not found")
+        
+    data = room_doc.to_dict()
+    
+    # Check if host or admin
+    user_uid = current_user.get('uid')
+    if data.get("host_uid") != user_uid:
+        # Check if admin
+        user_doc = db.collection("users").document(user_uid).get()
+        if not user_doc.exists or not user_doc.to_dict().get("isAdmin"):
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+    # 1. Cleanup R2 Media
+    movie_url = data.get("movie_file")
+    poster_url = data.get("thumbnail")
+    
+    try:
+        if movie_url and settings.R2_PUBLIC_BASE_URL in movie_url:
+            movie_key = movie_url.split(f"{settings.R2_PUBLIC_BASE_URL}/")[-1]
+            # Use R2_BUCKET_MOVIES as it's the most likely bucket for room media
+            delete_object(settings.R2_BUCKET_MOVIES, movie_key)
+            
+        if poster_url and settings.R2_PUBLIC_BASE_URL in poster_url:
+            poster_key = poster_url.split(f"{settings.R2_PUBLIC_BASE_URL}/")[-1]
+            delete_object(settings.R2_BUCKET_ASSETS, poster_key)
+    except Exception as e:
+        print(f"R2 Cleanup Error: {str(e)}")
+
+    # 2. Delete from Firestore
+    room_ref.delete()
+    
+    return {"success": True}

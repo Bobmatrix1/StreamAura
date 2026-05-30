@@ -1,8 +1,9 @@
 [
   {
-    "origin": ["http://localhost:1578", "http://localhost:5173", "https://universal-media-downloader.vercel.app", "https://streamaura.site"],
-    "method": ["GET", "POST", "PUT", "DELETE", "HEAD"],
-    "responseHeader": ["Content-Type", "x-goog-resumable"],
-    "maxAgeSeconds": 3600
+    "AllowedOrigins": ["http://localhost:1578", "http://localhost:5173", "https://streamaura.site"],
+    "AllowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],
+    "AllowedHeaders": ["Content-Type", "Authorization"],
+    "ExposeHeaders": [],
+    "MaxAgeSeconds": 3000
   }
 ]
