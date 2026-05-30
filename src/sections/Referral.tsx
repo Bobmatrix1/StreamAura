@@ -400,13 +400,22 @@ const Referral: React.FC = () => {
         )}
       </AnimatePresence>
 
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-black tracking-tight text-foreground uppercase tracking-tighter">Refer & Earn</h1>
-          <p className="text-muted-foreground mt-1 font-medium">Build your network and watch movies for free.</p>
+      {/* Header Section */}
+      <div className="flex flex-col items-center text-center gap-6 mb-12">
+        <div className="w-20 h-20 rounded-3xl bg-orange-500/10 flex items-center justify-center border border-orange-500/20 shadow-[0_0_40px_rgba(249,115,22,0.15)]">
+          <Share2 className="w-10 h-10 text-orange-500" />
         </div>
-        <Button onClick={handleShare} className="gap-2 gradient-bg rounded-xl h-11 text-xs font-black uppercase shadow-lg shadow-primary/20">
-          <Share2 className="w-4 h-4" /> Share Link
+        <div className="space-y-2">
+          <h1 className="text-4xl font-black uppercase tracking-tight text-white drop-shadow-md">
+            StreamAura <span className="text-orange-500">Referral</span>
+          </h1>
+          <p className="text-xs text-muted-foreground font-bold uppercase tracking-[0.2em] opacity-70">
+            Build your network and watch movies for free
+          </p>
+        </div>
+        
+        <Button onClick={handleShare} className="gap-2 gradient-bg rounded-xl h-12 px-8 text-xs font-black uppercase shadow-lg shadow-primary/20 active:scale-95 transition-all">
+          <Share2 className="w-4 h-4" /> Share Invite Link
         </Button>
       </div>
 

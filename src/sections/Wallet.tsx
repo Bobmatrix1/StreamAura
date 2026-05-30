@@ -514,22 +514,31 @@ const Wallet: React.FC = () => {
         )}
       </AnimatePresence>
 
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-1">
-        <div className="space-y-1">
-          <h1 className="text-3xl font-black tracking-tight text-foreground uppercase tracking-tighter">My Secure Wallet</h1>
-          <p className="text-muted-foreground font-bold text-xs uppercase tracking-widest opacity-60">Manage funds, tickets, and your virtual identity.</p>
+      {/* Header Section */}
+      <div className="flex flex-col items-center text-center gap-6 mb-12">
+        <div className="w-20 h-20 rounded-3xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 shadow-[0_0_40px_rgba(16,185,129,0.15)]">
+          <WalletIconLucide className="w-10 h-10 text-emerald-500" />
         </div>
-        <div className="flex items-center gap-3">
+        <div className="space-y-2">
+          <h1 className="text-4xl font-black uppercase tracking-tight text-white drop-shadow-md">
+            StreamAura <span className="text-emerald-500">Wallet</span>
+          </h1>
+          <p className="text-xs text-muted-foreground font-bold uppercase tracking-[0.2em] opacity-70">
+            Securely Manage your funds and tickets
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3 w-full max-w-sm">
           <Button variant="outline" onClick={() => {
             setActiveTab('history');
             setScrollToTab('history');
-          }} className="flex-1 md:flex-none gap-2 border-white/10 rounded-xl h-12 text-xs font-black uppercase tracking-widest active:scale-95 transition-all">
+          }} className="flex-1 gap-2 border-white/10 rounded-xl h-12 text-xs font-black uppercase tracking-widest active:scale-95 transition-all">
             <History className="w-4 h-4" /> History
           </Button>
           <Button onClick={() => {
             setActiveTab('overview');
             setScrollToTab('overview');
-          }} className="flex-1 md:flex-none gap-2 gradient-bg rounded-xl h-12 text-xs font-black uppercase tracking-widest shadow-lg shadow-primary/20 active:scale-95 transition-all">
+          }} className="flex-1 gradient-bg rounded-xl h-12 text-xs font-black uppercase tracking-widest shadow-lg shadow-primary/20 active:scale-95 transition-all gap-2">
             <Plus className="w-4 h-4" /> Add Funds
           </Button>
         </div>
