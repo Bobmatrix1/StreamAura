@@ -65,6 +65,7 @@ import {
 import { PreOrderManager } from './PreOrderManager';
 import { StoreManager } from './StoreManager';
 import { PartnersManager } from './PartnersManager';
+import { CinemaContentManager } from './CinemaContentManager';
 import { Badge } from '../components/ui/badge';
 import { CheckCircle2, X } from 'lucide-react';
 import { auth } from '../lib/firebase';
@@ -515,21 +516,7 @@ const AdminDashboard: React.FC = () => {
           ) : activeTab === 'store' ? (
             <StoreManager />
           ) : activeTab === 'cinema' ? (
-            <div className="p-6 space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-                  <Film className="w-4 h-4 text-rose-500" /> Live Theater Monitoring
-                </h3>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {/* Active Rooms from Firestore */}
-                <div className="py-20 text-center col-span-full opacity-50 border-2 border-dashed border-white/5 rounded-3xl">
-                  <Film className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-sm font-bold uppercase tracking-widest">No active theaters found</p>
-                  <p className="text-[10px] text-muted-foreground mt-2 uppercase tracking-tighter">Real-time room monitoring active</p>
-                </div>
-              </div>
-            </div>
+            <CinemaContentManager />
           ) : activeTab === 'payouts' ? (
             <div className="p-6 space-y-6">
                <div className="flex items-center justify-between">

@@ -86,6 +86,10 @@ service cloud.firestore {
       }
     }
 
+    match /cinema_carousel/{id} { allow read: if true; allow write: if isAdmin(); }
+    match /cinema_trailers/{id} { allow read: if true; allow write: if isAdmin(); }
+    match /cinema_upcoming/{id} { allow read: if true; allow write: if isAdmin(); }
+
     match /room_access_passes/{passId} {
       allow read: if isAuthenticated() && (resource.data.user_uid == request.auth.uid || isAdmin());
       allow write: if isAdmin();

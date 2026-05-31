@@ -36,13 +36,6 @@ import { doc, getDoc, collection, query, where, getDocs, orderBy, limit, onSnaps
 import { initializePaystackPayment, verifyPaymentOnBackend } from '../api/paymentApi';
 import { CinemaLiveRoom } from './CinemaLiveRoom';
 
-interface Trailer {
-  id: string;
-  title: string;
-  thumbnail: string;
-  duration: string;
-}
-
 interface CinemaSlide {
   id: string;
   image: string;
@@ -63,6 +56,11 @@ const CinemaRoom: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
+  
+  // Dynamic Content State
+  const [slides, setSlides] = useState<CinemaSlide[]>([]);
+  const [trailers, setTrailers] = useState<any[]>([]);
+  const [upcoming, setUpcoming] = useState<any[]>([]);
   
   // Live Room State
   const [activeRoom, setActiveRoom] = useState<any | null>(null);
@@ -213,43 +211,55 @@ const CinemaRoom: React.FC = () => {
     });
   };
 
-  // Scroll Lock Effect
+  // Dynamic Content Listeners (Defensive Pattern)
   useEffect(() => {
-    if (isCreateModalOpen || isStoreOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
-  }, [isCreateModalOpen, isStoreOpen]);
+    let active = true;
+    let unsubCarousel: any;
+    let unsubTrailers: any;
+    let unsubUpcoming: any;
 
-  // Admin Poster Slides (Carousel) - Expanded for verification
-  const [slides] = useState<CinemaSlide[]>([
-    { id: 's1', image: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=2050&auto=format&fit=crop', title: 'IMAX BLOCKBUSTERS', tagline: 'Experience it in 4K Quality' },
-    { id: 's2', image: 'https://images.unsplash.com/photo-1478720568477-152d9b164e26?q=80&w=2070&auto=format&fit=crop', title: 'MIDNIGHT PREMIERES', tagline: 'Only on StreamAura' },
-    { id: 's3', image: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=2094&auto=format&fit=crop', title: 'EXCLUSIVE SCREENINGS', tagline: 'Join the Grand Theater' },
-    { id: 's4', image: 'https://images.unsplash.com/photo-1485846234645-a62644f84728?q=80&w=2059&auto=format&fit=crop', title: 'ACTION ARENA', tagline: 'Heart-Pumping Thrills' },
-    { id: 's5', image: 'https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?q=80&w=2070&auto=format&fit=crop', title: 'CLASSIC CINEMA', tagline: 'Timeless Masterpieces' }
-  ]);
+    // Small delay to let React 19/Strict Mode finish its double-mount cycle
+    const timeout = setTimeout(() => {
+      if (!active) return;
+
+      unsubCarousel = onSnapshot(query(collection(db, 'cinema_carousel'), orderBy('createdAt', 'desc')), (snap) => {
+        if (active) setSlides(snap.docs.map(d => ({ id: d.id, ...d.data() } as CinemaSlide)));
+      }, (err) => console.error('Carousel Sync Error:', err));
+
+      unsubTrailers = onSnapshot(query(collection(db, 'cinema_trailers'), orderBy('createdAt', 'desc')), (snap) => {
+        if (active) setTrailers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      }, (err) => console.error('Trailers Sync Error:', err));
+
+      unsubUpcoming = onSnapshot(query(collection(db, 'cinema_upcoming'), orderBy('createdAt', 'desc')), (snap) => {
+        if (active) setUpcoming(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      }, (err) => console.error('Upcoming Sync Error:', err));
+    }, 100);
+
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+      if (unsubCarousel) unsubCarousel();
+      if (unsubTrailers) unsubTrailers();
+      if (unsubUpcoming) unsubUpcoming();
+    };
+  }, []);
 
   // Automated Curtain Loop & Poster Slide Logic
   useEffect(() => {
+    if (slides.length === 0) return;
     let loopTimeout: any;
     
     if (!curtainsOpen) {
-      // Step 1: Wait 5 seconds closed, then open
       loopTimeout = setTimeout(() => {
         setCurtainsOpen(true);
         setCurrentSlide(0);
       }, 5000);
     } else {
-      // Step 2: If open, slide through posters
       const slideInterval = setInterval(() => {
         setCurrentSlide(prev => {
           if (prev < slides.length - 1) {
             return prev + 1;
           } else {
-            // Step 3: All slides shown, wait 5s then close
             clearInterval(slideInterval);
             loopTimeout = setTimeout(() => {
               setCurtainsOpen(false);
@@ -257,7 +267,7 @@ const CinemaRoom: React.FC = () => {
             return prev;
           }
         });
-      }, 5000); // 5s per poster
+      }, 5000);
       
       return () => {
         clearInterval(slideInterval);
@@ -366,7 +376,20 @@ const CinemaRoom: React.FC = () => {
       bonus: bonusRequired,
       total: normalRequired + referralRequired + bonusRequired 
     };
-    };  // Pre-filled states from Deep Links
+  };
+
+  // Reset slide index if slides are removed or out of bounds
+  useEffect(() => {
+    if (slides.length > 0) {
+      if (currentSlide >= slides.length) {
+        setCurrentSlide(0);
+      }
+    } else {
+      setCurrentSlide(0);
+    }
+  }, [slides.length, currentSlide]);
+
+  // Pre-filled states from Deep Links
   const [preFilledMovieUrl, setPreFilledMovieUrl] = useState<string | null>(null);
   const [preFilledCoverUrl, setPreFilledCoverUrl] = useState<string | null>(null);
 
@@ -401,21 +424,6 @@ const CinemaRoom: React.FC = () => {
     });
     return () => unsubscribe();
   }, []);
-
-  const trailers: Trailer[] = [
-    {
-      id: '1',
-      title: 'The Dark Knight',
-      thumbnail: 'https://images.unsplash.com/photo-1478720568477-152d9b164e26?q=80&w=2070&auto=format&fit=crop',
-      duration: '2:30'
-    },
-    {
-      id: '2',
-      title: 'Inception',
-      thumbnail: 'https://images.unsplash.com/photo-1440404653325-ab127d49abc1?q=80&w=2070&auto=format&fit=crop',
-      duration: '2:15'
-    }
-  ];
 
   const handleShareRoom = (room: any) => {
     const shareUrl = `${API_BASE_URL}/share?title=${encodeURIComponent(`Live Cinema: ${room.room_name}`)}&desc=${encodeURIComponent(`Watching ${room.movie_title} with ${room.active_viewers || 0} others. Join now!`)}&img=${encodeURIComponent(room.movie_cover_image)}&target=${encodeURIComponent(`/?tab=cinema&room=${room.id}`)}`;
@@ -726,21 +734,26 @@ const CinemaRoom: React.FC = () => {
         {/* Cinema Background (Poster Carousel - behind curtains) */}
         <div className="absolute inset-0 z-0">
           <AnimatePresence mode="wait">
-            <motion.div
-              key={currentSlide}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 1.5 }}
-              className="absolute inset-0"
-            >
-              <img 
-                src={slides[currentSlide].image} 
-                className="w-full h-full object-cover" 
-                alt="Cinema Background" 
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
-            </motion.div>
+            {slides.length > 0 && slides[currentSlide] && (
+              <motion.div
+                key={currentSlide}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 1.5 }}
+                className="absolute inset-0"
+              >
+                <img 
+                  src={slides[currentSlide].image} 
+                  className="w-full h-full object-cover" 
+                  alt="Cinema Background" 
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
+              </motion.div>
+            )}
+            {slides.length === 0 && (
+              <div className="absolute inset-0 bg-[#0a0a0a]" />
+            )}
           </AnimatePresence>
         </div>
 
@@ -953,7 +966,8 @@ const CinemaRoom: React.FC = () => {
           <motion.div
             key={trailer.id}
             whileHover={{ y: -5 }}
-            className="group relative"
+            className="group relative cursor-pointer"
+            onClick={() => window.open(trailer.videoUrl, '_blank')}
           >
             <Card className="overflow-hidden glass-card border-white/5">
               <div className="relative aspect-video overflow-hidden">
@@ -963,32 +977,82 @@ const CinemaRoom: React.FC = () => {
                   className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
                 />
                 <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30 hover:bg-white/30 transition-colors">
+                  <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30 hover:bg-white/30 transition-colors shadow-2xl">
                     <Play className="w-6 h-6 text-white fill-current" />
                   </div>
                 </div>
-                <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur-md px-2 py-1 rounded-md text-[10px] font-black tracking-widest">
-                  {trailer.duration}
-                </div>
+                {trailer.duration && (
+                  <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur-md px-2 py-1 rounded-md text-[10px] font-black tracking-widest text-blue-400">
+                    {trailer.duration}
+                  </div>
+                )}
               </div>
               <div className="p-4">
                 <h3 className="font-bold text-base truncate">{trailer.title}</h3>
-                <p className="text-xs text-muted-foreground mt-1 font-medium">Official Trailer • 2.4M views</p>
+                <p className="text-[10px] text-muted-foreground mt-1 font-black uppercase tracking-widest">OFFICIAL TRAILER</p>
               </div>
             </Card>
           </motion.div>
         ))}
 
-        {activeTab === 'schedule' && (
+        {activeTab === 'schedule' && upcoming.map(item => (
+          <motion.div
+            key={item.id}
+            whileHover={{ y: -5 }}
+            className="group relative"
+          >
+            <Card className="overflow-hidden glass-card border-white/5 h-full flex flex-col">
+              <div className="relative aspect-[16/9] overflow-hidden">
+                <img 
+                  src={item.poster} 
+                  alt={item.title} 
+                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
+                <div className="absolute top-3 right-3">
+                   <Badge className="bg-emerald-600 hover:bg-emerald-600 border-none font-black text-[9px] tracking-widest shadow-lg shadow-emerald-600/20">
+                     COMING SOON
+                   </Badge>
+                </div>
+                {item.trailerUrl && (
+                  <button 
+                    onClick={() => window.open(item.trailerUrl, '_blank')}
+                    className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <div className="w-12 h-12 rounded-full bg-emerald-600/80 backdrop-blur-md flex items-center justify-center border border-white/20 hover:scale-110 transition-transform">
+                      <Video className="w-5 h-5 text-white" />
+                    </div>
+                  </button>
+                )}
+              </div>
+              
+              <div className="p-5 flex-1 flex flex-col">
+                <h3 className="font-black text-lg leading-tight mb-2 uppercase tracking-tighter">{item.title}</h3>
+                <p className="text-xs text-muted-foreground mb-4 line-clamp-2 font-medium">{item.description}</p>
+                
+                <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-[9px] text-muted-foreground uppercase font-black tracking-widest">Expected Release</span>
+                    <span className="text-xs font-bold text-emerald-400 mt-0.5 uppercase">
+                      {item.releaseDate}
+                    </span>
+                  </div>
+                  <Button variant="outline" className="rounded-xl border-white/10 hover:bg-white/5 h-9 text-[10px] font-black uppercase">
+                    Notify Me
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+        ))}
+
+        {((activeTab === 'trailers' && trailers.length === 0) || (activeTab === 'schedule' && upcoming.length === 0)) && (
           <div className="col-span-full py-20 text-center">
-            <div className="w-24 h-24 rounded-3xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-center mx-auto mb-6 shadow-inner">
-              <Calendar className="w-10 h-10 text-muted-foreground" />
+            <div className="w-24 h-24 rounded-3xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-center mx-auto mb-6 shadow-inner opacity-40">
+              {activeTab === 'trailers' ? <Video className="w-10 h-10 text-muted-foreground" /> : <Calendar className="w-10 h-10 text-muted-foreground" />}
             </div>
-            <h3 className="text-xl font-black">No screenings scheduled yet</h3>
-            <p className="text-muted-foreground mt-2 font-medium max-w-sm mx-auto">Check back later for the next movie premiere or create your own room.</p>
-            <Button variant="outline" className="mt-6 rounded-xl font-bold border-white/10">
-              Notify Me
-            </Button>
+            <h3 className="text-xl font-black opacity-60">No {activeTab === 'trailers' ? 'trailers' : 'upcoming screenings'} found</h3>
+            <p className="text-muted-foreground mt-2 font-medium max-w-sm mx-auto opacity-50">Check back soon for new theater content.</p>
           </div>
         )}
       </div>

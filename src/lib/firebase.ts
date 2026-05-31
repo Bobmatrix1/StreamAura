@@ -32,8 +32,12 @@ import {
   Timestamp,
   writeBatch,
   onSnapshot,
+  increment,
+  getFirestore,
   initializeFirestore,
-  increment
+  memoryLocalCache,
+  persistentLocalCache,
+  persistentMultipleTabManager
 } from 'firebase/firestore';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import type { User, GlobalHistoryItem, HistoryItem, Vendor, Product, Partner, Order } from '../types';
@@ -53,10 +57,19 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// Force Long Polling to fix ERR_HTTP2_PING_FAILED and stabilize live updates
-export const db = initializeFirestore(app, {
-  experimentalAutoDetectLongPolling: true
-});
+// Robust Firestore initialization to prevent "INTERNAL ASSERTION FAILED: Unexpected state"
+let dbInstance: any = null;
+try {
+  dbInstance = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager() 
+    }),
+    experimentalAutoDetectLongPolling: true
+  });
+} catch (e) {
+  dbInstance = getFirestore(app);
+}
+export const db = dbInstance;
 
 export const messaging = typeof window !== 'undefined' ? getMessaging(app) : null;
 
