@@ -583,7 +583,7 @@ const CinemaRoom: React.FC = () => {
       let trailerUrl = null;
       if (trailerFile) {
         setUploadProgress(0);
-        trailerUrl = await uploadFile(trailerFile, 'cinema/trailers', 'assets', (p) => setUploadProgress(p));
+        trailerUrl = await uploadFile(trailerFile, 'cinema/trailers', 'movies', (p) => setUploadProgress(p));
       }
 
       // 4. Prepare payload

@@ -33,15 +33,37 @@ async def cleanup_room_media(room_id: str):
 
     # Cleanup R2 Media
     movie_url = data.get("movie_file")
-    poster_url = data.get("thumbnail")
+    poster_url = data.get("movie_cover_image") # Corrected field name
+    trailer_url = data.get("trailer_url")
+    episodes = data.get("episodes", [])
     
-    if movie_url and settings.R2_PUBLIC_BASE_URL in movie_url:
-        movie_key = movie_url.split(f"{settings.R2_PUBLIC_BASE_URL}/")[-1]
-        delete_object(settings.R2_BUCKET_MOVIES, movie_key)
+    try:
+        # Helper to delete from movies bucket
+        def del_movie(url):
+            if url and settings.R2_PUBLIC_BASE_URL in url:
+                key = url.split(f"{settings.R2_PUBLIC_BASE_URL}/")[-1]
+                delete_object(settings.R2_BUCKET_MOVIES, key)
+                # Try assets too just in case of old data
+                delete_object(settings.R2_BUCKET_ASSETS, key)
+
+        # Delete main movie
+        if movie_url: del_movie(movie_url)
         
-    if poster_url and settings.R2_PUBLIC_BASE_URL in poster_url:
-        poster_key = poster_url.split(f"{settings.R2_PUBLIC_BASE_URL}/")[-1]
-        delete_object(settings.R2_BUCKET_ASSETS, poster_key)
+        # Delete all episodes
+        for ep in episodes:
+            ep_url = ep.get("url")
+            if ep_url: del_movie(ep_url)
+            
+        # Delete trailer
+        if trailer_url: del_movie(trailer_url)
+            
+        # Delete poster from assets
+        if poster_url and settings.R2_PUBLIC_BASE_URL in poster_url:
+            poster_key = poster_url.split(f"{settings.R2_PUBLIC_BASE_URL}/")[-1]
+            delete_object(settings.R2_BUCKET_ASSETS, poster_key)
+            
+    except Exception as e:
+        print(f"R2 Cleanup Error: {str(e)}")
 
     # Delete from Firestore
     room_ref.delete()
@@ -58,12 +80,29 @@ async def start_periodic_cinema_cleanup():
             
             for room in rooms:
                 data = room.to_dict()
-                created_at = data.get("created_at")
                 
-                if created_at:
+                # 1. Skip Upcoming Rooms
+                # If a room is scheduled for the future, don't auto-delete it yet.
+                scheduled_start = data.get("scheduled_start_time")
+                if scheduled_start:
                     try:
-                        created_ts = created_at.timestamp()
-                        if now - created_ts > 86400: # 24 hours
+                        # Convert to timestamp
+                        if scheduled_start.timestamp() > now:
+                            continue 
+                    except: pass
+
+                # 2. Check Activity & Viewers
+                # We start the 24h count only after the room is empty and inactive.
+                last_activity = data.get("last_activity") or data.get("created_at")
+                
+                # Check real-time viewers from Redis/Memory
+                viewer_count = await get_room_user_count(room.id)
+                
+                if viewer_count == 0 and last_activity:
+                    try:
+                        last_act_ts = last_activity.timestamp()
+                        # If inactive for more than 24 hours
+                        if now - last_act_ts > 86400: 
                              await cleanup_room_media(room.id)
                     except: pass
                     
@@ -71,6 +110,15 @@ async def start_periodic_cinema_cleanup():
             print(f"CINEMA WORKER ERROR: {str(e)}")
             
         await asyncio.sleep(600)
+
+async def update_activity(room_id: str):
+    """Helper to update last_activity timestamp in Firestore."""
+    try:
+        db = firestore.client()
+        db.collection("cinema_rooms").document(room_id).update({
+            "last_activity": firestore.SERVER_TIMESTAMP
+        })
+    except: pass
 
 class ConnectionManager:
     def __init__(self):
@@ -147,6 +195,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
                         continue
                 
                 await add_user_to_room(room_id, uid)
+                await update_activity(room_id)
                 users = await get_room_users(room_id)
                 await manager.broadcast({"type": "user_list", "users": users}, room_id)
                 
@@ -154,6 +203,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
                 new_time = message.get("time", 0.0)
                 status = "playing" if event_type != "pause" else "paused"
                 await update_room_time(room_id, new_time, status)
+                await update_activity(room_id)
                 await manager.broadcast({
                     "type": "playback_sync",
                     "status": status,
@@ -179,8 +229,10 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
     except WebSocketDisconnect:
         manager.disconnect(websocket, room_id, uid)
         await remove_user_from_room(room_id, uid)
+        await update_activity(room_id)
         users = await get_room_users(room_id)
         await manager.broadcast({"type": "user_list", "users": users}, room_id)
     except Exception as e:
         print(f"WS Error: {e}")
         manager.disconnect(websocket, room_id, uid)
+        await update_activity(room_id)

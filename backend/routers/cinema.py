@@ -763,17 +763,35 @@ async def delete_cinema_room(room_id: str, current_user = Depends(get_current_us
 
     # 1. Cleanup R2 Media
     movie_url = data.get("movie_file")
-    poster_url = data.get("thumbnail")
+    poster_url = data.get("movie_cover_image") # Corrected field name
+    trailer_url = data.get("trailer_url")
+    episodes = data.get("episodes", [])
     
     try:
-        if movie_url and settings.R2_PUBLIC_BASE_URL in movie_url:
-            movie_key = movie_url.split(f"{settings.R2_PUBLIC_BASE_URL}/")[-1]
-            # Use R2_BUCKET_MOVIES as it's the most likely bucket for room media
-            delete_object(settings.R2_BUCKET_MOVIES, movie_key)
+        # Helper to delete from movies bucket
+        def del_movie(url):
+            if url and settings.R2_PUBLIC_BASE_URL in url:
+                key = url.split(f"{settings.R2_PUBLIC_BASE_URL}/")[-1]
+                delete_object(settings.R2_BUCKET_MOVIES, key)
+                # Try assets too just in case of old data
+                delete_object(settings.R2_BUCKET_ASSETS, key)
+
+        # Delete main movie
+        if movie_url: del_movie(movie_url)
+        
+        # Delete all episodes
+        for ep in episodes:
+            ep_url = ep.get("url")
+            if ep_url: del_movie(ep_url)
             
+        # Delete trailer
+        if trailer_url: del_movie(trailer_url)
+            
+        # Delete poster from assets
         if poster_url and settings.R2_PUBLIC_BASE_URL in poster_url:
             poster_key = poster_url.split(f"{settings.R2_PUBLIC_BASE_URL}/")[-1]
             delete_object(settings.R2_BUCKET_ASSETS, poster_key)
+            
     except Exception as e:
         print(f"R2 Cleanup Error: {str(e)}")
 
