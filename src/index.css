@@ -80,6 +80,20 @@
   color: #4b5563; /* Solid Slate-600 */
 }
 
+/* Restore white color for Lucide icons inside filled elements in light mode */
+.light .gradient-bg .lucide,
+.light .bg-primary .lucide,
+.light .bg-emerald-500 .lucide,
+.light .bg-cyan-600 .lucide,
+.light .bg-red-600 .lucide,
+.light .bg-indigo-600 .lucide,
+.light .bg-orange-600 .lucide,
+.light .bg-lime-600 .lucide,
+.light .text-white .lucide,
+.light button .lucide {
+  color: #ffffff !important;
+}
+
 /* Global Placeholder Fix */
 ::placeholder {
   color: rgba(0, 0, 0, 0.5) !important;
