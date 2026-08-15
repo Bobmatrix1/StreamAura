@@ -298,26 +298,26 @@ const Referral: React.FC = () => {
         {isWithdrawModalOpen && (
           <div className="fixed inset-0 z-[5000] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsWithdrawModalOpen(false)} className="absolute inset-0 bg-black/90 backdrop-blur-md" />
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-md glass-card p-8 border-white/10 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-md glass-card p-8 border-slate-200 dark:border-white/10 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto custom-scrollbar">
                <div className="text-center space-y-2">
-                  <h3 className="text-2xl font-black uppercase text-white">Withdraw Earnings</h3>
+                  <h3 className="text-2xl font-black uppercase text-slate-900 dark:text-white">Withdraw Earnings</h3>
                   <p className="text-xs text-muted-foreground font-medium uppercase tracking-widest opacity-60">Commission Payout to Bank</p>
                </div>
 
                <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex flex-col gap-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-black uppercase text-emerald-500/60 tracking-widest">Total Available</span>
-                    <span className="text-xl font-black text-white">₦{stats.balance.toLocaleString()}</span>
+                    <span className="text-[10px] font-black uppercase text-emerald-600 dark:text-emerald-500/60 tracking-widest">Total Available</span>
+                    <span className="text-xl font-black text-slate-900 dark:text-white">₦{stats.balance.toLocaleString()}</span>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-[8px] font-black uppercase tracking-widest text-white/40">Amount to Withdraw</label>
+                    <label className="text-[8px] font-black uppercase tracking-widest text-slate-500 dark:text-white/40">Amount to Withdraw</label>
                     <div className="relative">
-                      <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                      <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 dark:text-muted-foreground" />
                       <input 
                         type="number" 
                         value={withdrawAmount} 
                         onChange={e => setWithdrawAmount(e.target.value)} 
-                        className="w-full bg-black/40 border border-white/10 rounded-lg py-2 pl-9 pr-4 text-xs font-black outline-none focus:border-primary/50" 
+                        className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-lg py-2 pl-9 pr-4 text-xs font-black outline-none focus:border-primary/50 text-slate-900 dark:text-white" 
                         placeholder="0.00"
                       />
                     </div>
@@ -326,75 +326,75 @@ const Referral: React.FC = () => {
 
                {stats.balance <= 0 && (
                  <div className="p-3 rounded-xl bg-rose-500/5 border border-rose-500/10 flex items-center gap-3">
-                    <ShieldAlert className="w-4 h-4 text-rose-500" />
-                    <p className="text-[9px] text-rose-200/70 font-bold uppercase tracking-tight leading-none">Commissions are earned when your referrals host rooms.</p>
+                    <ShieldAlert className="w-4 h-4 text-rose-500 animate-pulse" />
+                    <p className="text-[9px] text-rose-700 dark:text-rose-200/70 font-bold uppercase tracking-tight leading-none">Commissions are earned when your referrals host rooms.</p>
                  </div>
                )}
 
                {!hasBankSet ? (
-                 <div className="space-y-4">
-                    <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 flex items-start gap-3">
-                       <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                       <p className="text-[9px] text-amber-200/70 font-bold uppercase leading-relaxed">Please provide your bank details. We'll save them for future payouts.</p>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Account Number</label>
-                      <div className="relative">
-                        <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <input value={bankDetails.account} onChange={e => setBankDetails({...bankDetails, account: e.target.value.replace(/[^0-9]/g, '').slice(0, 10)})} placeholder="0123456789" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-sm outline-none focus:border-primary/50" />
-                      </div>
-                    </div>
-                    <div className="space-y-2 relative" ref={dropdownRef}>
-                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select Bank</label>
-                      <div className="relative">
-                        <Building className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <input value={bankSearch || bankDetails.bankName} onFocus={() => setShowBankDropdown(true)} onChange={e => setBankSearch(e.target.value)} placeholder="Search bank..." className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-11 pr-12 text-sm outline-none focus:border-primary/50" />
-                      </div>
-                      <AnimatePresence>
-                        {showBankDropdown && (
-                          <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute z-10 left-0 right-0 top-full mt-2 max-h-48 overflow-y-auto bg-[#0f172a] border border-white/10 rounded-xl shadow-2xl no-scrollbar">
-                            {filteredBanks.map(bank => (
-                              <button key={bank.code} onClick={() => { setBankDetails({...bankDetails, bankName: bank.name, bankCode: bank.code}); setBankSearch(bank.name); setShowBankDropdown(false); }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-primary/10 transition-colors border-b border-white/5 last:border-0">{bank.name}</button>
-                            ))}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Account Name</label>
-                      <div className="relative">
-                        <Users className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <input value={bankDetails.name} readOnly placeholder={isResolving ? 'Verifying...' : 'Account Holder Name'} className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-sm outline-none text-primary font-black uppercase cursor-not-allowed" />
-                        {bankDetails.name && !isResolving && <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />}
-                      </div>
-                    </div>
-                 </div>
-               ) : (
-                 <div className="p-5 rounded-2xl border border-white/10 bg-white/5 flex items-center justify-between group">
-                    <div className="flex items-center gap-4">
-                       <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                          <Building className="w-6 h-6" />
+                  <div className="space-y-4">
+                     <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 flex items-start gap-3">
+                        <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                        <p className="text-[9px] text-amber-700 dark:text-amber-200/70 font-bold uppercase leading-relaxed">Please provide your bank details. We'll save them for future payouts.</p>
+                     </div>
+                     <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Account Number</label>
+                       <div className="relative">
+                         <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-muted-foreground" />
+                         <input value={bankDetails.account} onChange={e => setBankDetails({...bankDetails, account: e.target.value.replace(/[^0-9]/g, '').slice(0, 10)})} placeholder="0123456789" className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3 pl-11 pr-4 text-sm outline-none focus:border-primary/50 text-slate-900 dark:text-white font-bold" />
                        </div>
-                       <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-white/40 leading-none mb-1">Target Account</p>
-                          <p className="text-sm font-black text-white uppercase">{bankDetails.bankName}</p>
-                          <p className="text-[10px] text-muted-foreground font-bold tracking-widest">{bankDetails.account} • {bankDetails.name}</p>
+                     </div>
+                     <div className="space-y-2 relative" ref={dropdownRef}>
+                       <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select Bank</label>
+                       <div className="relative">
+                         <Building className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-muted-foreground" />
+                         <input value={bankSearch || bankDetails.bankName} onFocus={() => setShowBankDropdown(true)} onChange={e => setBankSearch(e.target.value)} placeholder="Search bank..." className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3 pl-11 pr-12 text-sm outline-none focus:border-primary/50 text-slate-900 dark:text-white font-bold" />
                        </div>
-                    </div>
-                    <Button variant="ghost" size="sm" onClick={() => setHasBankSet(false)} className="text-primary hover:bg-primary/10 text-[10px] font-black uppercase tracking-widest px-4">Edit</Button>
-                 </div>
-               )}
+                       <AnimatePresence>
+                         {showBankDropdown && (
+                           <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute z-10 left-0 right-0 top-full mt-2 max-h-48 overflow-y-auto bg-card border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl no-scrollbar animate-in fade-in-50 slide-in-from-top-2">
+                             {filteredBanks.map(bank => (
+                               <button key={bank.code} onClick={() => { setBankDetails({...bankDetails, bankName: bank.name, bankCode: bank.code}); setBankSearch(bank.name); setShowBankDropdown(false); }} className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 dark:text-white/80 hover:bg-primary/10 hover:text-primary dark:hover:text-white transition-colors border-b border-slate-100 dark:border-white/5 last:border-0">{bank.name}</button>
+                             ))}
+                           </motion.div>
+                         )}
+                       </AnimatePresence>
+                     </div>
+                     <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Account Name</label>
+                       <div className="relative">
+                         <Users className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-muted-foreground" />
+                         <input value={bankDetails.name} readOnly placeholder={isResolving ? 'Verifying...' : 'Account Holder Name'} className="w-full bg-slate-100/50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3 pl-11 pr-4 text-sm outline-none text-primary font-black uppercase cursor-not-allowed" />
+                         {bankDetails.name && !isResolving && <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />}
+                       </div>
+                     </div>
+                  </div>
+                ) : (
+                  <div className="p-5 rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 flex items-center justify-between group">
+                     <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                           <Building className="w-6 h-6 text-emerald-500" />
+                        </div>
+                        <div>
+                           <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-white/40 leading-none mb-1">Target Account</p>
+                           <p className="text-sm font-black text-slate-900 dark:text-white uppercase">{bankDetails.bankName}</p>
+                           <p className="text-[10px] text-muted-foreground font-bold tracking-widest">{bankDetails.account} • {bankDetails.name}</p>
+                        </div>
+                     </div>
+                     <Button variant="ghost" size="sm" onClick={() => setHasBankSet(false)} className="text-primary hover:bg-primary/10 text-[10px] font-black uppercase tracking-widest px-4">Edit</Button>
+                  </div>
+                )}
 
-               <div className="flex flex-col gap-3 pt-2">
-                  <Button 
-                    onClick={handleConfirmWithdrawal} 
-                    disabled={isSubmittingWithdrawal || (!hasBankSet && !bankDetails.name) || !withdrawAmount || parseFloat(withdrawAmount) <= 0 || parseFloat(withdrawAmount) > stats.balance} 
-                    className="w-full h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20"
-                  >
-                     {isSubmittingWithdrawal ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Withdrawal'}
-                  </Button>
-                  <Button variant="ghost" onClick={() => setIsWithdrawModalOpen(false)} className="text-[10px] font-black uppercase text-white/40 hover:text-white">Cancel Request</Button>
-               </div>
+                <div className="flex flex-col gap-3 pt-2">
+                   <Button 
+                     onClick={handleConfirmWithdrawal} 
+                     disabled={isSubmittingWithdrawal || (!hasBankSet && !bankDetails.name) || !withdrawAmount || parseFloat(withdrawAmount) <= 0 || parseFloat(withdrawAmount) > stats.balance} 
+                     className="w-full h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20"
+                   >
+                      {isSubmittingWithdrawal ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Withdrawal'}
+                   </Button>
+                   <Button variant="ghost" onClick={() => setIsWithdrawModalOpen(false)} className="text-[10px] font-black uppercase text-slate-500 hover:text-slate-900 dark:text-white/40 dark:hover:text-white">Cancel Request</Button>
+                </div>
             </motion.div>
           </div>
         )}
@@ -406,7 +406,7 @@ const Referral: React.FC = () => {
           <Share2 className="w-10 h-10 text-orange-500" />
         </div>
         <div className="space-y-2">
-          <h1 className="text-4xl font-black uppercase tracking-tight text-white drop-shadow-md">
+          <h1 className="text-4xl font-black uppercase tracking-tight text-slate-900 dark:text-white drop-shadow-md">
             StreamAura <span className="text-orange-500">Referral</span>
           </h1>
           <p className="text-xs text-muted-foreground font-bold uppercase tracking-[0.2em] opacity-70">
@@ -426,7 +426,7 @@ const Referral: React.FC = () => {
             whileHover={{ scale: 1.02 }} 
             className="relative aspect-[1.6/1] w-full rounded-3xl overflow-hidden shadow-2xl group cursor-pointer"
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-orange-600 via-rose-900 to-black p-6 flex flex-col justify-between overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-br from-orange-600 via-rose-900 to-black p-6 flex flex-col justify-between overflow-hidden wallet-card">
               <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-3xl group-hover:bg-white/20 transition-all duration-700" />
               <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-primary/20 rounded-full blur-3xl" />
               
@@ -606,18 +606,18 @@ const Referral: React.FC = () => {
           </div>
 
           {/* Reward Math Breakdown */}
-          <Card className="p-8 glass-card border-white/10 relative overflow-hidden">
+          <Card className="p-8 glass-card border-slate-200 dark:border-white/10 relative overflow-hidden">
              <div className="absolute top-0 right-0 p-8 opacity-5"><Info className="w-32 h-32" /></div>
              <div className="relative z-10 space-y-6">
-                <div className="flex items-center gap-3"><div className="w-1 h-8 bg-primary rounded-full" /><h3 className="text-lg font-black uppercase tracking-widest text-white">Revenue Split Breakdown</h3></div>
+                <div className="flex items-center gap-3"><div className="w-1 h-8 bg-primary rounded-full" /><h3 className="text-lg font-black uppercase tracking-widest text-slate-900 dark:text-white">Revenue Split Breakdown</h3></div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                   <div className="p-6 rounded-[2.5rem] bg-white/[0.02] border border-white/5 flex flex-col items-center text-center"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground mb-4">Platform Cut</p><span className="text-4xl font-black text-white italic">30%</span><p className="text-[8px] font-bold text-white/30 uppercase mt-2 tracking-widest">Maintenance & Ops</p></div>
-                   <div className="p-6 rounded-[2.5rem] bg-primary/5 border border-primary/20 flex flex-col items-center text-center"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary mb-4">Host Final</p><span className="text-4xl font-black text-white italic">63%</span><p className="text-[8px] font-bold text-primary/40 uppercase mt-2 tracking-widest">90% of Host Share</p></div>
-                   <div className="p-6 rounded-[2.5rem] bg-emerald-500/5 border border-emerald-500/20 flex flex-col items-center text-center"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-500 mb-4">Referrer Cut</p><span className="text-4xl font-black text-white italic">7%</span><p className="text-[8px] font-bold text-emerald-500/40 uppercase mt-2 tracking-widest">10% of Host Share</p></div>
+                   <div className="p-6 rounded-[2.5rem] bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 flex flex-col items-center text-center"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground mb-4">Platform Cut</p><span className="text-4xl font-black text-slate-900 dark:text-white italic">30%</span><p className="text-[8px] font-bold text-slate-500 dark:text-white/30 uppercase mt-2 tracking-widest">Maintenance & Ops</p></div>
+                   <div className="p-6 rounded-[2.5rem] bg-primary/5 border border-primary/20 flex flex-col items-center text-center"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary mb-4">Host Final</p><span className="text-4xl font-black text-slate-900 dark:text-white italic">63%</span><p className="text-[8px] font-bold text-primary/40 uppercase mt-2 tracking-widest">90% of Host Share</p></div>
+                   <div className="p-6 rounded-[2.5rem] bg-emerald-500/5 border border-emerald-500/20 flex flex-col items-center text-center"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-500 mb-4">Referrer Cut</p><span className="text-4xl font-black text-slate-900 dark:text-white italic">7%</span><p className="text-[8px] font-bold text-emerald-500/40 uppercase mt-2 tracking-widest">10% of Host Share</p></div>
                 </div>
                 <div className="p-6 rounded-3xl bg-blue-500/5 border border-blue-500/10 flex items-start gap-4">
                    <div className="w-10 h-10 rounded-2xl bg-blue-500/10 flex items-center justify-center shrink-0"><Info className="w-5 h-5 text-blue-400" /></div>
-                   <div className="space-y-1"><p className="text-xs font-black text-blue-100 uppercase italic">Commission Example</p><p className="text-[10px] text-blue-200/50 font-medium leading-relaxed uppercase tracking-wider">On a ₦10,000 sale, the Platform takes ₦3,000 (30%). From the remaining ₦7,000, you earn ₦700 (10% of host share) and the Host keeps ₦6,300. After 90 days, the Host keeps the full ₦7,000.</p></div>
+                   <div className="space-y-1"><p className="text-xs font-black text-blue-900 dark:text-blue-100 uppercase italic">Commission Example</p><p className="text-[10px] text-blue-700 dark:text-blue-200/50 font-medium leading-relaxed uppercase tracking-wider">On a ₦10,000 sale, the Platform takes ₦3,000 (30%). From the remaining ₦7,000, you earn ₦700 (10% of host share) and the Host keeps ₦6,300. After 90 days, the Host keeps the full ₦7,000.</p></div>
                 </div>
              </div>
           </Card>

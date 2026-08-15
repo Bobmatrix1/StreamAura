@@ -404,17 +404,17 @@ const Profile: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-20">
       {/* Header Profile Section */}
-      <div className="relative p-8 rounded-3xl bg-gradient-to-br from-blue-600/20 to-purple-600/20 border border-white/10 overflow-hidden shadow-2xl">
+      <div className="relative p-8 rounded-3xl bg-gradient-to-br from-blue-600/10 via-purple-600/10 to-indigo-600/10 dark:from-blue-600/20 dark:to-purple-600/20 border border-slate-200 dark:border-white/10 overflow-hidden shadow-2xl">
          <div className="absolute top-0 right-0 p-4">
-            <Badge className="bg-gradient-to-r from-emerald-500/20 via-teal-500/20 to-cyan-500/20 text-emerald-400 border border-emerald-500/30 px-3.5 py-1.5 text-[9px] font-black uppercase tracking-[0.15em] shadow-lg shadow-emerald-500/10 backdrop-blur-md flex items-center gap-1.5 rounded-full">
-               <CheckCircle2 className="w-3 h-3 text-emerald-400 animate-pulse" />
+            <Badge className="bg-gradient-to-r from-emerald-500/20 via-teal-500/20 to-cyan-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-3.5 py-1.5 text-[9px] font-black uppercase tracking-[0.15em] shadow-lg shadow-emerald-500/10 backdrop-blur-md flex items-center gap-1.5 rounded-full">
+               <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400 animate-pulse" />
                Active Member
             </Badge>
          </div>
          
          <div className="flex flex-col md:flex-row items-center gap-8 relative z-10">
             <div className="relative group">
-               <div className="w-32 h-32 rounded-full border-4 border-white/10 overflow-hidden shadow-2xl relative">
+               <div className="w-32 h-32 rounded-full border-4 border-slate-200 dark:border-white/10 overflow-hidden shadow-2xl relative">
                   {user?.photoURL ? (
                     <img src={user.photoURL} alt={displayName} className="w-full h-full object-cover" />
                   ) : (
@@ -435,13 +435,13 @@ const Profile: React.FC = () => {
             </div>
 
             <div className="text-center md:text-left space-y-2">
-               <h1 className="text-3xl font-black text-white uppercase tracking-tight">{displayName || 'Aura User'}</h1>
-               <p className="text-xs text-blue-300 font-bold uppercase tracking-[0.2em] opacity-80">{user?.email}</p>
+               <h1 className="text-3xl font-black text-slate-900 dark:text-white uppercase tracking-tight">{displayName || 'Aura User'}</h1>
+               <p className="text-xs text-blue-600 dark:text-blue-300 font-bold uppercase tracking-[0.2em] opacity-80">{user?.email}</p>
                <div className="flex flex-wrap justify-center md:justify-start gap-3 pt-2">
-                  <Badge variant="outline" className="bg-white/5 border-white/10 text-white/60 text-[9px] font-black uppercase tracking-widest px-3">
+                  <Badge variant="outline" className="bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 text-[9px] font-black uppercase tracking-widest px-3">
                      Joined {new Date(user?.createdAt || Date.now()).toLocaleDateString()}
                   </Badge>
-                  <Badge variant="outline" className="bg-white/5 border-white/10 text-white/60 text-[9px] font-black uppercase tracking-widest px-3">
+                  <Badge variant="outline" className="bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 text-[9px] font-black uppercase tracking-widest px-3">
                      Aura ID: {user?.uid.substring(0, 8).toUpperCase()}
                   </Badge>
                </div>
@@ -449,28 +449,28 @@ const Profile: React.FC = () => {
          </div>
 
          {/* Stats Preview */}
-         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8 pt-8 border-t border-white/10">
+         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8 pt-8 border-t border-slate-200 dark:border-white/10">
             <div className="text-center md:text-left">
-               <p className="text-[8px] font-black uppercase text-white/40 tracking-widest mb-1">Referral Balance</p>
-               <p className="text-lg font-black text-emerald-400">₦{user?.referralBalance?.toLocaleString() || 0}</p>
+               <p className="text-[8px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest mb-1">Referral Balance</p>
+               <p className="text-lg font-black text-emerald-600 dark:text-emerald-400">₦{user?.referralBalance?.toLocaleString() || 0}</p>
             </div>
-            <div className="text-center md:text-left border-l border-white/5 pl-4">
-               <p className="text-[8px] font-black uppercase text-white/40 tracking-widest mb-1">Network Size</p>
-               <p className="text-lg font-black text-blue-400">{user?.referredCount || 0} Users</p>
+            <div className="text-center md:text-left border-l border-slate-200 dark:border-white/5 pl-4">
+               <p className="text-[8px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest mb-1">Network Size</p>
+               <p className="text-lg font-black text-blue-600 dark:text-blue-400">{user?.referredCount || 0} Users</p>
             </div>
-            <div className="text-center md:text-left border-l border-white/5 pl-4">
-               <p className="text-[8px] font-black uppercase text-white/40 tracking-widest mb-1">Bonus Credit</p>
-               <p className="text-lg font-black text-amber-400">₦{user?.bonusBalance?.toLocaleString() || 0}</p>
+            <div className="text-center md:text-left border-l border-slate-200 dark:border-white/5 pl-4">
+               <p className="text-[8px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest mb-1">Bonus Credit</p>
+               <p className="text-lg font-black text-amber-600 dark:text-amber-400">₦{user?.bonusBalance?.toLocaleString() || 0}</p>
             </div>
-            <div className="text-center md:text-left border-l border-white/5 pl-4">
-               <p className="text-[8px] font-black uppercase text-white/40 tracking-widest mb-1">Status</p>
+            <div className="text-center md:text-left border-l border-slate-200 dark:border-white/5 pl-4">
+               <p className="text-[8px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest mb-1">Status</p>
                <p className={`text-lg font-black ${user?.isAdmin ? 'text-rose-500' : 'text-slate-500'}`}>{user?.isAdmin ? 'ADMIN' : 'MEMBER'}</p>
             </div>
          </div>
       </div>
 
       {/* Tabs Navigation */}
-      <div className="flex flex-wrap gap-2 p-1 bg-white/5 rounded-2xl border border-white/10">
+      <div className="flex flex-wrap gap-2 p-1 bg-slate-100 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10">
          {[
            { id: 'info', label: 'Personal Info', icon: User, activeClass: 'bg-blue-500 text-white shadow-lg shadow-blue-500/20' },
            { id: 'bank', label: 'Bank Details', icon: Building, activeClass: 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' },
@@ -482,7 +482,7 @@ const Profile: React.FC = () => {
              className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
                activeTab === tab.id 
                ? tab.activeClass 
-               : 'text-white/40 hover:bg-white/5 hover:text-white'
+               : 'text-slate-500 dark:text-white/40 hover:bg-slate-200 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white'
              }`}
            >
              <tab.icon className="w-3.5 h-3.5" />
@@ -494,54 +494,54 @@ const Profile: React.FC = () => {
       <AnimatePresence mode="wait">
          {activeTab === 'info' && (
            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
-              <Card className="glass-card p-8 border-white/10 shadow-2xl">
-                 <div className="flex items-center gap-3 mb-8 pb-4 border-b border-white/5">
+              <Card className="glass-card p-8 border-slate-200 dark:border-white/10 shadow-2xl">
+                 <div className="flex items-center gap-3 mb-8 pb-4 border-b border-slate-200 dark:border-white/5">
                     <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500 border border-blue-500/20">
-                       <User className="w-5 h-5" />
+                       <User className="w-5 h-5 text-blue-500" />
                     </div>
                     <div>
-                       <h2 className="text-xl font-black text-white uppercase tracking-tight">Edit Basic Details</h2>
-                       <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest">Visible across the Aura ecosystem</p>
+                       <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">Edit Basic Details</h2>
+                       <p className="text-[9px] text-slate-500 dark:text-white/40 font-bold uppercase tracking-widest">Visible across the Aura ecosystem</p>
                     </div>
                  </div>
 
                  <form onSubmit={handleUpdateInfo} className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                        <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase text-white/40 tracking-widest px-1">Display Name</label>
+                          <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Display Name</label>
                           <div className="relative">
-                             <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                             <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-white/20" />
                              <input 
                                type="text" 
                                value={displayName}
                                onChange={e => setDisplayName(e.target.value)}
                                placeholder="What should we call you?"
-                               className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 pl-11 pr-4 text-sm font-bold outline-none focus:border-blue-500/50 text-white" 
+                               className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-11 pr-4 text-sm font-bold outline-none focus:border-blue-500/50 text-slate-900 dark:text-white" 
                              />
                           </div>
                        </div>
                        <div className="space-y-2 opacity-60">
-                          <label className="text-[10px] font-black uppercase text-white/40 tracking-widest px-1">Email Address (Locked)</label>
+                          <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Email Address (Locked)</label>
                           <div className="relative">
-                             <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                             <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-white/20" />
                              <input 
                                type="email" 
                                value={user?.email || ''} 
                                disabled 
-                               className="w-full bg-white/[0.02] border border-white/10 rounded-xl py-3.5 pl-11 pr-4 text-sm font-bold cursor-not-allowed text-white/40" 
+                               className="w-full bg-slate-100/50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-11 pr-4 text-sm font-bold cursor-not-allowed text-slate-500 dark:text-white/40" 
                              />
                           </div>
                        </div>
                     </div>
 
                     <div className="space-y-2">
-                       <label className="text-[10px] font-black uppercase text-white/40 tracking-widest px-1">Short Bio</label>
+                       <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Short Bio</label>
                        <textarea 
                          value={bio}
                          onChange={e => setBio(e.target.value)}
                          placeholder="Tell the community a bit about yourself..."
                          rows={4}
-                         className="w-full bg-white/5 border border-white/10 rounded-xl py-4 px-4 text-sm font-bold outline-none focus:border-blue-500/50 text-white resize-none"
+                         className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-4 px-4 text-sm font-bold outline-none focus:border-blue-500/50 text-slate-900 dark:text-white resize-none"
                        />
                     </div>
 
@@ -557,27 +557,25 @@ const Profile: React.FC = () => {
                  </form>
               </Card>
            </motion.div>
-         )}
-
-         {activeTab === 'bank' && (
+         )}          {activeTab === 'bank' && (
            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
-              <Card className="glass-card p-8 border-white/10 shadow-2xl overflow-visible">
-                 <div className="flex items-center gap-3 mb-8 pb-4 border-b border-white/5">
+              <Card className="glass-card p-8 border-slate-200 dark:border-white/10 shadow-2xl overflow-visible">
+                 <div className="flex items-center gap-3 mb-8 pb-4 border-b border-slate-200 dark:border-white/5">
                     <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 border border-emerald-500/20">
-                       <Building className="w-5 h-5" />
+                       <Building className="w-5 h-5 text-emerald-500" />
                     </div>
                     <div>
-                       <h2 className="text-xl font-black text-white uppercase tracking-tight">Payout Configuration</h2>
-                       <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest">Where your earnings go</p>
+                       <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">Payout Configuration</h2>
+                       <p className="text-[9px] text-slate-500 dark:text-white/40 font-bold uppercase tracking-widest">Where your earnings go</p>
                     </div>
                  </div>
 
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                     <div className="space-y-6">
                        <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase text-white/40 tracking-widest px-1">Account Number</label>
+                          <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Account Number</label>
                           <div className="relative">
-                             <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                             <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-white/20" />
                              <input 
                                type="text"
                                inputMode="numeric"
@@ -588,20 +586,20 @@ const Profile: React.FC = () => {
                                   setBankDetails(prev => ({ ...prev, account: val }));
                                }}
                                placeholder="10 Digits"
-                               className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 pl-11 pr-4 text-sm font-black outline-none focus:border-emerald-500/50 text-white" 
+                               className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-11 pr-4 text-sm font-black outline-none focus:border-emerald-500/50 text-slate-900 dark:text-white" 
                              />
                              {isResolving && (
                                <div className="absolute right-4 top-1/2 -translate-y-1/2">
                                   <Loader2 className="w-4 h-4 text-emerald-500 animate-spin" />
-                               </div>
+                                </div>
                              )}
                           </div>
                        </div>
 
                        <div className="space-y-2 relative" ref={dropdownRef}>
-                          <label className="text-[10px] font-black uppercase text-white/40 tracking-widest px-1">Bank Name</label>
+                          <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Bank Name</label>
                           <div className="relative">
-                             <Building className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                             <Building className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-white/20" />
                              <input 
                                type="text" 
                                value={bankSearch || bankDetails.bankName}
@@ -611,14 +609,14 @@ const Profile: React.FC = () => {
                                   setBankDetails(prev => ({ ...prev, bankName: e.target.value, bankCode: '', name: '' }));
                                }}
                                placeholder="Search bank..."
-                               className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 pl-11 pr-4 text-sm font-bold outline-none focus:border-emerald-500/50 text-white" 
+                               className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-11 pr-4 text-sm font-bold outline-none focus:border-emerald-500/50 text-slate-900 dark:text-white" 
                              />
-                             <ChevronDown className={`absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 transition-transform ${showBankDropdown ? 'rotate-180' : ''}`} />
+                             <ChevronDown className={`absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-white/20 transition-transform ${showBankDropdown ? 'rotate-180' : ''}`} />
                           </div>
 
                           <AnimatePresence>
                              {showBankDropdown && (
-                               <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute z-[100] left-0 right-0 mt-2 bg-[#0a0f1e] border border-white/10 rounded-xl shadow-2xl overflow-hidden max-h-48 overflow-y-auto custom-scrollbar">
+                               <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute z-[100] left-0 right-0 mt-2 bg-card border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden max-h-48 overflow-y-auto custom-scrollbar animate-in fade-in-50 slide-in-from-top-2">
                                   {filteredBanks.map((bank, index) => (
                                     <button 
                                       key={`${bank.code}-${index}`}
@@ -627,9 +625,9 @@ const Profile: React.FC = () => {
                                          setBankQuery(bank.name);
                                          setShowBankDropdown(false);
                                       }}
-                                      className="w-full text-left px-4 py-3 text-xs font-bold text-white/80 hover:bg-emerald-500/10 hover:text-white transition-colors flex items-center gap-3 border-b border-white/5 last:border-0"
+                                      className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 dark:text-white/80 hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-white transition-colors flex items-center gap-3 border-b border-slate-100 dark:border-white/5 last:border-0"
                                     >
-                                       <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center text-[8px] font-black uppercase overflow-hidden">
+                                       <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center text-[8px] font-black uppercase overflow-hidden">
                                           {bank.slug ? (
                                             <img src={`https://raw.githubusercontent.com/iam-kevin/nigerian-banks-logos/master/logos/${bank.slug}.png`} alt="" onError={(e) => (e.target as any).style.display='none'} />
                                           ) : bank.name.substring(0, 2)}
@@ -637,20 +635,20 @@ const Profile: React.FC = () => {
                                        {bank.name}
                                     </button>
                                   ))}
-                                  {filteredBanks.length === 0 && <div className="p-4 text-center text-[10px] font-black text-white/20 uppercase tracking-widest">No banks found</div>}
+                                  {filteredBanks.length === 0 && <div className="p-4 text-center text-[10px] font-black text-slate-500 dark:text-white/20 uppercase tracking-widest">No banks found</div>}
                                </motion.div>
                              )}
                           </AnimatePresence>
                        </div>
 
                        <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase text-white/40 tracking-widest px-1">Account Name</label>
+                          <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Account Name</label>
                           <div className="relative">
                              <input 
                                value={bankDetails.name} 
                                readOnly 
                                placeholder="Verifies automatically..." 
-                               className="w-full bg-white/[0.02] border border-white/10 rounded-xl py-3.5 px-4 text-sm font-black text-emerald-400 uppercase tracking-tight cursor-not-allowed" 
+                               className="w-full bg-slate-100/50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 rounded-xl py-3.5 px-4 text-sm font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-tight cursor-not-allowed" 
                              />
                              {bankDetails.name && <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />}
                           </div>
@@ -663,7 +661,7 @@ const Profile: React.FC = () => {
                              <AlertTriangle className="w-4 h-4" />
                              <span className="text-[10px] font-black uppercase tracking-widest">Payout Safety Info</span>
                           </div>
-                          <p className="text-[10px] text-amber-200/60 font-medium leading-relaxed uppercase tracking-tight">
+                          <p className="text-[10px] text-amber-700 dark:text-amber-200/60 font-medium leading-relaxed uppercase tracking-tight">
                              Ensure your bank details are correct. StreamAura is not responsible for funds sent to incorrect accounts. Transfers are typically processed within 24 hours.
                           </p>
                        </div>
@@ -685,32 +683,32 @@ const Profile: React.FC = () => {
 
          {activeTab === 'security' && (
            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
-              <Card className="glass-card p-8 border-white/10 shadow-2xl">
-                 <div className="flex items-center gap-3 mb-8 pb-4 border-b border-white/5">
+              <Card className="glass-card p-8 border-slate-200 dark:border-white/10 shadow-2xl">
+                 <div className="flex items-center gap-3 mb-8 pb-4 border-b border-slate-200 dark:border-white/5">
                     <div className="w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-500 border border-rose-500/20">
-                       <Lock className="w-5 h-5" />
+                       <Lock className="w-5 h-5 text-rose-500" />
                     </div>
                     <div>
-                       <h2 className="text-xl font-black text-white uppercase tracking-tight">Security & Auth</h2>
-                       <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest">Secure your account credentials</p>
+                       <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">Security & Auth</h2>
+                       <p className="text-[9px] text-slate-500 dark:text-white/40 font-bold uppercase tracking-widest">Secure your account credentials</p>
                     </div>
                  </div>
 
                  <form onSubmit={handleChangePassword} className="space-y-6 max-w-lg">
                     <div className="space-y-2">
-                       <label className="text-[10px] font-black uppercase text-white/40 tracking-widest px-1">Current Password</label>
+                       <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Current Password</label>
                        <div className="relative">
                           <input 
                             type={showCurrentPassword ? "text" : "password"} 
                             required
                             value={currentPassword}
                             onChange={e => setCurrentPassword(e.target.value)}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 pl-4 pr-11 text-sm font-bold outline-none focus:border-rose-500/50 text-white" 
+                            className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-4 pr-11 text-sm font-bold outline-none focus:border-rose-500/50 text-slate-900 dark:text-white" 
                           />
                           <button 
                             type="button" 
                             onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                            className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 hover:text-white transition-colors"
+                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/20 hover:text-slate-700 dark:hover:text-white transition-colors"
                           >
                              {showCurrentPassword ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                           </button>
@@ -718,19 +716,19 @@ const Profile: React.FC = () => {
                     </div>
 
                     <div className="space-y-2 pt-2">
-                       <label className="text-[10px] font-black uppercase text-white/40 tracking-widest px-1">New Secure Password</label>
+                       <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">New Secure Password</label>
                        <div className="relative">
                           <input 
                             type={showNewPassword ? "text" : "password"} 
                             required
                             value={newPassword}
                             onChange={e => setNewPassword(e.target.value)}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 pl-4 pr-11 text-sm font-bold outline-none focus:border-rose-500/50 text-white" 
+                            className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-4 pr-11 text-sm font-bold outline-none focus:border-rose-500/50 text-slate-900 dark:text-white" 
                           />
                           <button 
                             type="button" 
                             onClick={() => setShowNewPassword(!showNewPassword)}
-                            className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 hover:text-white transition-colors"
+                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/20 hover:text-slate-700 dark:hover:text-white transition-colors"
                           >
                              {showNewPassword ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                           </button>
@@ -738,19 +736,19 @@ const Profile: React.FC = () => {
                     </div>
 
                     <div className="space-y-2">
-                       <label className="text-[10px] font-black uppercase text-white/40 tracking-widest px-1">Confirm New Password</label>
+                       <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Confirm New Password</label>
                        <div className="relative">
                           <input 
                             type={showConfirmPassword ? "text" : "password"} 
                             required
                             value={confirmPassword}
                             onChange={e => setConfirmPassword(e.target.value)}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 pl-4 pr-11 text-sm font-bold outline-none focus:border-rose-500/50 text-white" 
+                            className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-4 pr-11 text-sm font-bold outline-none focus:border-rose-500/50 text-slate-900 dark:text-white" 
                           />
                           <button 
                             type="button" 
                             onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                            className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 hover:text-white transition-colors"
+                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/20 hover:text-slate-700 dark:hover:text-white transition-colors"
                           >
                              {showConfirmPassword ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                           </button>
@@ -773,7 +771,7 @@ const Profile: React.FC = () => {
       </AnimatePresence>
 
       <div className="flex justify-center pt-8">
-         <Button onClick={logout} variant="ghost" className="text-white/40 hover:text-red-400 hover:bg-red-500/10 text-[10px] font-black uppercase tracking-[0.2em]">
+         <Button onClick={logout} variant="ghost" className="text-slate-500 hover:text-red-500 dark:text-white/40 dark:hover:text-red-400 hover:bg-red-500/10 text-[10px] font-black uppercase tracking-[0.2em]">
             <LogOut className="w-4 h-4 mr-2" />
             Sign Out of Aura
          </Button>

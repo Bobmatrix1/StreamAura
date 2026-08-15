@@ -1052,24 +1052,24 @@ const Wallet: React.FC = () => {
                                   <div className="grid grid-cols-2 gap-3">
                                      <button 
                                        onClick={() => setWithdrawSource('funded')}
-                                       className={`p-4 rounded-xl border transition-all text-left space-y-1 ${withdrawSource === 'funded' ? 'bg-primary/10 border-primary shadow-lg shadow-primary/10' : 'bg-white/5 border-white/10 opacity-60 hover:opacity-100'}`}
+                                       className={`p-4 rounded-xl border transition-all text-left space-y-1 ${withdrawSource === 'funded' ? 'bg-primary/10 border-primary shadow-lg shadow-primary/10' : 'bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-white/10 opacity-60 hover:opacity-100'}`}
                                      >
                                         <div className="flex justify-between items-center">
                                            <WalletIconLucide className="w-4 h-4 text-primary" />
                                            {withdrawSource === 'funded' && <CheckCircle2 className="w-3.5 h-3.5 text-primary" />}
                                         </div>
-                                        <p className="text-[10px] font-black uppercase text-white">Funded</p>
+                                        <p className="text-[10px] font-black uppercase text-slate-900 dark:text-white">Funded</p>
                                         <p className="text-[9px] font-bold text-muted-foreground">₦{balance.available.toLocaleString()}</p>
                                      </button>
                                      <button 
                                        onClick={() => setWithdrawSource('host')}
-                                       className={`p-4 rounded-xl border transition-all text-left space-y-1 ${withdrawSource === 'host' ? 'bg-amber-500/10 border-amber-500 shadow-lg shadow-amber-500/10' : 'bg-white/5 border-white/10 opacity-60 hover:opacity-100'}`}
+                                       className={`p-4 rounded-xl border transition-all text-left space-y-1 ${withdrawSource === 'host' ? 'bg-amber-500/10 border-amber-500 shadow-lg shadow-amber-500/10' : 'bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-white/10 opacity-60 hover:opacity-100'}`}
                                      >
                                         <div className="flex justify-between items-center">
                                            <Crown className="w-4 h-4 text-amber-500" />
                                            {withdrawSource === 'host' && <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />}
                                         </div>
-                                        <p className="text-[10px] font-black uppercase text-white">Earnings</p>
+                                        <p className="text-[10px] font-black uppercase text-slate-900 dark:text-white">Earnings</p>
                                         <p className="text-[9px] font-bold text-muted-foreground">₦{balance.host_earnings.toLocaleString()}</p>
                                      </button>
                                   </div>
@@ -1083,20 +1083,20 @@ const Wallet: React.FC = () => {
                                     </span>
                                   </div>
                                   <div className="relative">
-                                     <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-xl">₦</span>
-                                     <input type="text" inputMode="numeric" value={withdrawAmount} onChange={e => setWithdrawAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-2xl font-black outline-none focus:border-primary/50" />
+                                     <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-xl text-slate-400 dark:text-white/40">₦</span>
+                                     <input type="text" inputMode="numeric" value={withdrawAmount} onChange={e => setWithdrawAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl py-4 pl-12 pr-4 text-2xl font-black outline-none focus:border-primary/50 text-slate-900 dark:text-white" />
                                   </div>
 
                                   {withdrawAmount && parseFloat(withdrawAmount) > 0 && (
                                      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex justify-between items-center">
-                                        <span className="text-[9px] font-black uppercase text-emerald-500/60 tracking-widest">You will receive:</span>
-                                        <span className="text-sm font-black text-white">
+                                        <span className="text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-500/60 tracking-widest">You will receive:</span>
+                                        <span className="text-sm font-black text-emerald-600 dark:text-white">
                                            ₦{(parseFloat(withdrawAmount) * (withdrawSource === 'funded' ? 0.95 : 0.99)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </span>
                                      </motion.div>
                                   )}
                                   
-                                  <div className={`p-4 rounded-xl border flex items-start gap-3 transition-all ${withdrawSource === 'funded' ? 'bg-blue-500/5 border-blue-500/20 text-blue-200' : 'bg-amber-500/5 border-amber-500/20 text-amber-200'}`}>
+                                  <div className={`p-4 rounded-xl border flex items-start gap-3 transition-all ${withdrawSource === 'funded' ? 'bg-blue-500/5 border-blue-500/20 text-blue-700 dark:text-blue-200' : 'bg-amber-500/5 border-amber-500/20 text-amber-800 dark:text-amber-200'}`}>
                                      <ShieldAlert className={`w-5 h-5 shrink-0 mt-0.5 ${withdrawSource === 'funded' ? 'text-blue-500' : 'text-amber-500'}`} />
                                      <div className="space-y-1">
                                         <p className="text-[10px] font-black uppercase italic">Withdrawal Logic Applied</p>

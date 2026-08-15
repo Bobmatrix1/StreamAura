@@ -552,26 +552,26 @@ export default function Games() {
                 </div>
              </div>
 
-             <div className="p-6 rounded-3xl bg-black/40 border border-white/10 shadow-xl flex flex-col">
-                <div className="flex items-center gap-2 mb-4 border-b border-white/5 pb-2">
-                   <History className="w-3.5 h-3.5 text-primary" />
-                   <span className="text-[10px] font-black uppercase tracking-widest">Recent Activity</span>
-                </div>
-                <div className="flex-1 space-y-3 overflow-y-auto max-h-24 custom-scrollbar">
-                   {gameActivity.map((act) => (
-                     <div key={act.id} className="flex justify-between items-center">
-                        <div className="text-left">
-                           <p className="text-[10px] font-bold text-white/90">{act.desc}</p>
-                           <p className="text-[8px] text-muted-foreground uppercase">{new Date(act.timestamp?.toDate()).toLocaleDateString()}</p>
-                        </div>
-                        <span className={`text-[10px] font-black ${['win', 'entry_earnings', 'referral_earning', 'fund_from_main'].includes(act.type) ? 'text-emerald-400' : 'text-rose-400'}`}>
-                           {['win', 'entry_earnings', 'referral_earning', 'fund_from_main'].includes(act.type) ? '+' : '-'}₦{act.amount.toLocaleString()}
-                        </span>
-                     </div>
-                   ))}
-                   {gameActivity.length === 0 && <p className="text-[10px] text-muted-foreground italic text-center py-4">No recent game transactions</p>}
-                </div>
-             </div>
+             <div className="p-6 rounded-3xl bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 shadow-xl flex flex-col">
+                 <div className="flex items-center gap-2 mb-4 border-b border-slate-200 dark:border-white/5 pb-2">
+                    <History className="w-3.5 h-3.5 text-primary" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-900 dark:text-white">Recent Activity</span>
+                 </div>
+                 <div className="flex-1 space-y-3 overflow-y-auto max-h-24 custom-scrollbar">
+                    {gameActivity.map((act) => (
+                      <div key={act.id} className="flex justify-between items-center">
+                         <div className="text-left">
+                            <p className="text-[10px] font-bold text-slate-700 dark:text-white/90">{act.desc}</p>
+                            <p className="text-[8px] text-muted-foreground uppercase">{new Date(act.timestamp?.toDate()).toLocaleDateString()}</p>
+                         </div>
+                         <span className={`text-[10px] font-black ${['win', 'entry_earnings', 'referral_earning', 'fund_from_main'].includes(act.type) ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                            {['win', 'entry_earnings', 'referral_earning', 'fund_from_main'].includes(act.type) ? '+' : '-'}₦{act.amount.toLocaleString()}
+                         </span>
+                      </div>
+                    ))}
+                    {gameActivity.length === 0 && <p className="text-[10px] text-muted-foreground italic text-center py-4">No recent game transactions</p>}
+                 </div>
+              </div>
           </div>
         )}
         
@@ -589,13 +589,13 @@ export default function Games() {
           {isFundingModalOpen && (
             <div className="fixed inset-0 z-[6000] flex items-center justify-center p-4">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsFundingModalOpen(false)} className="absolute inset-0 bg-black/95 backdrop-blur-md" />
-              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card border-white/10 shadow-2xl p-8 space-y-8 max-h-[85vh] overflow-y-auto custom-scrollbar">
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card border-slate-200 dark:border-white/10 shadow-2xl p-8 space-y-8 max-h-[85vh] overflow-y-auto custom-scrollbar">
                  <div className="text-center space-y-2">
                     <div className="w-16 h-16 rounded-3xl bg-primary/10 flex items-center justify-center mx-auto mb-4 border border-primary/20">
                        <Plus className="w-8 h-8 text-primary" />
                     </div>
-                    <h2 className="text-2xl font-black uppercase tracking-tight text-white">Add Game Funds</h2>
-                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">Internal Wallet Transfer</p>
+                    <h2 className="text-2xl font-black uppercase tracking-tight text-slate-900 dark:text-white">Add Game Funds</h2>
+                    <p className="text-[10px] text-slate-500 dark:text-muted-foreground font-bold uppercase tracking-widest">Internal Wallet Transfer</p>
                  </div>
 
                  <div className="space-y-4">
@@ -610,10 +610,10 @@ export default function Games() {
                             <button 
                               key={src.id}
                               onClick={() => setFundingSource(src.id as any)}
-                              className={`p-4 rounded-xl border flex items-center justify-between transition-all ${fundingSource === src.id ? 'bg-white/10 border-primary shadow-lg shadow-primary/10' : 'bg-black/40 border-white/5 opacity-60'}`}
+                              className={`p-4 rounded-xl border flex items-center justify-between transition-all ${fundingSource === src.id ? 'bg-primary/10 border-primary shadow-lg shadow-primary/10' : 'bg-slate-50 dark:bg-black/40 border-slate-200 dark:border-white/5 opacity-60 hover:opacity-100'}`}
                             >
-                               <span className={`text-[10px] font-black uppercase ${fundingSource === src.id ? src.color : 'text-white/40'}`}>{src.label}</span>
-                               <span className="text-xs font-black text-white">₦{src.balance.toLocaleString()}</span>
+                               <span className={`text-[10px] font-black uppercase ${fundingSource === src.id ? src.color : 'text-slate-500 dark:text-white/40'}`}>{src.label}</span>
+                               <span className="text-xs font-black text-slate-900 dark:text-white">₦{src.balance.toLocaleString()}</span>
                             </button>
                           ))}
                        </div>
@@ -622,20 +622,20 @@ export default function Games() {
                     <div className="space-y-2">
                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Amount to Transfer (₦)</label>
                        <div className="relative">
-                          <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-white/40">₦</span>
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 dark:text-white/40">₦</span>
                           <input 
                             type="number" 
                             value={fundingAmount} 
                             onChange={e => setFundingAmount(e.target.value)} 
                             placeholder="0.00" 
-                            className="w-full bg-black/40 border border-white/10 rounded-xl py-3.5 pl-10 pr-4 text-sm font-black outline-none focus:border-primary/50" 
+                            className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-10 pr-4 text-sm font-black outline-none focus:border-primary/50 text-slate-900 dark:text-white" 
                           />
                        </div>
                     </div>
 
                     <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/10 flex items-start gap-3">
                        <ShieldAlert className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                       <p className="text-[9px] text-emerald-200/70 font-medium uppercase leading-relaxed tracking-tight">Move funds between your wallets with <strong className="text-emerald-400">0% fees</strong>. Instant transfer.</p>
+                       <p className="text-[9px] text-emerald-700 dark:text-emerald-200/70 font-medium uppercase leading-relaxed tracking-tight">Move funds between your wallets with <strong className="text-emerald-600 dark:text-emerald-400">0% fees</strong>. Instant transfer.</p>
                     </div>
                  </div>
 
@@ -643,7 +643,7 @@ export default function Games() {
                     <Button onClick={handleFundFromWallet} disabled={isSubmittingFunding} className="w-full h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-xs">
                        {isSubmittingFunding ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Transfer'}
                     </Button>
-                    <Button variant="ghost" onClick={() => setIsFundingModalOpen(false)} className="text-[10px] font-black uppercase text-white/40 hover:text-white">Cancel</Button>
+                    <Button variant="ghost" onClick={() => setIsFundingModalOpen(false)} className="text-[10px] font-black uppercase text-slate-500 hover:text-slate-900 dark:text-white/40 dark:hover:text-white">Cancel</Button>
                  </div>
               </motion.div>
             </div>
@@ -897,38 +897,38 @@ export default function Games() {
           {isWithdrawAmountModalOpen && (
             <div className="fixed inset-0 z-[6000] flex items-center justify-center p-4">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsWithdrawAmountModalOpen(false)} className="absolute inset-0 bg-black/95 backdrop-blur-md" />
-              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card border-white/10 shadow-2xl p-8 space-y-8 max-h-[85vh] overflow-y-auto custom-scrollbar">
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card border-slate-200 dark:border-white/10 shadow-2xl p-8 space-y-8 max-h-[85vh] overflow-y-auto custom-scrollbar">
                  <div className="text-center space-y-2">
                     <div className="w-16 h-16 rounded-3xl bg-yellow-500/10 flex items-center justify-center mx-auto mb-4 border border-yellow-500/20">
                        <ArrowUpRight className="w-8 h-8 text-yellow-500" />
                     </div>
-                    <h2 className="text-2xl font-black uppercase tracking-tight text-white">Withdraw Winnings</h2>
-                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">Move to Main Earnings Wallet</p>
+                    <h2 className="text-2xl font-black uppercase tracking-tight text-slate-900 dark:text-white">Withdraw Winnings</h2>
+                    <p className="text-[10px] text-slate-500 dark:text-muted-foreground font-bold uppercase tracking-widest">Move to Main Earnings Wallet</p>
                  </div>
 
                  <div className="space-y-6">
                     <div className="p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex justify-between items-center">
-                       <span className="text-[10px] font-black uppercase text-yellow-500/60 tracking-widest">Available</span>
-                       <span className="text-xl font-black text-white">₦{gameWalletBalance.toLocaleString()}</span>
+                       <span className="text-[10px] font-black uppercase text-yellow-700 dark:text-yellow-500/60 tracking-widest font-black">Available</span>
+                       <span className="text-xl font-black text-slate-900 dark:text-white">₦{gameWalletBalance.toLocaleString()}</span>
                     </div>
 
                     <div className="space-y-2">
                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Amount to Withdraw (₦)</label>
                        <div className="relative">
-                          <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-white/40">₦</span>
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 dark:text-white/40">₦</span>
                           <input 
                             type="number" 
                             value={withdrawAmountInput} 
                             onChange={e => setWithdrawAmountInput(e.target.value)} 
                             placeholder="0.00" 
-                            className="w-full bg-black/40 border border-white/10 rounded-xl py-3.5 pl-10 pr-4 text-sm font-black outline-none focus:border-primary/50" 
+                            className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-10 pr-4 text-sm font-black outline-none focus:border-primary/50 text-slate-900 dark:text-white" 
                           />
                        </div>
                     </div>
 
                     <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/10 flex items-start gap-3">
                        <ShieldAlert className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                       <p className="text-[9px] text-emerald-200/70 font-medium uppercase leading-relaxed tracking-tight">Funds will be moved to your <strong className="text-emerald-400">Host Earnings</strong> wallet with <strong className="text-emerald-400">0% fees</strong>. Instant transfer.</p>
+                       <p className="text-[9px] text-emerald-700 dark:text-emerald-200/70 font-medium uppercase leading-relaxed tracking-tight">Funds will be moved to your <strong className="text-emerald-600 dark:text-emerald-400">Host Earnings</strong> wallet with <strong className="text-emerald-600 dark:text-emerald-400">0% fees</strong>. Instant transfer.</p>
                     </div>
                  </div>
 
@@ -936,7 +936,7 @@ export default function Games() {
                     <Button onClick={handleWithdrawGameWallet} disabled={isWithdrawing || !withdrawAmountInput || parseFloat(withdrawAmountInput) <= 0 || parseFloat(withdrawAmountInput) > gameWalletBalance} className="w-full h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-xs">
                        {isWithdrawing ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Withdrawal'}
                     </Button>
-                    <Button variant="ghost" onClick={() => setIsWithdrawAmountModalOpen(false)} className="text-[10px] font-black uppercase text-white/40 hover:text-white">Cancel</Button>
+                    <Button variant="ghost" onClick={() => setIsWithdrawAmountModalOpen(false)} className="text-[10px] font-black uppercase text-slate-500 hover:text-slate-900 dark:text-white/40 dark:hover:text-white">Cancel</Button>
                  </div>
               </motion.div>
             </div>

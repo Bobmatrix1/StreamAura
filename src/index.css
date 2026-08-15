@@ -89,8 +89,7 @@
 .light .bg-indigo-600 .lucide,
 .light .bg-orange-600 .lucide,
 .light .bg-lime-600 .lucide,
-.light .text-white .lucide,
-.light button .lucide {
+.light .text-white .lucide {
   color: #ffffff !important;
 }
 
@@ -192,6 +191,12 @@
     transform: translateY(0);
   }
   
+  /* Gradient background */
+  .gradient-bg {
+    background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end)) !important;
+    color: white !important;
+  }
+
   /* Gradient text */
   .gradient-text {
     background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end), var(--gradient-accent));
@@ -339,6 +344,7 @@
 }
 
 .light button.gradient-bg, 
+.light .gradient-bg,
 .light button.bg-primary,
 .light button.bg-emerald-500,
 .light button.bg-cyan-600,
@@ -351,6 +357,7 @@
 }
 
 .light button.gradient-bg *,
+.light .gradient-bg *,
 .light button.bg-primary *,
 .light button.bg-emerald-500 *,
 .light button.bg-cyan-600 *,
@@ -404,4 +411,39 @@
   .light .animated-gradient {
     background: #ffffff !important;
   }
+}
+
+/* Wallet and Commission Card Text Visibility Overrides */
+.light .wallet-card,
+.light .wallet-card p,
+.light .wallet-card h2,
+.light .wallet-card span {
+  color: #ffffff !important;
+}
+
+.light .wallet-card .text-white\/50,
+.light .wallet-card .text-white\/40,
+.light .wallet-card .text-white\/30 {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+.light .wallet-card .text-white\/60,
+.light .wallet-card .text-white\/70 {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+.light .wallet-card .text-white\/90 {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.light .wallet-card .text-amber-500 {
+  color: #f59e0b !important;
+}
+
+.light .wallet-card .text-primary {
+  color: hsl(var(--primary)) !important;
+}
+
+.light .wallet-card .text-emerald-400 {
+  color: #34d399 !important;
 }
