@@ -326,11 +326,11 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       </section>
 
       {/* Mission & Vision */}
-      <section className="relative py-24 bg-white/[0.02] border-y border-white/5">
+      <section className="relative py-24 bg-white/[0.02] border-y border-slate-200 dark:border-white/5">
          <div className="max-w-5xl mx-auto px-4 grid grid-cols-1 md:grid-cols-2 gap-16 items-center">
             <div className="space-y-8">
                <div className="space-y-4">
-                  <h3 className="text-4xl font-black uppercase tracking-tighter text-white">Our Core Mission</h3>
+                  <h3 className="text-4xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Our Core Mission</h3>
                   <div className="w-12 h-1 bg-primary rounded-full" />
                   <p className="text-lg text-muted-foreground font-medium leading-relaxed">
                      StreamAura was built with a simple yet powerful goal: To give users ultimate control over their digital media. We believe that entertainment should be high quality, accessible everywhere, and most importantly shared.
@@ -342,8 +342,8 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
                     { icon: Award, text: 'Best in class media extraction technology.' },
                     { icon: Globe, text: 'Connecting people through synchronized social watch parties.' }
                   ].map((item, i) => (
-                    <li key={i} className="flex items-center gap-4 text-sm font-bold text-white/80">
-                       <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center border border-white/10">
+                    <li key={i} className="flex items-center gap-4 text-sm font-bold text-slate-700 dark:text-white/80">
+                       <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-white/5 flex items-center justify-center border border-slate-200 dark:border-white/10">
                           <item.icon className="w-4 h-4 text-primary" />
                        </div>
                        {item.text}
@@ -353,7 +353,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
             </div>
             <div className="relative aspect-square">
                <div className="absolute inset-0 bg-primary/20 rounded-[3rem] blur-[80px] animate-pulse" />
-               <div className="relative h-full w-full rounded-[3rem] border border-white/10 bg-white/5 overflow-hidden shadow-2xl flex items-center justify-center p-12">
+               <div className="relative h-full w-full rounded-[3rem] border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 overflow-hidden shadow-2xl flex items-center justify-center p-12">
                   <img src="/logo.png" className="w-full h-full object-contain drop-shadow-[0_0_50px_rgba(225,29,72,0.4)]" alt="StreamAura" />
                </div>
             </div>

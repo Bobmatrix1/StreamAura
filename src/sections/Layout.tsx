@@ -28,7 +28,8 @@ import {
   Wallet,
   Share2,
   Home,
-  Gamepad2
+  Gamepad2,
+  ArrowUp
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -78,6 +79,26 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.scrollY > 400) {
+        setShowScrollTop(true);
+      } else {
+        setShowScrollTop(false);
+      }
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth'
+    });
+  };
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -341,6 +362,21 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
           {children}
         </div>
       </main>
+      {/* Scroll to Top Button */}
+      <AnimatePresence>
+        {showScrollTop && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.5, y: 50 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.5, y: 50 }}
+            onClick={scrollToTop}
+            className="fixed bottom-6 right-6 z-[999] p-4 rounded-full gradient-bg border border-white/10 shadow-2xl text-white hover:scale-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center"
+            title="Scroll to top"
+          >
+            <ArrowUp className="w-5 h-5" />
+          </motion.button>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

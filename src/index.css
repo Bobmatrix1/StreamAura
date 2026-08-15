@@ -360,3 +360,34 @@
 .light textarea::placeholder {
   color: rgba(0, 0, 0, 0.4) !important;
 }
+
+/* Mobile Performance Optimizations */
+@media (max-width: 768px) {
+  /* Disable heavy GPU/CPU backdrop-filters on mobile */
+  .glass,
+  .glass-card,
+  .glass-input,
+  .glass-button {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: rgba(15, 15, 30, 0.94) !important; /* Semi-opaque fallback for dark mode */
+  }
+
+  .light .glass,
+  .light .glass-card,
+  .light .glass-input,
+  .light .glass-button {
+    background: rgba(255, 255, 255, 0.98) !important; /* Semi-opaque fallback for light mode */
+  }
+
+  /* Disable battery-heavy animated background gradients on mobile */
+  .animated-gradient {
+    animation: none !important;
+    background-size: 100% 100% !important;
+    background: #0f0f23 !important; /* Static clean background */
+  }
+
+  .light .animated-gradient {
+    background: #ffffff !important;
+  }
+}
