@@ -252,3 +252,111 @@
 *::-webkit-scrollbar {
   display: none !important;
 }
+
+/* Light Mode Visibility Overrides */
+.light {
+  color-scheme: light;
+}
+
+.light .text-white {
+  color: #111827 !important; /* Tailwind gray-900 */
+}
+
+.light .text-slate-400, 
+.light .text-slate-300, 
+.light .text-slate-200, 
+.light .text-slate-100,
+.light .text-zinc-400, 
+.light .text-zinc-300,
+.light .text-muted-foreground {
+  color: #374151 !important; /* Tailwind gray-700 */
+}
+
+.light .text-slate-500,
+.light .text-zinc-500 {
+  color: #4b5563 !important; /* Tailwind gray-600 */
+}
+
+.light h1, 
+.light h2, 
+.light h3, 
+.light h4, 
+.light h5, 
+.light h6 {
+  color: #111827 !important;
+}
+
+.light .glass-card {
+  background: rgba(255, 255, 255, 0.95) !important;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Exclude badges, active tabs and action buttons from dark overrides */
+.light .gradient-bg,
+.light .gradient-bg *,
+.light .bg-primary,
+.light .bg-primary *,
+.light .bg-emerald-500,
+.light .bg-emerald-500 *,
+.light .bg-red-500,
+.light .bg-red-500 *,
+.light .bg-yellow-500,
+.light .bg-yellow-500 *,
+.light .bg-purple-500,
+.light .bg-purple-500 *,
+.light .bg-cyan-600,
+.light .bg-cyan-600 *,
+.light .bg-lime-600,
+.light .bg-lime-600 *,
+.light .glass-button,
+.light .glass-button *,
+.light button.text-white,
+.light button.text-white *,
+.light .px-3.py-1.rounded-full.bg-yellow-500\/10.text-yellow-500,
+.light .px-3.py-1.rounded-full.bg-yellow-500\/10.text-yellow-500 *,
+.light .px-3.py-1.rounded-full.bg-purple-500\/10.text-purple-400,
+.light .px-3.py-1.rounded-full.bg-purple-500\/10.text-purple-400 *,
+.light .px-3.py-1.rounded-full.bg-primary\/10.text-primary,
+.light .px-3.py-1.rounded-full.bg-primary\/10.text-primary *,
+.light .px-5.py-2.5.rounded-xl.bg-primary,
+.light .px-5.py-2.5.rounded-xl.bg-primary * {
+  color: inherit !important;
+}
+
+.light button.gradient-bg, 
+.light button.bg-primary,
+.light button.bg-emerald-500,
+.light button.bg-cyan-600,
+.light button.bg-red-600,
+.light button.bg-indigo-600,
+.light button.bg-orange-600,
+.light button.bg-lime-600,
+.light button.bg-emerald-500 {
+  color: #ffffff !important;
+}
+
+.light button.gradient-bg *,
+.light button.bg-primary *,
+.light button.bg-emerald-500 *,
+.light button.bg-cyan-600 *,
+.light button.bg-red-600 *,
+.light button.bg-indigo-600 *,
+.light button.bg-orange-600 *,
+.light button.bg-lime-600 *,
+.light button.bg-emerald-500 * {
+  color: #ffffff !important;
+}
+
+/* Ensure secondary buttons and text-inputs have proper border and text */
+.light input,
+.light textarea {
+  color: #111827 !important;
+  background-color: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+.light input::placeholder,
+.light textarea::placeholder {
+  color: rgba(0, 0, 0, 0.4) !important;
+}

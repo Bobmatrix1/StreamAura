@@ -35,7 +35,6 @@ import {
   increment,
   getFirestore,
   initializeFirestore,
-  memoryLocalCache,
   persistentLocalCache,
   persistentMultipleTabManager
 } from 'firebase/firestore';

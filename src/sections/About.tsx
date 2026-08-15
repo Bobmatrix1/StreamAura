@@ -14,7 +14,6 @@ import {
   Film,
   Sparkles,
   Rocket,
-  Music,
   Download
 } from 'lucide-react';
 

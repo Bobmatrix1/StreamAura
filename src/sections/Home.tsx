@@ -19,9 +19,6 @@ import {
   Twitter,
   Instagram,
   Youtube,
-  Cloud,
-  CreditCard,
-  Users,
   Gamepad2
 } from 'lucide-react';
 import { Card } from '../components/ui/card';

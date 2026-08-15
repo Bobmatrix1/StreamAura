@@ -421,8 +421,11 @@ const MovieDownloader: React.FC = () => {
                           {selectedMovie.tmdb?.videos && selectedMovie.tmdb.videos.length > 0 && (
                             <button 
                               onClick={() => {
-                                const trailer = selectedMovie.tmdb.videos.find(v => v.type === 'Trailer') || selectedMovie.tmdb.videos[0];
-                                if (trailer) setActiveTrailerKey(trailer.key);
+                                const tmdb = selectedMovie.tmdb;
+                                if (tmdb && tmdb.videos) {
+                                  const trailer = tmdb.videos.find(v => v.type === 'Trailer') || tmdb.videos[0];
+                                  if (trailer) setActiveTrailerKey(trailer.key);
+                                }
                               }}
                               className="px-3 py-1 rounded-full bg-primary/10 hover:bg-primary/20 text-primary text-[10px] font-black border border-primary/25 flex items-center gap-1.5 uppercase transition-all active:scale-95 cursor-pointer"
                             >

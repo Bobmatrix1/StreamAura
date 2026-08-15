@@ -15,8 +15,23 @@ import { HelmetProvider } from 'react-helmet-async';
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js')
-      .then(reg => console.log('SW registered:', reg))
+      .then(reg => {
+        console.log('SW registered:', reg);
+        // Check for updates every 5 minutes
+        setInterval(() => {
+          reg.update();
+        }, 5 * 60 * 1000);
+      })
       .catch(err => console.log('SW registration failed:', err));
+  });
+
+  // Reload page when service worker changes and takes control (auto-update)
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) {
+      refreshing = true;
+      window.location.reload();
+    }
   });
 }
 
