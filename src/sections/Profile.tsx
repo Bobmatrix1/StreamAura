@@ -76,6 +76,15 @@ const Profile: React.FC = () => {
   const [isUpdatingInfo, setIsUpdatingInfo] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
+  // Crop Modal State
+  const [cropImage, setCropImage] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const [showCropModal, setShowCropModal] = useState(false);
+
   // Bank State
   const [availableBanks, setAvailableBanks] = useState<Bank[]>([]);
   const [bankDetails, setBankDetails] = useState({ name: '', account: '', bankName: '', bankCode: '', logo: '' });
@@ -183,25 +192,151 @@ const Profile: React.FC = () => {
     }
   };
 
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      return showError("Image must be less than 2MB");
+    if (file.size > 5 * 1024 * 1024) {
+      return showError("Image must be less than 5MB");
     }
 
+    setCropFile(file);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCropImage(reader.result as string);
+      setZoom(1);
+      setPosition({ x: 0, y: 0 });
+      setShowCropModal(true);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    setPosition({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y
+    });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      setIsDragging(true);
+      setDragStart({ 
+        x: e.touches[0].clientX - position.x, 
+        y: e.touches[0].clientY - position.y 
+      });
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging || e.touches.length !== 1) return;
+    setPosition({
+      x: e.touches[0].clientX - dragStart.x,
+      y: e.touches[0].clientY - dragStart.y
+    });
+  };
+
+  const handleCropAndUpload = async () => {
+    if (!cropImage || !cropFile) return;
+    
     setIsUploadingPhoto(true);
+    setShowCropModal(false);
+
     try {
-      const photoURL = await uploadFile(file, `avatars/${user!.uid}`);
-      if (auth.currentUser) {
-        await updateProfile(auth.currentUser, { photoURL });
-      }
-      await updateDoc(doc(db, 'users', user!.uid), { photoURL });
-      showSuccess("Photo uploaded successfully!");
+      const img = new Image();
+      img.src = cropImage;
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+      });
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error("Could not get canvas context");
+
+      const size = 300;
+      canvas.width = size;
+      canvas.height = size;
+
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, size, size);
+
+      const imgWidth = img.width;
+      const imgHeight = img.height;
+      const minDimension = Math.min(imgWidth, imgHeight);
+      
+      const scale = (size / minDimension) * zoom;
+      const drawWidth = imgWidth * scale;
+      const drawHeight = imgHeight * scale;
+      
+      const workspaceSize = 288;
+      const scaleOffset = size / workspaceSize;
+      
+      const x = (size - drawWidth) / 2 + (position.x * scaleOffset);
+      const y = (size - drawHeight) / 2 + (position.y * scaleOffset);
+
+      ctx.drawImage(img, x, y, drawWidth, drawHeight);
+
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          showError("Failed to crop image");
+          setIsUploadingPhoto(false);
+          return;
+        }
+
+        const finalFile = new File([blob], `cropped_${cropFile.name.split('.')[0]}.jpg`, { type: 'image/jpeg' });
+        
+        try {
+          const oldPhotoURL = user?.photoURL;
+          
+          const photoURL = await uploadFile(finalFile, `avatars/${user!.uid}`);
+          if (auth.currentUser) {
+            await updateProfile(auth.currentUser, { photoURL });
+          }
+          await updateDoc(doc(db, 'users', user!.uid), { photoURL });
+
+          // If there was a previous photo URL, trigger its deletion from storage to save space
+          if (oldPhotoURL) {
+            try {
+              const token = await auth.currentUser?.getIdToken();
+              const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+              await fetch(`${API_URL}/api/cinema/delete-asset`, {
+                method: 'POST',
+                headers: { 
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ url: oldPhotoURL })
+              });
+            } catch (delErr) {
+              console.warn("Failed to delete old avatar from storage:", delErr);
+            }
+          }
+
+          showSuccess("Photo uploaded successfully!");
+        } catch (err: any) {
+          showError("Failed to upload photo");
+        } finally {
+          setIsUploadingPhoto(false);
+          setCropImage(null);
+          setCropFile(null);
+        }
+      }, 'image/jpeg', 0.9);
+
     } catch (err: any) {
-      showError("Failed to upload photo");
-    } finally {
+      console.error(err);
+      showError("Error processing image");
       setIsUploadingPhoto(false);
     }
   };
@@ -271,7 +406,10 @@ const Profile: React.FC = () => {
       {/* Header Profile Section */}
       <div className="relative p-8 rounded-3xl bg-gradient-to-br from-blue-600/20 to-purple-600/20 border border-white/10 overflow-hidden shadow-2xl">
          <div className="absolute top-0 right-0 p-4">
-            <Badge className="bg-blue-500 text-white border-none px-3 py-1 text-[10px] font-black uppercase tracking-widest">Active Member</Badge>
+            <Badge className="bg-gradient-to-r from-emerald-500/20 via-teal-500/20 to-cyan-500/20 text-emerald-400 border border-emerald-500/30 px-3.5 py-1.5 text-[9px] font-black uppercase tracking-[0.15em] shadow-lg shadow-emerald-500/10 backdrop-blur-md flex items-center gap-1.5 rounded-full">
+               <CheckCircle2 className="w-3 h-3 text-emerald-400 animate-pulse" />
+               Active Member
+            </Badge>
          </div>
          
          <div className="flex flex-col md:flex-row items-center gap-8 relative z-10">
@@ -292,7 +430,7 @@ const Profile: React.FC = () => {
                </div>
                <label className="absolute bottom-0 right-0 p-2 bg-blue-500 rounded-full text-white cursor-pointer shadow-lg hover:bg-blue-400 transition-all transform hover:scale-110 active:scale-95 group-hover:scale-110">
                   <Camera className="w-4 h-4" />
-                  <input type="file" className="hidden" accept="image/*" onChange={handlePhotoUpload} disabled={isUploadingPhoto} />
+                  <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} disabled={isUploadingPhoto} />
                </label>
             </div>
 
@@ -334,16 +472,16 @@ const Profile: React.FC = () => {
       {/* Tabs Navigation */}
       <div className="flex flex-wrap gap-2 p-1 bg-white/5 rounded-2xl border border-white/10">
          {[
-           { id: 'info', label: 'Personal Info', icon: User },
-           { id: 'bank', label: 'Bank Details', icon: Building },
-           { id: 'security', label: 'Security & Privacy', icon: Lock }
+           { id: 'info', label: 'Personal Info', icon: User, activeClass: 'bg-blue-500 text-white shadow-lg shadow-blue-500/20' },
+           { id: 'bank', label: 'Bank Details', icon: Building, activeClass: 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' },
+           { id: 'security', label: 'Security & Privacy', icon: Lock, activeClass: 'bg-rose-500 text-white shadow-lg shadow-rose-500/20' }
          ].map(tab => (
            <button
              key={tab.id}
              onClick={() => setActiveTab(tab.id as any)}
              className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
                activeTab === tab.id 
-               ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20' 
+               ? tab.activeClass 
                : 'text-white/40 hover:bg-white/5 hover:text-white'
              }`}
            >
@@ -619,8 +757,6 @@ const Profile: React.FC = () => {
                        </div>
                     </div>
 
-
-
                     <div className="pt-4">
                        <Button 
                          type="submit" 
@@ -642,6 +778,81 @@ const Profile: React.FC = () => {
             Sign Out of Aura
          </Button>
       </div>
+
+      {showCropModal && cropImage && (
+        <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+          <div className="w-full max-w-md glass-card border-white/10 p-6 space-y-6 flex flex-col items-center">
+            <div className="text-center space-y-1">
+              <h3 className="text-lg font-black text-white uppercase tracking-tight">Adjust Profile Photo</h3>
+              <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Drag to position, use slider to zoom</p>
+            </div>
+
+            {/* Crop Workspace */}
+            <div 
+              className="w-72 h-72 rounded-full border-4 border-white/20 overflow-hidden relative bg-zinc-950 flex items-center justify-center select-none cursor-grab active:cursor-grabbing"
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleMouseUp}
+            >
+              <img 
+                src={cropImage} 
+                alt="Preview" 
+                draggable={false}
+                className="max-w-none origin-center pointer-events-none select-none"
+                style={{
+                  transform: `translate(${position.x}px, ${position.y}px) scale(${zoom})`,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain'
+                }}
+              />
+              <div className="absolute inset-0 rounded-full border border-dashed border-blue-500/50 pointer-events-none" />
+            </div>
+
+            {/* Zoom Control */}
+            <div className="w-full space-y-2">
+              <div className="flex justify-between text-[9px] font-black uppercase text-white/40 tracking-widest px-1">
+                <span>Zoom</span>
+                <span>{Math.round(zoom * 100)}%</span>
+              </div>
+              <input 
+                type="range" 
+                min="1" 
+                max="3" 
+                step="0.05" 
+                value={zoom} 
+                onChange={e => setZoom(parseFloat(e.target.value))}
+                className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-4 w-full">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setShowCropModal(false);
+                  setCropImage(null);
+                  setCropFile(null);
+                }}
+                className="flex-1 rounded-xl h-11 border-white/10 text-xs font-black uppercase tracking-widest hover:bg-white/5"
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleCropAndUpload}
+                className="flex-1 rounded-xl h-11 bg-blue-600 hover:bg-blue-500 text-xs font-black uppercase tracking-widest"
+              >
+                Save & Upload
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -107,6 +107,24 @@ export const searchMovies = async (query: string, type: 'movie' | 'series' = 'mo
   }
 };
 
+export const getTrendingMovies = async (type: 'movie' | 'series' = 'movie'): Promise<ApiResponse<any> & { isRows?: boolean }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/movies/trending?type=${type}`);
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to fetch trending');
+    }
+    
+    return await response.json();
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error.message || 'Failed to fetch trending'
+    };
+  }
+};
+
 /**
  * Get detailed movie or series information and download links
  */
@@ -115,13 +133,15 @@ export const getMovieDetails = async (
   type: 'movie' | 'series' = 'movie',
   title?: string,
   season?: number,
-  episode?: number
+  episode?: number,
+  detailPath?: string
 ): Promise<ApiResponse<MovieInfo>> => {
   try {
     let url = `${API_BASE_URL}/api/movies/details?subject_id=${encodeURIComponent(subjectId)}&type=${type}`;
     if (title) url += `&title=${encodeURIComponent(title)}`;
     if (season !== undefined) url += `&season=${season}`;
     if (episode !== undefined) url += `&episode=${episode}`;
+    if (detailPath) url += `&detail_path=${encodeURIComponent(detailPath)}`;
     
     const response = await fetch(url);
     
@@ -309,6 +329,7 @@ export default {
   extractVideoInfo,
   extractMusicInfo,
   searchMovies,
+  getTrendingMovies,
   getMovieDetails,
   startDownload,
   startMovieDownloadTask,

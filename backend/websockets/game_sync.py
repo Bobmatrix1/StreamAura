@@ -247,11 +247,17 @@ async def cleanup_game_room(game_id: str):
 
 async def start_periodic_cleanup():
     """Persistent worker to cleanup old rooms from Firestore every 10 minutes."""
+    # Delay initial execution slightly to let the server start up first without blocking
+    await asyncio.sleep(5)
     while True:
         try:
             print("WORKER: Running periodic room cleanup...")
             db = firestore.client()
-            rooms = db.collection("game_rooms").where("status", "==", "finished").stream()
+            
+            def fetch_finished_rooms():
+                return list(db.collection("game_rooms").where("status", "==", "finished").stream())
+                
+            rooms = await asyncio.to_thread(fetch_finished_rooms)
             
             now = time.time()
             deleted_count = 0
@@ -264,7 +270,11 @@ async def start_periodic_cleanup():
                 # Or if finishedAt is missing (assume old/stuck)
                 if not finished_at or (now - finished_at > 3600):
                     print(f"WORKER: Deleting expired room {room.id}")
-                    db.collection("game_rooms").document(room.id).delete()
+                    
+                    def delete_doc(rid):
+                        db.collection("game_rooms").document(rid).delete()
+                        
+                    await asyncio.to_thread(delete_doc, room.id)
                     deleted_count += 1
             
             if deleted_count > 0:

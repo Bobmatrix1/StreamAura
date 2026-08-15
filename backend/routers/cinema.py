@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from core.security import get_current_user, get_current_admin
 from core.config import settings
 from models.cinema import RoomCreateRequest, PresignedUrlRequest, PaystackInitRequest, AgoraTokenRequest, WithdrawalRequest, MultipartInitiateRequest, MultipartPartRequest, MultipartCompleteRequest
-from services.r2_service import generate_presigned_upload_url, generate_presigned_download_url, initiate_multipart_upload, generate_presigned_part_url, complete_multipart_upload
+from services.r2_service import generate_presigned_upload_url, generate_presigned_download_url, initiate_multipart_upload, generate_presigned_part_url, complete_multipart_upload, delete_object
 from services.agora_service import generate_rtc_token
 from services.paystack_service import initialize_transaction, verify_transaction, create_transfer_recipient, initiate_transfer, get_banks, resolve_account_number
 from services.redis_service import set_room_state
@@ -799,3 +799,36 @@ async def delete_cinema_room(room_id: str, current_user = Depends(get_current_us
     room_ref.delete()
     
     return {"success": True}
+
+class DeleteAssetRequest(BaseModel):
+    url: str
+
+@router.post("/delete-asset")
+async def delete_asset(request: DeleteAssetRequest, user: dict = Depends(get_current_user)):
+    """
+    Deletes an asset from Cloudflare R2 given its public URL.
+    To prevent unauthorized deletions, we ensure the object name starts with the user's UID.
+    """
+    url = request.url
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+        
+    base_url = settings.R2_PUBLIC_BASE_URL
+    if base_url in url:
+        key = url.split(base_url + "/")[-1]
+    else:
+        key = url
+        
+    # Strip any query parameters or hash fragments from the key (e.g. ?t=timestamp)
+    key = key.split("?")[0].split("#")[0]
+        
+    # SECURITY: Ensure user is only deleting their own files!
+    if not key.startswith(f"{user['uid']}/"):
+        raise HTTPException(status_code=403, detail="Unauthorized to delete this object")
+        
+    # Delete from assets bucket
+    success = delete_object(settings.R2_BUCKET_ASSETS, key)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to delete object from storage")
+        
+    return {"success": True, "message": "Object deleted"}

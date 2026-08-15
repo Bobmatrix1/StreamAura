@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, X, Share, PlusSquare, ShieldCheck, Zap } from 'lucide-react';
+import { Download, X, Share, PlusSquare, ShieldCheck, Zap, CheckCircle2 } from 'lucide-react';
 
 const InstallPWA: React.FC = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -106,9 +106,9 @@ const InstallPWA: React.FC = () => {
                 </div>
                 
                 <div className="flex-1 space-y-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <h3 className="font-black text-white uppercase tracking-tighter text-lg leading-none">StreamAura</h3>
-                    <span className="px-1.5 py-0.5 rounded-md bg-white/5 border border-white/5 text-[8px] font-black text-white/40 uppercase tracking-widest">Official</span>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 fill-emerald-400/10 shrink-0" />
                   </div>
                   <p className="text-xs text-zinc-400 font-medium leading-relaxed mt-1">
                     {platform === 'ios' 

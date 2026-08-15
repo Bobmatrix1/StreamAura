@@ -64,6 +64,47 @@ export interface SeasonInfo {
   episodes: number[];
 }
 
+export interface TmdbCastMember {
+  name: string;
+  character: string;
+  avatar: string | null;
+}
+
+export interface TmdbVideo {
+  name: string;
+  key: string;
+  type: string;
+}
+
+export interface TmdbReview {
+  author: string;
+  content: string;
+}
+
+export interface TmdbSimilarItem {
+  id: string;
+  title: string;
+  thumbnail: string | null;
+  year: string;
+  rating: string;
+  mediaType: 'movie' | 'series';
+}
+
+export interface TmdbData {
+  id: number;
+  rating: string;
+  voteCount: number;
+  overview: string | null;
+  tagline: string | null;
+  genres: string[];
+  cast: TmdbCastMember[];
+  videos: TmdbVideo[];
+  reviews: TmdbReview[];
+  similar: TmdbSimilarItem[];
+  backdrop: string | null;
+  poster: string | null;
+}
+
 // New Movie types
 export interface MovieInfo extends MediaInfo {
   mediaType: 'movie' | 'series';
@@ -74,6 +115,8 @@ export interface MovieInfo extends MediaInfo {
   qualities: VideoQuality[];
   seasons?: SeasonInfo[];
   referer?: string;
+  detailPath?: string;
+  tmdb?: TmdbData | null;
 }
 
 // Download queue types

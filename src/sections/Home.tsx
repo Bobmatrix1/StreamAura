@@ -101,7 +101,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
     {
       id: 'music' as ViewType,
       title: 'Music Extraction',
-      desc: 'Convert any video or audio link into high-bitrate MP3 or FLAC. Perfect for building your offline music library.',
+      desc: 'Convert any video or audio link into high bitrate MP3 or FLAC. Perfect for building your offline music library.',
       icon: Music,
       color: 'fuchsia',
       badge: 'FAST'
@@ -109,7 +109,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
     {
       id: 'cinema' as ViewType,
       title: 'Virtual Cinema',
-      desc: 'Host or join live watch parties. Synchronized playback with real-time voice and video chat for ultimate fun.',
+      desc: 'Host or join live watch parties. Synchronized playback with real time voice and video chat for ultimate fun.',
       icon: Tv,
       color: 'rose',
       badge: 'LIVE'
@@ -117,7 +117,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
     {
       id: 'games' as ViewType,
       title: 'Split or Steal',
-      desc: 'Test your luck and loyalty in our high-stakes social game. Compete for cash prizes in our real-time high-fidelity arena.',
+      desc: 'Test your luck and loyalty in our high stakes social game. Compete for cash prizes in our real time high fidelity arena.',
       icon: Gamepad2,
       color: 'yellow',
       badge: 'NEW'
@@ -150,8 +150,8 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
           transition={{ duration: 0.8 }}
           className="space-y-8 max-w-4xl"
         >
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 backdrop-blur-md shadow-2xl">
-            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-white/70">The Future of Media is Here</span>
+          <div className="text-[10px] font-black uppercase tracking-[0.3em] text-white/70">
+            The Future of Media is Here
           </div>
 
           <div className="space-y-4">
@@ -160,7 +160,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
               Feel the <span className="gradient-text">Aura.</span>
             </h1>
             <p className="text-xl md:text-2xl text-muted-foreground font-medium max-w-2xl mx-auto leading-relaxed">
-              Experience the ultimate all-in-one media powerhouse. High-speed downloads, immersive virtual cinemas, and social rewards.
+              Experience the ultimate all in one media powerhouse. High speed downloads, immersive virtual cinemas, and social rewards.
             </p>
           </div>
 
@@ -204,8 +204,8 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       {/* Partners Section */}
       <section className="px-4">
         <div className="max-w-6xl mx-auto py-12 border-y border-white/5">
-          <p className="text-center text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground mb-12">Trusted Partners & Sponsors</p>
-          <div className="flex flex-wrap items-center justify-center gap-12 md:gap-24 grayscale opacity-40 hover:grayscale-0 transition-all duration-700">
+          <p className="text-center text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground mb-12">Trusted Partners</p>
+          <div className="flex flex-wrap items-center justify-center gap-12 md:gap-24 md:grayscale md:opacity-40 md:hover:grayscale-0 md:hover:opacity-100 transition-all duration-700">
              {partners.length > 0 ? partners.map(partner => (
                <div key={partner.id} className="flex flex-col items-center gap-3">
                   <img src={partner.logo} alt={partner.name} className="h-8 md:h-12 object-contain" />
@@ -213,10 +213,10 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
                </div>
              )) : (
                <>
-                 <div className="flex items-center gap-3"><Cloud className="w-8 h-8" /><span className="font-black text-xl text-white">Cloudflare</span></div>
-                 <div className="flex items-center gap-3"><CreditCard className="w-8 h-8" /><span className="font-black text-xl text-white">Paystack</span></div>
-                 <div className="flex items-center gap-3"><Zap className="w-8 h-8 text-primary" /><span className="font-black text-xl text-white">Firebase</span></div>
-                 <div className="flex items-center gap-3"><Users className="w-8 h-8" /><span className="font-black text-xl text-white">Agora</span></div>
+                 <div className="flex items-center gap-3"><img src="/icons/Cloudflare_Logo.png" className="h-6 w-auto" alt="Cloudflare" /><span className="font-black text-xl text-white">Cloudflare</span></div>
+                 <div className="flex items-center gap-3"><img src="/icons/agora logo.png" className="h-6 w-auto" alt="Agora" /></div>
+                 <div className="flex items-center gap-3"><img src="/icons/tmdb.svg" className="h-6 w-auto" alt="TMDB" /><span className="font-black text-xl text-white">TMDB</span></div>
+                 <div className="flex items-center gap-3"><img src="/icons/transactpay logo 1.png" className="h-6 w-auto" alt="TransactPay" /><span className="font-black text-xl text-white">TransactPay</span></div>
                </>
              )}
           </div>
@@ -336,13 +336,13 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
                   <h3 className="text-4xl font-black uppercase tracking-tighter text-white">Our Core Mission</h3>
                   <div className="w-12 h-1 bg-primary rounded-full" />
                   <p className="text-lg text-muted-foreground font-medium leading-relaxed">
-                     StreamAura was built with a simple yet powerful goal: To give users ultimate control over their digital media. We believe that entertainment should be high-quality, accessible everywhere, and most importantly shared.
+                     StreamAura was built with a simple yet powerful goal: To give users ultimate control over their digital media. We believe that entertainment should be high quality, accessible everywhere, and most importantly shared.
                   </p>
                </div>
                <ul className="space-y-4">
                   {[
-                    { icon: Shield, text: 'Privacy-focused downloading with no tracking.' },
-                    { icon: Award, text: 'Best-in-class media extraction technology.' },
+                    { icon: Shield, text: 'Privacy focused downloading with no tracking.' },
+                    { icon: Award, text: 'Best in class media extraction technology.' },
                     { icon: Globe, text: 'Connecting people through synchronized social watch parties.' }
                   ].map((item, i) => (
                     <li key={i} className="flex items-center gap-4 text-sm font-bold text-white/80">

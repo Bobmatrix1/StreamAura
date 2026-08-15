@@ -81,7 +81,7 @@ const ContactUs: React.FC = () => {
             <h3 className="font-bold text-lg text-foreground">Feedback & Requests</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
               Have an idea for a new feature? We love hearing from our community. 
-              Suggest a platform you'd like us to support next!
+              Suggest a feature or anything youd like to be added to the streamaura platform.
             </p>
             <button 
               onClick={() => handleExternalLink('https://wa.me/message/B6NFNENSALEIK1')}

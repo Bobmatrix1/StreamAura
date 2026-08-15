@@ -48,11 +48,14 @@ const MovieDownloader: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'search' | 'library'>('search');
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<MovieInfo[]>([]);
+  const [isTrending, setIsTrending] = useState(true);
+  const [trendingRows, setTrendingRows] = useState<{ category: string; items: MovieInfo[] }[]>([]);
   const [myPreOrders, setMyPreOrders] = useState<PreOrder[]>([]);
   const [isLoadingLibrary, setIsLoadingLibrary] = useState(false);
   const [selectedMovie, setSelectedMovie] = useState<MovieInfo | null>(null);
   const [isCheckingCloud, setIsCheckingCloud] = useState(false);
   const [showPlayer, setShowPlayer] = useState(false);
+  const [activeTrailerKey, setActiveTrailerKey] = useState<string | null>(null);
 
   // Series Specific State
   const [selectedSeason, setSelectedSeason] = useState<string | null>(null);
@@ -89,10 +92,38 @@ const MovieDownloader: React.FC = () => {
     }
   }, [activeTab, user?.uid]);
 
-  const handleSearch = async () => {
-    if (!query.trim()) return;
+  const loadTrending = async () => {
     setIsSearching(true);
     setSelectedMovie(null);
+    try {
+      const result = await mediaApi.getTrendingMovies(searchType);
+      if (result.success) {
+        if (result.isRows) {
+          setTrendingRows(result.data || []);
+          setSearchResults([]);
+        } else {
+          setSearchResults(result.data || []);
+          setTrendingRows([]);
+        }
+        setIsTrending(true);
+      } else {
+        showError(result.error || 'Failed to load trending items');
+      }
+    } catch (err) {
+      console.error('Failed to load trending:', err);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleSearch = async () => {
+    if (!query.trim()) {
+      loadTrending();
+      return;
+    }
+    setIsSearching(true);
+    setSelectedMovie(null);
+    setIsTrending(false);
     try {
       logSearch(query, searchType === 'movie' ? 'movie' : 'series', user?.uid);
       const result = await mediaApi.searchMovies(query, searchType);
@@ -105,6 +136,16 @@ const MovieDownloader: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    if (activeTab === 'search') {
+      if (query.trim()) {
+        handleSearch();
+      } else {
+        loadTrending();
+      }
+    }
+  }, [searchType, activeTab]);
+
   const handleSelectMovie = async (movie: MovieInfo) => {
     setSelectedMovie(movie);
     setCloudData(null);
@@ -115,7 +156,7 @@ const MovieDownloader: React.FC = () => {
     setIsCheckingCloud(true);
     
     try {
-      const result = await mediaApi.getMovieDetails(movie.id, movie.mediaType || searchType, movie.title);
+      const result = await mediaApi.getMovieDetails(movie.id, movie.mediaType || searchType, movie.title, undefined, undefined, movie.detailPath);
       if (result.success && result.data) {
         const fullMovieData = result.data;
         setSelectedMovie(fullMovieData);
@@ -161,7 +202,7 @@ const MovieDownloader: React.FC = () => {
         setCloudData(cloud);
       } else {
         // Fetch specific episode details to trigger backend resolution
-        await mediaApi.getMovieDetails(movieId, 'series', movieTitle, Number(season), Number(episode));
+        await mediaApi.getMovieDetails(movieId, 'series', movieTitle, Number(season), Number(episode), selectedMovie?.detailPath || (movieId.startsWith('/detail/') ? movieId : undefined));
       }
     } catch (err) {
       console.error('Error checking episode cloud');
@@ -301,11 +342,27 @@ const MovieDownloader: React.FC = () => {
               <input
                 type="text"
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  if (!e.target.value.trim()) {
+                    loadTrending();
+                  }
+                }}
                 onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
                 placeholder={searchType === 'movie' ? "Search movies..." : "Search TV series & seasons..."}
-                className="w-full bg-white/5 border border-white/10 pl-12 pr-4 py-4 rounded-xl outline-none focus:border-primary/50"
+                className="w-full bg-white/5 border border-white/10 pl-12 pr-12 py-4 rounded-xl outline-none focus:border-primary/50"
               />
+              {query && (
+                <button 
+                  onClick={() => {
+                    setQuery('');
+                    loadTrending();
+                  }}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              )}
             </div>
             <button
               onClick={handleSearch}
@@ -325,21 +382,32 @@ const MovieDownloader: React.FC = () => {
                   <X size={14} /> Back to Search
                 </button>
                 
-                <div className="glass-card p-6 md:p-10 border-white/5">
-                  <div className="flex flex-col md:flex-row gap-10">
+                <div className="glass-card p-6 md:p-10 border-white/5 relative overflow-hidden">
+                  {selectedMovie.tmdb?.backdrop && (
+                    <div className="absolute inset-0 h-96 overflow-hidden rounded-t-2xl z-0 pointer-events-none">
+                      <img src={selectedMovie.tmdb.backdrop} className="w-full h-full object-cover opacity-15 filter blur-[1px]" />
+                      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-slate-950/60 to-slate-950" />
+                    </div>
+                  )}
+
+                  <div className="flex flex-col md:flex-row gap-10 relative z-10">
                     <div className="w-full md:w-64 flex-shrink-0">
                       <div className="aspect-[2/3] rounded-2xl overflow-hidden bg-white/5 border border-white/10 shadow-2xl relative group">
-                        <img src={selectedMovie.thumbnail} className="w-full h-full object-cover" />
+                        <img src={selectedMovie.tmdb?.poster || selectedMovie.thumbnail} className="w-full h-full object-cover" />
                         <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-60" />
                       </div>
                     </div>
 
                     <div className="flex-1 space-y-6">
                       <div>
+                        {selectedMovie.tmdb?.tagline && (
+                          <p className="text-[9px] font-black text-primary uppercase tracking-widest mb-1.5">{selectedMovie.tmdb.tagline}</p>
+                        )}
                         <h3 className="text-4xl font-black mb-4 uppercase tracking-tight leading-none">{selectedMovie.title}</h3>
-                        <div className="flex gap-4">
+                        <div className="flex flex-wrap gap-3 items-center">
                           <span className="px-3 py-1 rounded-full bg-yellow-500/10 text-yellow-500 text-[10px] font-black border border-yellow-500/20 flex items-center gap-1.5 uppercase">
                             <Star size={12} fill="currentColor" /> {selectedMovie.rating}
+                            {selectedMovie.tmdb?.voteCount ? ` (${selectedMovie.tmdb.voteCount} votes)` : ''}
                           </span>
                           <span className="px-3 py-1 rounded-full bg-white/5 text-slate-400 text-[10px] font-black border border-white/10 uppercase">
                             {selectedMovie.year}
@@ -349,11 +417,33 @@ const MovieDownloader: React.FC = () => {
                               TV Series
                             </span>
                           )}
+
+                          {selectedMovie.tmdb?.videos && selectedMovie.tmdb.videos.length > 0 && (
+                            <button 
+                              onClick={() => {
+                                const trailer = selectedMovie.tmdb.videos.find(v => v.type === 'Trailer') || selectedMovie.tmdb.videos[0];
+                                if (trailer) setActiveTrailerKey(trailer.key);
+                              }}
+                              className="px-3 py-1 rounded-full bg-primary/10 hover:bg-primary/20 text-primary text-[10px] font-black border border-primary/25 flex items-center gap-1.5 uppercase transition-all active:scale-95 cursor-pointer"
+                            >
+                              <Play size={12} fill="currentColor" /> Watch Trailer
+                            </button>
+                          )}
                         </div>
+
+                        {selectedMovie.tmdb?.genres && selectedMovie.tmdb.genres.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-3.5">
+                            {selectedMovie.tmdb.genres.map((g, idx) => (
+                              <span key={`genre-${idx}`} className="px-2.5 py-0.5 rounded-md bg-white/5 border border-white/10 text-slate-400 text-[9px] font-bold uppercase tracking-wider">
+                                {g}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
-                      <p className="text-muted-foreground leading-relaxed text-lg font-medium italic">
-                        {selectedMovie.description}
+                      <p className="text-slate-300 leading-relaxed text-base font-medium">
+                        {selectedMovie.tmdb?.overview || selectedMovie.description}
                       </p>
 
                       {/* Seasons & Episodes for Series */}
@@ -568,32 +658,183 @@ const MovieDownloader: React.FC = () => {
                       </div>
                     </div>
                   </div>
+
+                  {/* TMDB Cast Section */}
+                  {selectedMovie.tmdb?.cast && selectedMovie.tmdb.cast.length > 0 && (
+                    <div className="space-y-4 pt-8 mt-8 border-t border-white/5 relative z-10">
+                      <h4 className="text-xs font-black uppercase tracking-widest text-slate-300 flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary" /> Cast & Crew
+                      </h4>
+                      <div className="flex gap-4 overflow-x-auto pb-4 pt-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                        {selectedMovie.tmdb.cast.map((c, idx) => (
+                          <div key={`cast-${idx}`} className="w-20 flex-shrink-0 text-center space-y-2">
+                            <div className="w-16 h-16 rounded-full overflow-hidden bg-white/5 border border-white/10 mx-auto shadow-md">
+                              {c.avatar ? (
+                                <img src={c.avatar} className="w-full h-full object-cover" alt={c.name} />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-[10px] font-black text-white/40 uppercase bg-white/5">
+                                  {c.name.split(' ').map(n => n[0]).join('').slice(0,2)}
+                                </div>
+                              )}
+                            </div>
+                            <div className="space-y-0.5">
+                              <p className="text-[9px] font-black text-white/90 truncate leading-tight">{c.name}</p>
+                              <p className="text-[8px] text-muted-foreground truncate leading-tight">{c.character}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TMDB Similar Movies Section */}
+                  {selectedMovie.tmdb?.similar && selectedMovie.tmdb.similar.length > 0 && (
+                    <div className="space-y-4 pt-8 mt-8 border-t border-white/5 relative z-10">
+                      <h4 className="text-xs font-black uppercase tracking-widest text-slate-300 flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary" /> Similar Titles
+                      </h4>
+                      <div className="flex gap-4 overflow-x-auto pb-4 pt-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                        {selectedMovie.tmdb.similar.map((s, idx) => (
+                          <div 
+                            key={`similar-${s.id}-${idx}`} 
+                            onClick={() => handleSelectMovie(s as any)}
+                            className="w-28 sm:w-32 flex-shrink-0 cursor-pointer group space-y-2 text-left"
+                          >
+                            <div className="aspect-[2/3] rounded-xl overflow-hidden bg-white/5 border border-white/10 relative shadow-md">
+                              {s.thumbnail ? (
+                                <img src={s.thumbnail} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt={s.title} />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-[9px] text-muted-foreground uppercase bg-white/5">No Image</div>
+                              )}
+                              <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-black/60 text-[7px] font-black text-yellow-500 uppercase tracking-widest flex items-center gap-0.5 shadow-md">
+                                <Star size={8} fill="currentColor" /> {s.rating}
+                              </div>
+                            </div>
+                            <div className="space-y-0.5">
+                              <p className="text-[9px] font-black text-white/90 truncate leading-tight uppercase group-hover:text-primary transition-colors">{s.title}</p>
+                              <p className="text-[8px] text-muted-foreground leading-tight">{s.year}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TMDB Reviews Section */}
+                  {selectedMovie.tmdb?.reviews && selectedMovie.tmdb.reviews.length > 0 && (
+                    <div className="space-y-4 pt-8 mt-8 border-t border-white/5 relative z-10">
+                      <h4 className="text-xs font-black uppercase tracking-widest text-slate-300 flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary" /> Audience Reviews
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[350px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                        {selectedMovie.tmdb.reviews.map((r, idx) => (
+                          <div key={`review-${idx}`} className="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-2 flex flex-col justify-between">
+                            <p className="text-[11px] text-slate-300 leading-relaxed italic line-clamp-4 hover:line-clamp-none transition-all cursor-pointer">
+                              "{r.content}"
+                            </p>
+                            <div className="flex items-center gap-2 pt-2 mt-auto border-t border-white/5">
+                              <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center text-[8px] font-black text-primary uppercase">
+                                {r.author[0]}
+                              </div>
+                              <p className="text-[9px] font-black text-white/80">{r.author}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             ) : (
-              <motion.div key="grid" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-6">
-                {searchResults.map(movie => (
-                  <motion.div key={movie.id} whileHover={{ y: -5 }} onClick={() => handleSelectMovie(movie)} className="glass-card group cursor-pointer overflow-hidden border-white/5">
-                    <div className="aspect-[2/3] relative">
-                      <img src={movie.thumbnail} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity backdrop-blur-[2px]">
-                        <div className="px-4 py-2 bg-white text-black text-[10px] font-black uppercase rounded-lg shadow-2xl">View Details</div>
+              <motion.div key="grid" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+                <div className="flex items-center gap-2 pb-2 border-b border-white/5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-white/90">
+                    {isTrending 
+                      ? `Trending ${searchType === 'movie' ? 'Movies' : 'TV Shows'}` 
+                      : `Search Results for "${query}"`}
+                  </h4>
+                </div>
+
+                {isTrending && trendingRows.length > 0 ? (
+                  <div className="space-y-10 animate-fade-in">
+                    {trendingRows.map((row, rIdx) => (
+                      <div key={`row-${rIdx}`} className="space-y-4">
+                        <div className="flex items-center justify-between pb-1 border-b border-white/5">
+                          <h5 className="text-[10px] font-black uppercase tracking-wider text-white/80 flex items-center gap-2">
+                            <span className="w-1 h-1 rounded-full bg-primary" />
+                            {row.category}
+                          </h5>
+                          <span className="text-[8px] font-black text-muted-foreground uppercase">{row.items.length} Titles</span>
+                        </div>
+                        
+                        <div className="flex gap-4 overflow-x-auto pb-4 pt-1 snap-x scroll-smooth scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                          {row.items.map(movie => (
+                            <motion.div 
+                              key={`movie-${movie.id}`} 
+                              whileHover={{ y: -5 }} 
+                              onClick={() => handleSelectMovie(movie)} 
+                              className="w-36 sm:w-44 flex-shrink-0 glass-card group cursor-pointer overflow-hidden border-white/5 snap-start"
+                            >
+                              <div className="aspect-[2/3] relative">
+                                <img src={movie.thumbnail} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity backdrop-blur-[2px]">
+                                  <div className="px-3 py-1.5 bg-white text-black text-[9px] font-black uppercase rounded-lg shadow-2xl">Details</div>
+                                </div>
+                                {movie.mediaType === 'series' ? (
+                                  <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-purple-600 text-[7px] font-black text-white uppercase tracking-widest shadow-lg">SERIES</div>
+                                ) : (
+                                  <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-cyan-600 text-[7px] font-black text-white uppercase tracking-widest shadow-lg">MOVIE</div>
+                                )}
+                              </div>
+                              <div className="p-3 bg-white/[0.02]">
+                                <p className="font-black text-[10px] uppercase truncate text-white/90">{movie.title}</p>
+                                <div className="flex items-center justify-between mt-1">
+                                  <p className="text-[8px] text-slate-400 font-black uppercase tracking-widest">{movie.year}</p>
+                                </div>
+                              </div>
+                            </motion.div>
+                          ))}
+                        </div>
                       </div>
-                      {movie.mediaType === 'series' && (
-                        <div className="absolute top-2 left-2 px-2 py-1 rounded bg-purple-600 text-[8px] font-black text-white uppercase tracking-widest shadow-lg">SERIES</div>
-                      )}
-                    </div>
-                    <div className="p-4 bg-white/[0.02]">
-                      <p className="font-black text-[11px] uppercase truncate text-white/90">{movie.title}</p>
-                      <div className="flex items-center justify-between mt-1">
-                        <p className="text-[9px] text-muted-foreground font-black uppercase tracking-widest">{movie.year}</p>
-                        {preOrderSuccess && movieToPreOrder?.id === movie.id && (
-                          <span className="text-[8px] bg-primary/20 text-primary px-2 py-0.5 rounded-full font-black uppercase border border-primary/30">PENDING</span>
-                        )}
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    {searchResults.length === 0 ? (
+                      <div className="text-center py-20 border border-dashed border-white/10 rounded-2xl bg-white/[0.01]">
+                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">No items found. Try a different query.</p>
                       </div>
-                    </div>
-                  </motion.div>
-                ))}
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-6">
+                        {searchResults.map(movie => (
+                          <motion.div key={movie.id} whileHover={{ y: -5 }} onClick={() => handleSelectMovie(movie)} className="glass-card group cursor-pointer overflow-hidden border-white/5">
+                            <div className="aspect-[2/3] relative">
+                              <img src={movie.thumbnail} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity backdrop-blur-[2px]">
+                                <div className="px-4 py-2 bg-white text-black text-[10px] font-black uppercase rounded-lg shadow-2xl">View Details</div>
+                              </div>
+                              {movie.mediaType === 'series' ? (
+                                <div className="absolute top-2 left-2 px-2 py-1 rounded bg-purple-600 text-[8px] font-black text-white uppercase tracking-widest shadow-lg">SERIES</div>
+                              ) : (
+                                <div className="absolute top-2 left-2 px-2 py-1 rounded bg-cyan-600 text-[8px] font-black text-white uppercase tracking-widest shadow-lg">MOVIE</div>
+                              )}
+                            </div>
+                            <div className="p-4 bg-white/[0.02]">
+                              <p className="font-black text-[11px] uppercase truncate text-white/90">{movie.title}</p>
+                              <div className="flex items-center justify-between mt-1">
+                                <p className="text-[9px] text-muted-foreground font-black uppercase tracking-widest">{movie.year}</p>
+                                {preOrderSuccess && movieToPreOrder?.id === movie.id && (
+                                  <span className="text-[8px] bg-primary/20 text-primary px-2 py-0.5 rounded-full font-black uppercase border border-primary/30">PENDING</span>
+                                )}
+                              </div>
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -717,6 +958,34 @@ const MovieDownloader: React.FC = () => {
             <div className="p-6 text-center border-t border-white/5">
                <p className="text-[10px] text-muted-foreground uppercase font-black tracking-[0.3em] opacity-40">StreamAura High-Quality Cloud Delivery</p>
             </div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Trailer Modal */}
+      <AnimatePresence>
+        {activeTrailerKey && (
+          <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-[3000] p-4">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative w-full max-w-4xl aspect-video rounded-3xl overflow-hidden border border-white/10 shadow-2xl bg-black"
+            >
+              <button 
+                onClick={() => setActiveTrailerKey(null)}
+                className="absolute top-4 right-4 z-[3010] p-2 rounded-full bg-black/60 text-white/80 hover:text-white hover:bg-black/90 border border-white/10 transition-all active:scale-95 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+              <iframe
+                src={`https://www.youtube.com/embed/${activeTrailerKey}?autoplay=1`}
+                className="w-full h-full border-0"
+                allow="autoplay; encrypted-media; picture-in-picture"
+                allowFullScreen
+                title="Trailer Player"
+              />
+            </motion.div>
           </div>
         )}
       </AnimatePresence>

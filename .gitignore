@@ -41,3 +41,6 @@ serviceAccountKey.json
 
 # TypeScript
 *.tsbuildinfo
+
+# Scratch test folder
+scratch/

@@ -14,14 +14,15 @@ export const SEO: React.FC<SEOProps> = ({
   image = "https://streamaura.site/icons/icon-512x512.png",
   url = "https://streamaura.site/"
 }) => {
-  const siteTitle = title.includes("StreamAura") ? title : `${title} | StreamAura`;
+  const safeTitle = title || "StreamAura — Professional Media Downloader & Cinema";
+  const siteTitle = safeTitle.includes("StreamAura") ? safeTitle : `${safeTitle} | StreamAura`;
 
   return (
     <Helmet>
       {/* Primary Meta Tags */}
       <title>{siteTitle}</title>
       <meta name="title" content={siteTitle} />
-      <meta name="description" content={description} />
+      <meta name="description" content={description || "StreamAura Cinema"} />
 
       {/* Open Graph / Facebook */}
       <meta property="og:type" content="website" />

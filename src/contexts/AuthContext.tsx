@@ -9,7 +9,7 @@ import {
   resetPassword as firebaseResetPassword,
   db
 } from '../lib/firebase';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 
 import Login from '../sections/Login';
 import Signup from '../sections/Signup';
@@ -38,13 +38,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [authModal, setAuthModal] = useState<{ isOpen: boolean, action?: () => void }>({ isOpen: false });
   const [showLogin, setShowLogin] = useState(true);
 
-  // Use a more robust auth state observer
+  // Use a more robust auth state observer with real-time Firestore sync
   useEffect(() => {
-    const unsubscribe = onAuthChange(async (firebaseUser) => {
+    let unsubSnapshot: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthChange(async (firebaseUser) => {
+      // Clean up previous Firestore listener
+      if (unsubSnapshot) {
+        unsubSnapshot();
+        unsubSnapshot = null;
+      }
+
       if (firebaseUser) {
+        const userRef = doc(db, 'users', firebaseUser.uid);
+
         // ENSURE USER DOCUMENT EXISTS (Crucial for Notifications/Admin)
         try {
-          const userRef = doc(db, 'users', firebaseUser.uid);
           const syncData: any = {
             uid: firebaseUser.uid,
             email: firebaseUser.email || '',
@@ -64,14 +73,36 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         } catch (e) {
           console.error("Profile sync failed", e);
         }
-        setUser(firebaseUser);
+
+        // Establish real-time listener for Firestore changes
+        unsubSnapshot = onSnapshot(userRef, (snap) => {
+          if (snap.exists()) {
+            const data = snap.data();
+            setUser({
+              ...firebaseUser,
+              ...data,
+              photoURL: data.photoURL ? `${data.photoURL}?t=${Date.now()}` : null,
+              uid: firebaseUser.uid
+            } as User);
+          } else {
+            setUser(firebaseUser);
+          }
+          setIsLoading(false);
+        }, (err) => {
+          console.error("Firestore user snapshot error", err);
+          setUser(firebaseUser);
+          setIsLoading(false);
+        });
       } else {
         setUser(null);
+        setIsLoading(false);
       }
-      setIsLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (unsubSnapshot) unsubSnapshot();
+    };
   }, []);
 
   const clearError = () => setError(null);

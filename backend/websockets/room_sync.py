@@ -14,69 +14,82 @@ from services.redis_service import (
     update_room_time, 
     get_room_time, 
     add_chat_message,
-    get_room_users
+    get_room_users,
+    get_room_user_count
 )
 
 router = APIRouter()
 
 async def cleanup_room_media(room_id: str):
     """Deletes room and associated R2 media files."""
-    db = firestore.client()
-    room_ref = db.collection("cinema_rooms").document(room_id)
-    room_doc = room_ref.get()
-    
-    if not room_doc.exists:
-        return
-
-    data = room_doc.to_dict()
-    print(f"CLEANUP: Deleting R2 media for room {room_id}")
-
-    # Cleanup R2 Media
-    movie_url = data.get("movie_file")
-    poster_url = data.get("movie_cover_image") # Corrected field name
-    trailer_url = data.get("trailer_url")
-    episodes = data.get("episodes", [])
-    
-    try:
-        # Helper to delete from movies bucket
-        def del_movie(url):
-            if url and settings.R2_PUBLIC_BASE_URL in url:
-                key = url.split(f"{settings.R2_PUBLIC_BASE_URL}/")[-1]
-                delete_object(settings.R2_BUCKET_MOVIES, key)
-                # Try assets too just in case of old data
-                delete_object(settings.R2_BUCKET_ASSETS, key)
-
-        # Delete main movie
-        if movie_url: del_movie(movie_url)
+    def _sync_cleanup():
+        db = firestore.client()
+        room_ref = db.collection("cinema_rooms").document(room_id)
+        room_doc = room_ref.get()
         
-        # Delete all episodes
-        for ep in episodes:
-            ep_url = ep.get("url")
-            if ep_url: del_movie(ep_url)
-            
-        # Delete trailer
-        if trailer_url: del_movie(trailer_url)
-            
-        # Delete poster from assets
-        if poster_url and settings.R2_PUBLIC_BASE_URL in poster_url:
-            poster_key = poster_url.split(f"{settings.R2_PUBLIC_BASE_URL}/")[-1]
-            delete_object(settings.R2_BUCKET_ASSETS, poster_key)
-            
-    except Exception as e:
-        print(f"R2 Cleanup Error: {str(e)}")
+        if not room_doc.exists:
+            return
 
-    # Delete from Firestore
-    room_ref.delete()
-    print(f"CLEANUP: Room {room_id} and media deleted.")
+        data = room_doc.to_dict()
+        print(f"CLEANUP: Deleting R2 media for room {room_id}")
+
+        # Cleanup R2 Media
+        movie_url = data.get("movie_file")
+        poster_url = data.get("movie_cover_image") # Corrected field name
+        trailer_url = data.get("trailer_url")
+        episodes = data.get("episodes", [])
+        
+        try:
+            # Helper to delete from movies bucket
+            def del_movie(url):
+                if url and settings.R2_PUBLIC_BASE_URL in url:
+                    key = url.split(f"{settings.R2_PUBLIC_BASE_URL}/")[-1]
+                    delete_object(settings.R2_BUCKET_MOVIES, key)
+                    # Try assets too just in case of old data
+                    delete_object(settings.R2_BUCKET_ASSETS, key)
+
+            # Delete main movie
+            if movie_url: del_movie(movie_url)
+            
+            # Delete all episodes
+            for ep in episodes:
+                ep_url = ep.get("url")
+                if ep_url: del_movie(ep_url)
+                
+            # Delete trailer
+            if trailer_url: del_movie(trailer_url)
+                
+            # Delete poster from assets
+            if poster_url and settings.R2_PUBLIC_BASE_URL in poster_url:
+                poster_key = poster_url.split(f"{settings.R2_PUBLIC_BASE_URL}/")[-1]
+                delete_object(settings.R2_BUCKET_ASSETS, poster_key)
+                
+        except Exception as e:
+            print(f"R2 Cleanup Error: {e}")
+
+        try:
+            # Delete room document
+            room_ref.delete()
+            print(f"CLEANUP: Room {room_id} and media deleted.")
+        except Exception as e:
+            print(f"Firestore Room Deletion Error: {e}")
+            
+    await asyncio.to_thread(_sync_cleanup)
 
 async def start_periodic_cinema_cleanup():
     """Worker to cleanup old cinema rooms every 10 minutes."""
+    # Delay initial execution slightly to let the server start up first without blocking
+    await asyncio.sleep(5)
     while True:
         try:
             print("WORKER: Running periodic cinema room cleanup...")
             db = firestore.client()
             now = time.time()
-            rooms = db.collection("cinema_rooms").stream()
+            
+            def fetch_cinema_rooms():
+                return list(db.collection("cinema_rooms").stream())
+                
+            rooms = await asyncio.to_thread(fetch_cinema_rooms)
             
             for room in rooms:
                 data = room.to_dict()

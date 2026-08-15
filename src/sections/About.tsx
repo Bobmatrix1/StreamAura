@@ -157,12 +157,12 @@ const About: React.FC = () => {
           <div className="absolute inset-0 bg-primary opacity-0 group-hover:opacity-5 transition-opacity duration-700" />
           
           <div className="flex items-center gap-6 relative z-10">
-            <div className="w-16 h-16 rounded-3xl bg-white/10 flex items-center justify-center backdrop-blur-xl border border-white/10 shadow-2xl">
-              <Music className="w-8 h-8 text-primary" />
+            <div className="w-16 h-16 rounded-3xl bg-white/10 flex items-center justify-center backdrop-blur-xl border border-white/10 shadow-2xl overflow-hidden p-3">
+              <img src="/logo.png" className="w-full h-full object-contain" alt="StreamAura" />
             </div>
             <div>
-              <p className="text-xl font-black text-white uppercase tracking-tighter">v3.0.0 • Pure Passion</p>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-[0.3em] font-black">Next-Gen Media Platform</p>
+              <p className="text-xl font-black text-white uppercase tracking-tighter">v3.0.0 • StreamAura</p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-[0.3em] font-black">Next Gen Media Platform</p>
             </div>
           </div>
           
