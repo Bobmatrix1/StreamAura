@@ -381,13 +381,23 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str):
 
                 elif action == "add_bots":
                     if msg.get("isAdmin", False):
-                        new_bots = [
-                            {"uid": f"bot_{uuid.uuid4().hex[:6]}", "displayName": f"Bot {random.randint(100, 999)}", "photoURL": f"https://api.dicebear.com/7.x/bottts/svg?seed={random.random()}", "isBot": True},
-                            {"uid": f"bot_{uuid.uuid4().hex[:6]}", "displayName": f"Bot {random.randint(100, 999)}", "photoURL": f"https://api.dicebear.com/7.x/bottts/svg?seed={random.random()}", "isBot": True}
-                        ]
-                        state["participants"].extend(new_bots)
-                        room_ref.update({"participants": firestore.ArrayUnion(new_bots)})
-                        await manager.broadcast({"type": "game_update", "state": {"participants": state["participants"]}}, game_id)
+                        num_rounds = state.get("numberOfRounds", 1)
+                        max_parts = num_rounds * 2
+                        current_parts = len(state.get("participants", []))
+                        slots_left = max_parts - current_parts
+                        if slots_left > 0:
+                            bots_to_add = min(2, slots_left)
+                            new_bots = []
+                            for _ in range(bots_to_add):
+                                new_bots.append({
+                                    "uid": f"bot_{uuid.uuid4().hex[:6]}",
+                                    "displayName": f"Bot {random.randint(100, 999)}",
+                                    "photoURL": f"https://api.dicebear.com/7.x/bottts/svg?seed={random.random()}",
+                                    "isBot": True
+                                })
+                            state["participants"].extend(new_bots)
+                            room_ref.update({"participants": firestore.ArrayUnion(new_bots)})
+                            await manager.broadcast({"type": "game_update", "state": {"participants": state["participants"]}}, game_id)
 
                 elif action == "chat_reaction":
                     await manager.broadcast({
@@ -470,11 +480,16 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str):
 
                 elif action == "make_choice":
                     if state["status"] in ["choosing", "revealing"]:
-                        state["choices"][uid] = msg.get("choice")
-                        await manager.broadcast({
-                            "type": "game_update", 
-                            "state": {"choices": {k: True for k in state["choices"].keys()}}
-                        }, game_id)
+                        if state["status"] == "revealing" and state.get("timer", 0) <= 5:
+                            # Locked in, cannot change choice
+                            pass
+                        else:
+                            state["choices"][uid] = msg.get("choice")
+                            room_ref.update({"choices": state["choices"]})
+                            await manager.broadcast({
+                                "type": "game_update", 
+                                "state": {"choices": {k: True for k in state["choices"].keys()}}
+                            }, game_id)
 
                 elif action == "emoji":
                     await manager.broadcast({

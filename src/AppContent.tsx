@@ -49,6 +49,15 @@ export const AppContent: React.FC = () => {
       window.history.replaceState({}, '', newUrl);
     }
 
+    const gameId = params.get('gameId');
+    if (gameId) {
+      sessionStorage.setItem('aura_auto_join_game', gameId);
+      setActiveView('games');
+      params.delete('gameId');
+      const newUrl = window.location.pathname + (params.toString() ? `?${params.toString()}` : '');
+      window.history.replaceState({}, '', newUrl);
+    }
+
     if (tab && allowedTabs.includes(tab)) {
       setActiveView(tab);
       // Clear tab from URL so manual refresh resets to Home

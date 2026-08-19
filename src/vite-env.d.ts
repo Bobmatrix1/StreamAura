@@ -18,7 +18,8 @@ interface ImportMetaEnv {
   readonly VITE_MAX_CONCURRENT_DOWNLOADS: string;
   readonly VITE_USE_MOCK_API: string;
   readonly VITE_DEBUG: string;
-  readonly VITE_PAYSTACK_PUBLIC_KEY: string;
+  readonly VITE_TRANSACTPAY_PUBLIC_KEY: string;
+  readonly VITE_TRANSACTPAY_ENCRYPTION_KEY: string;
   readonly VITE_AGORA_APP_ID: string;
 }
 

@@ -110,7 +110,7 @@ async def fund_game_wallet_from_main(request: FundGameWalletRequest, user: dict 
         db.collection("game_wallets").document(uid).collection("activity").add({
             "type": "fund_from_main",
             "amount": request.amount,
-            "desc": f"Funded game wallet with ₦{request.amount:,.2f} from {request.source_wallet} wallet",
+            "desc": f"Funded game wallet with ₦{request.amount:,.2f} from {'main' if request.source_wallet == 'funded' else request.source_wallet} wallet",
             "timestamp": firestore.SERVER_TIMESTAMP
         })
         
@@ -187,28 +187,20 @@ async def create_game_room(request: CreateGameRequest, user: dict = Depends(get_
     
     total_prize_cost = request.prizePerRound * (request.numberOfRounds if request.isMultipleRounds else 1)
     
-    # Deduct from requested wallet if not admin
-    if not is_admin and total_prize_cost > 0:
-        if request.payment_wallet == "referral":
-            if not user_doc.exists or user_doc.to_dict().get("referralBalance", 0) < total_prize_cost:
-                raise HTTPException(status_code=400, detail="Insufficient referral balance to fund the prize.")
-            user_ref.update({"referralBalance": firestore.Increment(-total_prize_cost)})
-        else:
-            wallet_ref = db.collection("room_wallets").document(uid)
-            wallet_doc = wallet_ref.get()
-            if not wallet_doc.exists or wallet_doc.to_dict().get("balance", 0) < total_prize_cost:
-                raise HTTPException(status_code=400, detail="Insufficient wallet balance to fund the prize.")
-            wallet_ref.update({"balance": firestore.Increment(-total_prize_cost)})
-        
-        # Log Transaction
-        db.collection("transactions").add({
-            "user_uid": uid,
-            "type": "purchase",
+    # Deduct exclusively from Game Wallet
+    if total_prize_cost > 0:
+        wallet_ref = db.collection("game_wallets").document(uid)
+        wallet_doc = wallet_ref.get()
+        if not wallet_doc.exists or wallet_doc.to_dict().get("balance", 0) < total_prize_cost:
+            raise HTTPException(status_code=400, detail="Insufficient game wallet balance to fund the prize.")
+        wallet_ref.update({"balance": firestore.Increment(-total_prize_cost)})
+
+        # Log exclusively to Game Wallet Activity subcollection
+        db.collection("game_wallets").document(uid).collection("activity").add({
+            "type": "create_room_prize",
             "amount": total_prize_cost,
-            "title": f"Funded Game Prize: {request.roomName} ({request.payment_wallet.capitalize()} Wallet)",
-            "status": "completed",
-            "timestamp": firestore.SERVER_TIMESTAMP,
-            "date": "Just Now"
+            "desc": f"Funded Game Prize: {request.roomName}",
+            "timestamp": firestore.SERVER_TIMESTAMP
         })
     
     game_id = f"game_{uuid.uuid4().hex[:12]}"
@@ -253,11 +245,16 @@ async def join_game_pool(request: JoinPoolRequest, user: dict = Depends(get_curr
         
         game_data = game_doc.to_dict()
         entry_fee = game_data.get("entryFee", 0)
+        num_rounds = game_data.get("numberOfRounds", 1)
+        max_players = num_rounds * 2
         
         # 2. Check if already in pool
         participants = game_data.get("participants", [])
         if any(p["uid"] == uid for p in participants):
             return {"success": True, "message": "Already in pool."}
+            
+        if len(participants) >= max_players:
+            raise HTTPException(status_code=400, detail=f"The player pool is full. Maximum {max_players} players allowed for a {num_rounds}-round game.")
         
         # 3. Process Payment (Exclusively from Game Wallet)
         game_wallet_ref = db.collection("game_wallets").document(uid)
@@ -268,17 +265,15 @@ async def join_game_pool(request: JoinPoolRequest, user: dict = Depends(get_curr
             
         game_wallet_ref.update({"balance": firestore.Increment(-entry_fee)})
 
-        # Log Transaction
-        db.collection("transactions").add({
-            "user_uid": uid,
-            "type": "purchase",
+        # Log to Game Wallet Activity subcollection
+        db.collection("game_wallets").document(uid).collection("activity").add({
+            "type": "join_pool_fee",
             "amount": entry_fee,
-            "title": f"Entry Fee: {game_data.get('roomName', 'Game')} (Game Wallet)",
-            "status": "completed",
-            "timestamp": firestore.SERVER_TIMESTAMP,
-            "date": "Just Now"
+            "desc": f"Paid Entry Fee: {game_data.get('roomName', 'Game')}",
+            "timestamp": firestore.SERVER_TIMESTAMP
         })
-        
+
+
         # 4. Add Participant
         user_info = {
             "uid": uid,
@@ -320,7 +315,7 @@ async def join_game_pool(request: JoinPoolRequest, user: dict = Depends(get_curr
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/{game_id:re:^game_.*}")
+@router.delete("/{game_id}")
 async def delete_game_room(game_id: str, user: dict = Depends(get_current_user)):
     db = get_db()
     uid = user['uid']

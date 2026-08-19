@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     PAYSTACK_PUBLIC_KEY: str = os.getenv("PAYSTACK_PUBLIC_KEY", "")
     PAYSTACK_WEBHOOK_SECRET: str = os.getenv("PAYSTACK_WEBHOOK_SECRET", "")
     
+    # TransactPay
+    TRANSACTPAY_PUBLIC_KEY: str = os.getenv("TRANSACTPAY_PUBLIC_KEY", "")
+    TRANSACTPAY_SECRET_KEY: str = os.getenv("TRANSACTPAY_SECRET_KEY", "")
+    TRANSACTPAY_ENCRYPTION_KEY: str = os.getenv("TRANSACTPAY_ENCRYPTION_KEY", "")
+    
     # App URLs
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "")
     API_BASE_URL: str = os.getenv("API_BASE_URL", "")

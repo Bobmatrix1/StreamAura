@@ -21,7 +21,8 @@ import {
   ShieldCheck,
   Handshake,
   Ghost,
-  Trash2
+  Trash2,
+  Share2
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useAuth } from '../contexts/AuthContext';
@@ -29,6 +30,7 @@ import { useGameSync } from '../hooks/useGameSync';
 import { Badge } from '../components/ui/badge';
 import { auth } from '../lib/firebase';
 import { API_BASE_URL } from '../api/mediaApi';
+import { SEO } from '../components/SEO';
 
 interface SplitOrStealGameProps {
   gameId: string;
@@ -58,6 +60,12 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
   const isPlayerB = user?.uid === gameState?.playerB?.uid;
   const isContestant = isPlayerA || isPlayerB;
   const canControl = isHost || isAdmin;
+
+  const isParticipant = gameState?.participants?.some((p: any) => p.uid === user?.uid);
+  const isWaitingPlayer = isParticipant && !isContestant;
+
+  const isArenaInputDisabled = (gameState?.status !== 'convincing' && !isAdmin) || (!isContestant && !isAdmin);
+  const isGlobalInputDisabled = (isContestant && !isAdmin) || (isWaitingPlayer && gameState?.status === 'convincing' && !isAdmin);
 
   // Clear local choice on new round
   useEffect(() => {
@@ -107,6 +115,36 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
     if (isContestant) setActiveTab('convincing');
     else setActiveTab('viewers');
   }, [isContestant]);
+
+  // Auto-Start Game if pool reaches maximum players for rounds
+  useEffect(() => {
+    const requiredPlayers = (gameState?.numberOfRounds || 1) * 2;
+    if (
+      canControl &&
+      gameState?.status === 'waiting' &&
+      gameState?.startCondition === 'auto' &&
+      gameState?.participants &&
+      gameState.participants.length === requiredPlayers
+    ) {
+      console.log('Lobby full for auto-start. Triggering contestant picking...');
+      sendAction('pick_random_players');
+    }
+  }, [gameState, canControl]);
+
+  useEffect(() => {
+    if ((gameState?.status === 'revealing' || gameState?.status === 'round_finished' || gameState?.status === 'finished') && gameState?.revealResult === 'share') {
+      import('canvas-confetti').then((module) => {
+        const confetti = module.default;
+        confetti({
+          particleCount: 150,
+          spread: 80,
+          origin: { y: 0.6 }
+        });
+      }).catch((err) => {
+        console.error("Failed to load canvas-confetti", err);
+      });
+    }
+  }, [gameState?.status, gameState?.revealResult]);
 
   const handleAddBots = () => {
     if (!canControl) return;
@@ -226,11 +264,84 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
     );
   };
 
+  const getPrizeWonLabel = (isA: boolean) => {
+    if (gameState?.status !== 'revealing' && gameState?.status !== 'finished' && gameState?.status !== 'round_finished') return null;
+    if (!gameState.revealResult || (gameState.status === 'revealing' && gameState.timer > 0)) return null;
+
+    const totalPrize = gameState.prizeAmount || gameData.prizeAmount || 0;
+    const choiceA = gameState.choices?.[gameState.playerA?.uid];
+    const choiceB = gameState.choices?.[gameState.playerB?.uid];
+    
+    let prizeWon = 0;
+    
+    if (gameState.revealResult === 'share') {
+      prizeWon = totalPrize / 2;
+    } else if (gameState.revealResult === 'one_steal') {
+      const myChoice = isA ? choiceA : choiceB;
+      const otherChoice = isA ? choiceB : choiceA;
+      if (myChoice === 'steal' && otherChoice === 'split') {
+        prizeWon = totalPrize;
+      } else {
+        prizeWon = 0;
+      }
+    } else {
+      prizeWon = 0;
+    }
+
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.5 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className={`px-2.5 py-1 rounded-xl font-black text-[10px] md:text-xs tracking-wider border shrink-0 ${
+          prizeWon > 0 
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]' 
+            : 'bg-zinc-800/40 border-white/5 text-muted-foreground'
+        }`}
+      >
+        {prizeWon > 0 ? `+₦${prizeWon.toLocaleString()}` : '₦0'}
+      </motion.div>
+    );
+  };
+
   const filteredMessages = messages.filter(m => (activeTab === 'convincing' ? m.channel === 'player' : m.channel === 'viewer'));
 
   const handleDeleteRoom = () => {
     if (!canControl) return;
     setShowDeleteConfirm(true);
+  };
+
+  const handleShareRoom = () => {
+    const shareUrl = `${window.location.origin}?tab=games&gameId=${gameId}`;
+    const shareTitle = `Split or Steal: ${gameData.roomName || 'Arena'}`;
+    const shareText = `Join my live game room "${gameData.roomName || 'Arena'}" on StreamAura! Paid pool entry fee: ₦${gameData.entryFee || 0}. Split or Steal? Convince, Choose, Win!`;
+
+    if (navigator.share) {
+      navigator.share({
+        title: shareTitle,
+        text: shareText,
+        url: shareUrl
+      }).catch((err) => {
+        console.log("Web Share cancelled/errored:", err);
+      });
+    } else {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(shareUrl)
+          .then(() => alert("Lobby link copied to clipboard! Share it with friends!"))
+          .catch(() => alert("Failed to copy link."));
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = shareUrl;
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+          document.execCommand("copy");
+          alert("Lobby link copied to clipboard! Share it with friends!");
+        } catch (err) {
+          alert("Failed to copy link.");
+        }
+        document.body.removeChild(textArea);
+      }
+    }
   };
 
   const confirmDelete = async () => {
@@ -253,9 +364,24 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
     }
   };
 
+  const isRevealDoneOrActive = (gameState?.status === 'revealing' || gameState?.status === 'round_finished' || gameState?.status === 'finished') && gameState?.revealResult;
+  const bgClass = isRevealDoneOrActive
+    ? (gameState.revealResult === 'share'
+        ? 'bg-gradient-to-br from-[#1a1202] via-[#422e06] to-[#1a1202]'
+        : gameState.revealResult === 'one_steal'
+          ? 'bg-purple-950'
+          : 'bg-[#1f1d2c]'
+      )
+    : 'bg-[#00040d]';
+
   return (
-    <div className={`fixed inset-0 z-[1000] flex flex-col transition-colors duration-1000 ${gameState?.status === 'revealing' || gameState?.status === 'finished' ? (gameState.revealResult === 'share' ? 'bg-yellow-600' : gameState.revealResult === 'one_steal' ? 'bg-purple-900' : 'bg-zinc-800') : 'bg-[#00040d]'} overflow-hidden font-sans`}>
-      
+    <div className={`fixed inset-0 z-[1000] flex flex-col transition-colors duration-1000 ${bgClass} overflow-hidden font-sans`}>
+      <SEO 
+        title={`Split or Steal: ${gameData.roomName}`}
+        description={`Join the live game room "${gameData.roomName}" hosted by ${gameData.hostName} on StreamAura! Paid pool entry fee: ₦${gameData.entryFee}. split or steal? convince, choose, win!`}
+        image={`${window.location.origin}/icons/split%20or%20steal.jpg`}
+        url={`${window.location.origin}?tab=games&gameId=${gameId}`}
+      />
       {/* DELETE CONFIRMATION MODAL */}
       <AnimatePresence>
         {showDeleteConfirm && (
@@ -357,6 +483,15 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
                 <Trash2 className="w-4 h-4 md:w-5 md:h-5" />
               </Button>
             )}
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={handleShareRoom} 
+              className="text-primary hover:bg-primary/10 rounded-full w-8 h-8 md:w-10 md:h-10 transition-colors"
+              title="Share Room Link"
+            >
+              <Share2 className="w-4 h-4 md:w-5 md:h-5" />
+            </Button>
           </div>
           <div className="min-w-0">
             <h2 className="text-white font-black uppercase text-[10px] md:text-sm tracking-tight truncate max-w-[120px] md:max-w-none">{gameData.roomName}</h2>
@@ -378,7 +513,7 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
         <div className="flex-1 flex flex-col items-center justify-start md:justify-center p-4 md:p-8 space-y-10 md:space-y-16 relative overflow-y-auto custom-scrollbar min-h-0 pt-10 pb-20">
           
           {/* PRIZE DISPLAY - VISIBLE FROM START */}
-          {(gameState?.status === 'selecting' || gameState?.status === 'convincing' || gameState?.status === 'choosing' || gameState?.status === 'revealing' || gameState?.status === 'round_finished') && (
+          {((gameState?.prizeAmount || gameData.prizeAmount) > 0) && (
             <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="text-center z-10 bg-white/5 border border-white/10 px-8 py-4 rounded-[2rem] backdrop-blur-xl">
                <p className="text-[10px] md:text-xs font-black text-primary uppercase tracking-[0.5em] mb-1 opacity-50">Competing For</p>
                <div className="flex items-center justify-center gap-2">
@@ -404,6 +539,7 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
                 <div className="min-w-0 flex-1 space-y-2">
                    <div className="flex flex-wrap items-center gap-3">
                       <h3 className="text-2xl md:text-4xl font-black uppercase text-white tracking-tighter truncate leading-none">{gameState?.playerA?.displayName || 'WAITING...'}</h3>
+                      {getPrizeWonLabel(true)}
                       {getChoiceRevealText(gameState?.playerA?.uid)}
                    </div>
                    <p className="text-[8px] md:text-[10px] text-muted-foreground font-black tracking-[0.2em] uppercase opacity-50">ID: {gameState?.playerA?.uid?.substring(0, 8) || '---'}</p>
@@ -438,10 +574,11 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
                    <Badge className="absolute -top-3 -right-3 bg-yellow-500 text-black font-black uppercase text-[8px] md:text-[10px] px-2 py-0.5 shadow-xl">CONTESTANT</Badge>
                 </div>
                 <div className="min-w-0 flex-1 text-right space-y-2">
-                   <div className="flex flex-wrap flex-row-reverse items-center gap-3">
-                      <h3 className="text-2xl md:text-4xl font-black uppercase text-white tracking-tighter truncate leading-none">{gameState?.playerB?.displayName || 'WAITING...'}</h3>
-                      {getChoiceRevealText(gameState?.playerB?.uid)}
-                   </div>
+                    <div className="flex flex-wrap items-center justify-end gap-3">
+                       {getPrizeWonLabel(false)}
+                       {getChoiceRevealText(gameState?.playerB?.uid)}
+                       <h3 className="text-2xl md:text-4xl font-black uppercase text-white tracking-tighter truncate leading-none">{gameState?.playerB?.displayName || 'WAITING...'}</h3>
+                    </div>
                    <p className="text-[8px] md:text-[10px] text-muted-foreground font-black tracking-[0.2em] uppercase opacity-50">ID: {gameState?.playerB?.uid?.substring(0, 8) || '---'}</p>
                 </div>
              </div>
@@ -449,60 +586,89 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
 
           <div className="w-full max-w-lg">
              <AnimatePresence mode="wait">
-                {(gameState?.status === 'waiting' || gameState?.status === 'round_finished') && canControl ? (
-                   <motion.div key="waiting-controls" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="flex flex-col items-center gap-4">
-                      <div className="flex flex-wrap items-center justify-center gap-4">
-                        <Button onClick={handlePickPlayers} className="h-12 md:h-14 px-8 md:px-12 gradient-bg rounded-xl md:rounded-2xl font-black uppercase text-[10px] md:text-xs gap-3 shadow-2xl shadow-primary/20">
-                           {gameState?.status === 'round_finished' ? 'Start Next Round' : 'Pick Contestants'} <Target className="w-4 h-4 md:w-5 md:h-5" />
-                        </Button>
-                        {isAdmin && (
-                          <Button onClick={handleAddBots} variant="outline" className="h-12 md:h-14 px-6 border-white/10 text-white font-black uppercase text-[10px] md:text-xs rounded-xl md:rounded-2xl gap-2 hover:bg-white/5 transition-all">
-                             Add Bots <Users className="w-4 h-4" />
-                          </Button>
-                        )}
-                      </div>
-                      <p className="text-[8px] md:text-[10px] text-muted-foreground font-black uppercase tracking-widest">{gameState?.status === 'round_finished' ? 'Round Over. Shuffle next?' : 'Lobby is ready for action'}</p>
-                   </motion.div>
-                ) : gameState?.status === 'selecting' ? (
+                {(gameState?.status === 'waiting' || gameState?.status === 'round_finished') && canControl ? (() => {
+                     const requiredPlayers = (gameState?.numberOfRounds || 1) * 2;
+                     const isLobbyFull = (gameState?.participants?.length || 0) === requiredPlayers;
+                     const isWaiting = gameState?.status === 'waiting';
+                     const shouldDisablePick = isWaiting && !isLobbyFull;
+                     
+                     return (
+                       <motion.div key="waiting-controls" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="flex flex-col items-center gap-4">
+                          <div className="flex flex-wrap items-center justify-center gap-4">
+                            <Button 
+                              disabled={shouldDisablePick}
+                              onClick={handlePickPlayers} 
+                              className="h-12 md:h-14 px-8 md:px-12 gradient-bg rounded-xl md:rounded-2xl font-black uppercase text-[10px] md:text-xs gap-3 shadow-2xl shadow-primary/20 disabled:opacity-50"
+                            >
+                               {gameState?.status === 'round_finished' ? 'Start Next Round' : 'Pick Contestants'} <Target className="w-4 h-4 md:w-5 md:h-5" />
+                            </Button>
+                            {isAdmin && (
+                              <Button 
+                                disabled={isLobbyFull}
+                                onClick={handleAddBots} 
+                                variant="outline" 
+                                className="h-12 md:h-14 px-6 border-white/10 text-white font-black uppercase text-[10px] md:text-xs rounded-xl md:rounded-2xl gap-2 hover:bg-white/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                 Add Bots <Users className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
+                          <p className="text-[8px] md:text-[10px] text-muted-foreground font-black uppercase tracking-widest text-center">
+                            {shouldDisablePick 
+                              ? `Need ${requiredPlayers - (gameState?.participants?.length || 0)} more players to fill all rounds (${gameState?.participants?.length}/${requiredPlayers})`
+                              : (gameState?.status === 'round_finished' ? 'Round Over. Shuffle next?' : 'Lobby is ready for action!')
+                            }
+                          </p>
+                       </motion.div>
+                     );
+                })() : gameState?.status === 'selecting' ? (
                    <motion.div key="selecting-state" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-4"><Loader2 className="w-8 h-8 md:w-10 md:h-10 text-primary animate-spin" /><p className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.3em] text-primary animate-pulse text-center">Picking Contestants...</p></motion.div>
                 ) : gameState?.status === 'convincing' ? (
                    <motion.div key="convincing-state" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="text-center space-y-4 md:space-y-6">
                       <h4 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-white animate-pulse">Convince Each Other!</h4>
                       {canControl && <Button onClick={handleStartGame} variant="outline" className="border-white/10 text-[9px] font-black uppercase tracking-widest hover:bg-white/5 h-10 px-6">End Convincing</Button>}
                    </motion.div>
-                ) : (gameState?.status === 'choosing' || gameState?.status === 'revealing') ? (
-                  <motion.div key="decision-reveal-state" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="flex flex-col items-center gap-4 md:gap-8">
-                    <div className="text-center">
-                       <h4 className="text-2xl md:text-4xl font-black uppercase text-white italic">
-                         {gameState.status === 'revealing' ? 'THE REVEAL' : 'Decision Time'}
-                       </h4>
-                       <p className="text-[9px] md:text-[10px] text-muted-foreground font-black uppercase tracking-widest">
-                         {gameState.status === 'revealing' ? 'Revealing choices...' : (isContestant ? 'Make your choice below' : 'Waiting for contestants...')}
-                       </p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 md:gap-8 w-full">
-                       <button 
-                        disabled={!isContestant} 
-                        onClick={() => handleChoice('split')} 
-                        className={`group h-20 md:h-32 rounded-2xl md:rounded-[2.5rem] border-2 flex flex-col items-center justify-center gap-2 transition-all ${!isContestant ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${myChoice === 'split' ? 'bg-yellow-500 border-yellow-400 text-black shadow-[0_0_30px_#eab308]' : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-500 hover:enabled:bg-yellow-500 hover:enabled:text-black'}`}
-                       >
-                         <Handshake className="w-8 h-8 md:w-12 md:h-12" />
-                         <span className="text-xs md:text-base font-black uppercase">SPLIT</span>
-                       </button>
-                       <button 
-                        disabled={!isContestant} 
-                        onClick={() => handleChoice('steal')} 
-                        className={`group h-20 md:h-32 rounded-2xl md:rounded-[2.5rem] border-2 flex flex-col items-center justify-center gap-2 transition-all ${!isContestant ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${myChoice === 'steal' ? 'bg-purple-600 border-purple-400 text-white shadow-[0_0_30px_#9333ea]' : 'bg-purple-600/10 border-purple-600/30 text-purple-400 hover:enabled:bg-purple-600 hover:enabled:text-white'}`}
-                       >
-                         <Ghost className="w-8 h-8 md:w-12 md:h-12" />
-                         <span className="text-xs md:text-base font-black uppercase">STEAL</span>
-                       </button>
-                    </div>
-                    {gameState.status === 'revealing' && (
-                       <p className="text-xl md:text-2xl font-black text-primary animate-pulse tabular-nums tracking-widest mt-4">REVEALING IN {gameState.timer}s</p>
-                    )}
-                  </motion.div>
-                ) : gameState?.status === 'finished' ? (
+                ) : (gameState?.status === 'choosing' || gameState?.status === 'revealing') ? (() => {
+                   const isChoiceLocked = gameState?.status === 'revealing' && (gameState?.timer || 0) <= 5;
+                   return (
+                     <motion.div key="decision-reveal-state" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="flex flex-col items-center gap-4 md:gap-8">
+                       <div className="text-center">
+                          <h4 className="text-2xl md:text-4xl font-black uppercase text-white italic">
+                            {gameState.status === 'revealing' ? 'THE REVEAL' : 'Decision Time'}
+                          </h4>
+                          <p className="text-[9px] md:text-[10px] text-muted-foreground font-black uppercase tracking-widest">
+                            {gameState.status === 'revealing' 
+                              ? (isChoiceLocked ? 'Choices are locked in!' : 'Changing choices permitted')
+                              : (isContestant ? 'Make your choice below' : 'Waiting for contestants...')
+                            }
+                          </p>
+                       </div>
+                       <div className="grid grid-cols-2 gap-4 md:gap-8 w-full">
+                          <button 
+                           disabled={!isContestant || isChoiceLocked} 
+                           onClick={() => handleChoice('split')} 
+                           className={`group h-20 md:h-32 rounded-2xl md:rounded-[2.5rem] border-2 flex flex-col items-center justify-center gap-2 transition-all ${(!isContestant || isChoiceLocked) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${myChoice === 'split' ? 'bg-yellow-500 border-yellow-400 text-black shadow-[0_0_30px_#eab308]' : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-500 hover:enabled:bg-yellow-500 hover:enabled:text-black'}`}
+                          >
+                            <Handshake className="w-8 h-8 md:w-12 md:h-12" />
+                            <span className="text-xs md:text-base font-black uppercase">SPLIT</span>
+                          </button>
+                          <button 
+                           disabled={!isContestant || isChoiceLocked} 
+                           onClick={() => handleChoice('steal')} 
+                           className={`group h-20 md:h-32 rounded-2xl md:rounded-[2.5rem] border-2 flex flex-col items-center justify-center gap-2 transition-all ${(!isContestant || isChoiceLocked) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${myChoice === 'steal' ? 'bg-purple-600 border-purple-400 text-white shadow-[0_0_30px_#9333ea]' : 'bg-purple-600/10 border-purple-600/30 text-purple-400 hover:enabled:bg-purple-600 hover:enabled:text-white'}`}
+                          >
+                            <Ghost className="w-8 h-8 md:w-12 md:h-12" />
+                            <span className="text-xs md:text-base font-black uppercase">STEAL</span>
+                          </button>
+                       </div>
+                       {gameState.status === 'revealing' && (
+                          <p className="text-xl md:text-2xl font-black text-primary animate-pulse tabular-nums tracking-widest mt-4">
+                            {isChoiceLocked ? `LOCKED IN: REVEALING IN ${gameState.timer}s` : `REVEALING IN ${gameState.timer}s`}
+                          </p>
+                       )}
+                     </motion.div>
+                   );
+                 })() : gameState?.status === 'finished' ? (
                    <motion.div key="finished-state" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="flex flex-col items-center gap-6"><div className="text-center"><h4 className="text-3xl md:text-5xl font-black uppercase text-white/40">GAME OVER</h4></div>{canControl && <Button onClick={onLeave} variant="outline" className="h-12 px-10 rounded-2xl font-black uppercase text-xs border-white/10 hover:bg-white/5">Close Lobby</Button>}</motion.div>
                 ) : null}
              </AnimatePresence>
@@ -594,15 +760,45 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
               </div>
               <div className="p-3 md:p-4 bg-black/60 border-t border-white/10 relative">
                 <form onSubmit={handleSendMessage} className="flex gap-2 relative">
-                    <input type="text" disabled={(activeTab === 'convincing' && gameState?.status !== 'convincing' && !isAdmin) || (activeTab === 'viewers' && isContestant && !isAdmin)} value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder={(activeTab === 'convincing' && gameState?.status !== 'convincing' && !isAdmin) ? "Arena Locked" : "Type a message..."} className="flex-1 bg-white/5 border border-white/10 rounded-xl py-2.5 md:py-3.5 px-4 text-[10px] md:text-xs text-white outline-none focus:border-primary/50 transition-all disabled:opacity-40" />
-                    <button type="submit" disabled={!chatInput.trim() || ((activeTab === 'convincing' && gameState?.status !== 'convincing' && !isAdmin))} className="w-12 h-12 rounded-xl gradient-bg flex items-center justify-center text-white shadow-lg active:scale-95 transition-all disabled:opacity-50"><Send className="w-4 h-4" /></button>
+                    <input 
+                      type="text" 
+                      disabled={activeTab === 'convincing' ? isArenaInputDisabled : isGlobalInputDisabled} 
+                      value={chatInput} 
+                      onChange={e => setChatInput(e.target.value)} 
+                      placeholder={
+                        activeTab === 'convincing'
+                          ? (gameState?.status !== 'convincing' ? "Arena Locked" : (isContestant || isAdmin ? "Type a message..." : "Arena Chat is View Only"))
+                          : (isContestant && !isAdmin ? "Cannot chat in Global" : (isWaitingPlayer && gameState?.status === 'convincing' && !isAdmin ? "Global Chat Locked (Convincing)" : "Type a message..."))
+                      } 
+                      className="flex-1 bg-white/5 border border-white/10 rounded-xl py-2.5 md:py-3.5 px-4 text-[10px] md:text-xs text-white outline-none focus:border-primary/50 transition-all disabled:opacity-40" 
+                    />
+                    <button 
+                      type="submit" 
+                      disabled={!chatInput.trim() || (activeTab === 'convincing' ? isArenaInputDisabled : isGlobalInputDisabled)} 
+                      className="w-12 h-12 rounded-xl gradient-bg flex items-center justify-center text-white shadow-lg active:scale-95 transition-all disabled:opacity-50"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
                 </form>
-                {/* Visual Lock Overlay for Arena when Locked */}
-                {activeTab === 'convincing' && gameState?.status !== 'convincing' && !isAdmin && (
+                {/* Visual Lock Overlay for Arena when Locked / View Only */}
+                {activeTab === 'convincing' && isArenaInputDisabled && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-[4px] rounded-b-xl z-20">
                      <div className="flex flex-col items-center gap-1.5">
                         <Lock className="w-6 h-6 text-primary animate-pulse" />
-                        <span className="text-[10px] font-black text-white/60 uppercase tracking-[0.2em]">Arena Locked</span>
+                        <span className="text-[10px] font-black text-white/60 uppercase tracking-[0.2em]">
+                          {gameState?.status !== 'convincing' ? 'Arena Locked' : 'Spectating Arena (View Only)'}
+                        </span>
+                     </div>
+                  </div>
+                )}
+                {/* Visual Lock Overlay for Global Chat for Waiting Players / Contestants */}
+                {activeTab === 'viewers' && isGlobalInputDisabled && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-[4px] rounded-b-xl z-20">
+                     <div className="flex flex-col items-center gap-1.5 px-4 text-center">
+                        <Lock className="w-6 h-6 text-purple-400 animate-pulse" />
+                        <span className="text-[10px] font-black text-white/60 uppercase tracking-[0.15em] leading-relaxed">
+                          {isContestant ? 'Focus on Convincing!' : 'Global chat locked during convincing phase'}
+                        </span>
                      </div>
                   </div>
                 )}

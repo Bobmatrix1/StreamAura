@@ -67,7 +67,7 @@ import { StoreManager } from './StoreManager';
 import { PartnersManager } from './PartnersManager';
 import { CinemaContentManager } from './CinemaContentManager';
 import { Badge } from '../components/ui/badge';
-import { CheckCircle2, X } from 'lucide-react';
+import { CheckCircle2, X, Copy, ChevronRight } from 'lucide-react';
 import { auth } from '../lib/firebase';
 
 const AdminDashboard: React.FC = () => {
@@ -79,6 +79,8 @@ const AdminDashboard: React.FC = () => {
   const [history, setHistory] = useState<GlobalHistoryItem[]>([]);
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [expandedWithdrawalId, setExpandedWithdrawalId] = useState<string | null>(null);
+  const [modalInputValue, setModalInputValue] = useState('');
 
   const loadWithdrawals = () => {
     const q = query(collection(db, 'withdrawals'), orderBy('created_at', 'desc'));
@@ -114,17 +116,28 @@ const AdminDashboard: React.FC = () => {
     isOpen: boolean;
     title: string;
     message: string;
-    onConfirm: () => void;
+    onConfirm: (inputValue?: string) => void | Promise<void>;
     type: 'danger' | 'warning';
+    showInput?: boolean;
+    inputPlaceholder?: string;
   }>({
     isOpen: false,
     title: '',
     message: '',
     onConfirm: () => {},
-    type: 'danger'
+    type: 'danger',
+    showInput: false,
+    inputPlaceholder: ''
   });
 
-  const closeConfirmModal = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
+  const [isConfirmLoading, setIsConfirmLoading] = useState(false);
+
+  const closeConfirmModal = () => {
+    if (isConfirmLoading) return;
+    setConfirmModal(prev => ({ ...prev, isOpen: false }));
+    setModalInputValue('');
+    setIsConfirmLoading(false);
+  };
 
   const loadStats = async () => {
     try {
@@ -325,13 +338,23 @@ const AdminDashboard: React.FC = () => {
       isOpen: true,
       title: `${action.toUpperCase()} Payout?`,
       message: action === 'approve' 
-        ? "This will trigger a real Paystack transfer to the user's bank account." 
-        : "This will reject the request and refund the user's referral balance.",
+        ? "This will trigger a real TransactPay transfer to the user's bank account." 
+        : "This will reject the request, refund the user's balance, and send a rejection notification.",
       type: action === 'approve' ? 'warning' : 'danger',
-      onConfirm: async () => {
+      showInput: action === 'reject',
+      inputPlaceholder: "Enter rejection reason (required)...",
+      onConfirm: async (reason?: string) => {
+        if (action === 'reject' && !reason?.trim()) {
+          showError("Rejection reason is required");
+          return;
+        }
         try {
           const token = await auth.currentUser?.getIdToken();
-          const resp = await fetch(`${API_BASE_URL}/api/cinema/admin/payouts/${id}/process?action=${action}`, {
+          let url = `${API_BASE_URL}/api/cinema/admin/payouts/${id}/process?action=${action}`;
+          if (action === 'reject' && reason) {
+            url += `&reason=${encodeURIComponent(reason.trim())}`;
+          }
+          const resp = await fetch(url, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}` }
           });
@@ -351,7 +374,10 @@ const AdminDashboard: React.FC = () => {
     loadStats();
     if (activeTab === 'users') loadUsers();
     else if (activeTab === 'history') loadHistory();
-    else if (activeTab === 'payouts') loadWithdrawals();
+    else if (activeTab === 'payouts') {
+      loadWithdrawals();
+      loadUsers();
+    }
     else setIsLoading(false);
   }, [activeTab]);
 
@@ -442,15 +468,63 @@ const AdminDashboard: React.FC = () => {
       <AnimatePresence>
         {confirmModal.isOpen && (
           <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeConfirmModal} className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => { if (!isConfirmLoading) closeConfirmModal(); }} 
+              className="absolute inset-0 bg-black/80 backdrop-blur-md" 
+            />
             <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="relative w-full max-w-md glass-card p-8 border-white/10 shadow-2xl">
               <div className={`absolute top-0 left-0 w-full h-1 ${confirmModal.type === 'danger' ? 'bg-red-500' : 'bg-orange-500'}`} />
               <div className="flex flex-col items-center text-center space-y-4">
                 <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${confirmModal.type === 'danger' ? 'bg-red-500/20 text-red-400' : 'bg-orange-500/20 text-orange-400'}`}><AlertTriangle className="w-8 h-8" /></div>
                 <div className="space-y-2"><h3 className="text-xl font-bold text-foreground">{confirmModal.title}</h3><p className="text-sm text-muted-foreground">{confirmModal.message}</p></div>
+                {confirmModal.showInput && (
+                  <div className="w-full pt-2">
+                    <textarea
+                      value={modalInputValue}
+                      onChange={(e) => setModalInputValue(e.target.value)}
+                      placeholder={confirmModal.inputPlaceholder || "Enter details..."}
+                      className="w-full h-24 p-3 bg-white/5 border border-white/10 rounded-xl text-white text-xs placeholder:text-white/30 focus:outline-none focus:border-red-500 transition-colors resize-none"
+                      disabled={isConfirmLoading}
+                    />
+                  </div>
+                )}
                 <div className="flex items-center gap-3 w-full pt-4">
-                  <button onClick={closeConfirmModal} className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-sm font-medium hover:bg-white/5 transition-all">Cancel</button>
-                  <button onClick={confirmModal.onConfirm} className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-white shadow-lg transition-all ${confirmModal.type === 'danger' ? 'bg-red-600 hover:bg-red-500 shadow-red-600/20' : 'bg-orange-600 hover:bg-orange-500 shadow-orange-600/20'}`}>Confirm</button>
+                  <button 
+                    onClick={closeConfirmModal} 
+                    disabled={isConfirmLoading} 
+                    className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-sm font-medium hover:bg-white/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={async () => {
+                      setIsConfirmLoading(true);
+                      try {
+                        await confirmModal.onConfirm(modalInputValue);
+                      } catch (err) {
+                        console.error("Confirm error:", err);
+                      } finally {
+                        setIsConfirmLoading(false);
+                      }
+                    }} 
+                    disabled={isConfirmLoading} 
+                    className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-white shadow-lg transition-all flex items-center justify-center gap-2 ${
+                      isConfirmLoading ? 'opacity-50 cursor-not-allowed' : ''
+                    } ${
+                      confirmModal.type === 'danger' 
+                        ? 'bg-red-600 hover:bg-red-500 shadow-red-600/20' 
+                        : 'bg-orange-600 hover:bg-orange-500 shadow-orange-600/20'
+                    }`}
+                  >
+                    {isConfirmLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+                    ) : (
+                      "Confirm"
+                    )}
+                  </button>
                 </div>
               </div>
             </motion.div>
@@ -532,7 +606,8 @@ const AdminDashboard: React.FC = () => {
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b border-white/5 text-[10px] font-black uppercase tracking-widest text-white/40">
-                        <th className="px-4 py-4">User</th>
+                        <th className="px-2 py-4 w-8"></th>
+                        <th className="px-4 py-4">User Name & ID</th>
                         <th className="px-4 py-4">Type</th>
                         <th className="px-4 py-4">Gross</th>
                         <th className="px-4 py-4">Net Payout</th>
@@ -542,74 +617,170 @@ const AdminDashboard: React.FC = () => {
                         <th className="px-4 py-4 text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/5">
+                    <tbody>
                       {withdrawals.length > 0 ? (
-                        withdrawals.map((wd) => (
-                          <tr key={wd.id} className="text-xs group hover:bg-white/[0.02] transition-colors">
-                            <td className="px-4 py-4">
-                               <div className="space-y-0.5">
-                                  <p className="font-black text-white uppercase">{wd.user_name}</p>
-                                  <p className="text-[10px] text-white/30 font-mono">{wd.user_uid?.substring(0, 8)}</p>
-                               </div>
-                            </td>
-                            <td className="px-4 py-4">
-                               <Badge className={`font-black text-[9px] ${
-                                 wd.type === 'funded' ? 'bg-blue-500/20 text-blue-400' :
-                                 wd.type === 'host' ? 'bg-amber-500/20 text-amber-400' :
-                                 'bg-purple-500/20 text-purple-400'
-                               }`}>
-                                 {wd.type?.toUpperCase()}
-                               </Badge>
-                            </td>
-                            <td className="px-4 py-4">
-                               <span className="font-bold text-white/40">₦{wd.amount?.toLocaleString()}</span>
-                            </td>
-                            <td className="px-4 py-4">
-                               <span className="font-black text-emerald-400 text-sm">₦{(wd.payout_amount || wd.amount)?.toLocaleString()}</span>
-                            </td>
-                            <td className="px-4 py-4">
-                               <div className="space-y-0.5 text-[10px]">
-                                  <p className="font-bold text-white/60">{wd.bank_name || wd.bank_code}</p>
-                                  <p className="font-mono text-white/40">{wd.account_number} • {wd.account_name}</p>
-                               </div>
-                            </td>
-                            <td className="px-4 py-4 text-white/40">
-                               {wd.created_at?.toDate ? wd.created_at.toDate().toLocaleDateString() : 'Recent'}
-                            </td>
-                            <td className="px-4 py-4">
-                               <Badge className={`font-black text-[9px] ${
-                                 wd.status === 'pending' ? 'bg-orange-500/20 text-orange-400 border-orange-500/20' :
-                                 wd.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/20' :
-                                 'bg-rose-500/20 text-rose-400 border-rose-500/20'
-                               }`}>
-                                 {wd.status?.toUpperCase()}
-                               </Badge>
-                            </td>
-                            <td className="px-4 py-4 text-right">
-                               {wd.status === 'pending' && (
-                                 <div className="flex items-center justify-end gap-2">
-                                    <button 
-                                      onClick={() => handlePayoutAction(wd.id, 'reject')}
-                                      className="p-2 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all"
-                                      title="Reject & Refund"
-                                    >
-                                       <X className="w-4 h-4" />
-                                    </button>
-                                    <button 
-                                      onClick={() => handlePayoutAction(wd.id, 'approve')}
-                                      className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all"
-                                      title="Approve & Send (Paystack)"
-                                    >
-                                       <CheckCircle2 className="w-4 h-4" />
-                                    </button>
-                                 </div>
-                               )}
-                            </td>
-                          </tr>
-                        ))
+                        withdrawals.map((wd) => {
+                          const associatedUser = users.find(u => u.uid === wd.user_uid);
+                          const displayBankName = (associatedUser as any)?.bankDetails?.bankName || wd.bank_name || wd.bank_code;
+                          
+                          return (
+                            <React.Fragment key={wd.id}>
+                              <tr className="text-xs group hover:bg-white/[0.02] transition-colors">
+                                <td className="px-2 py-4">
+                                  <button 
+                                    onClick={() => setExpandedWithdrawalId(expandedWithdrawalId === wd.id ? null : wd.id)}
+                                    className="p-1 rounded hover:bg-white/5 text-white/40 hover:text-white transition-all"
+                                    title="Toggle details"
+                                  >
+                                    {expandedWithdrawalId === wd.id ? (
+                                      <ChevronDown className="w-4 h-4" />
+                                    ) : (
+                                      <ChevronRight className="w-4 h-4" />
+                                    )}
+                                  </button>
+                                </td>
+                                <td className="px-4 py-4">
+                                   <div className="space-y-0.5">
+                                      <p className="font-black text-white uppercase">{wd.user_name || 'N/A'}</p>
+                                      <div className="text-[10px] text-white/30 font-mono flex items-center gap-1">
+                                        <span>ID: {wd.user_uid}</span>
+                                        <button 
+                                          onClick={() => {
+                                            navigator.clipboard.writeText(wd.user_uid);
+                                            showSuccess("User ID copied!");
+                                          }}
+                                          className="p-0.5 hover:text-white hover:bg-white/5 rounded transition-colors"
+                                          title="Copy User ID"
+                                        >
+                                          <Copy className="w-2.5 h-2.5" />
+                                        </button>
+                                      </div>
+                                   </div>
+                                </td>
+                                <td className="px-4 py-4">
+                                   <Badge className={`font-black text-[9px] ${
+                                     wd.type === 'funded' ? 'bg-blue-500/20 text-blue-400' :
+                                     wd.type === 'host' ? 'bg-amber-500/20 text-amber-400' :
+                                     'bg-purple-500/20 text-purple-400'
+                                   }`}>
+                                     {wd.type?.toUpperCase()}
+                                   </Badge>
+                                </td>
+                                <td className="px-4 py-4">
+                                   <span className="font-bold text-white/40">₦{wd.amount?.toLocaleString()}</span>
+                                </td>
+                                <td className="px-4 py-4">
+                                   <span className="font-black text-emerald-400 text-sm">₦{(wd.payout_amount || wd.amount)?.toLocaleString()}</span>
+                                </td>
+                                <td className="px-4 py-4">
+                                   <div className="space-y-0.5 text-[10px]">
+                                      <p className="font-bold text-white/60">{displayBankName}</p>
+                                      <div className="flex items-center gap-1.5 font-mono text-white/40">
+                                         <span>{wd.account_number}</span>
+                                         <button 
+                                           onClick={() => {
+                                             navigator.clipboard.writeText(wd.account_number);
+                                             showSuccess("Account number copied!");
+                                           }}
+                                           className="p-0.5 rounded text-white/30 hover:text-white hover:bg-white/5 transition-all"
+                                           title="Copy Account Number"
+                                         >
+                                           <Copy className="w-3 h-3" />
+                                         </button>
+                                         <span>• {wd.account_name}</span>
+                                      </div>
+                                   </div>
+                                </td>
+                                <td className="px-4 py-4 text-white/40">
+                                   {wd.created_at?.toDate ? wd.created_at.toDate().toLocaleDateString() : 'Recent'}
+                                </td>
+                                <td className="px-4 py-4">
+                                   <Badge className={`font-black text-[9px] ${
+                                     wd.status === 'pending' ? 'bg-orange-500/20 text-orange-400 border-orange-500/20' :
+                                     wd.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/20' :
+                                     'bg-rose-500/20 text-rose-400 border-rose-500/20'
+                                   }`}>
+                                     {wd.status?.toUpperCase()}
+                                   </Badge>
+                                </td>
+                                <td className="px-4 py-4 text-right">
+                                   {wd.status === 'pending' && (
+                                     <div className="flex items-center justify-end gap-2">
+                                        <button 
+                                          onClick={() => handlePayoutAction(wd.id, 'reject')}
+                                          className="p-2 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all"
+                                          title="Reject"
+                                        >
+                                           <X className="w-4 h-4" />
+                                        </button>
+                                        <button 
+                                          onClick={() => handlePayoutAction(wd.id, 'approve')}
+                                          className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all"
+                                          title="Approved"
+                                        >
+                                           <CheckCircle2 className="w-4 h-4" />
+                                        </button>
+                                     </div>
+                                   )}
+                                </td>
+                              </tr>
+                              {expandedWithdrawalId === wd.id && (
+                                <tr className="bg-white/[0.01]">
+                                  <td colSpan={9} className="px-6 py-4 border-t border-b border-white/5">
+                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-xs">
+                                      <div>
+                                        <p className="text-white/40 font-bold uppercase tracking-wider text-[9px]">Balance Before</p>
+                                        <p className="text-white font-bold text-sm mt-1">₦{wd.balance_before?.toLocaleString() ?? 'N/A'}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-white/40 font-bold uppercase tracking-wider text-[9px]">Balance After</p>
+                                        <p className="text-white font-bold text-sm mt-1">₦{wd.balance_after?.toLocaleString() ?? 'N/A'}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-white/40 font-bold uppercase tracking-wider text-[9px]">Withdrawal ID</p>
+                                        <p className="text-white font-mono mt-1 select-all">{wd.id}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-white/40 font-bold uppercase tracking-wider text-[9px]">User Email</p>
+                                        <p className="text-white mt-1">{wd.user_email ?? 'N/A'}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-white/40 font-bold uppercase tracking-wider text-[9px]">Fee Charged</p>
+                                        <p className="text-white mt-1">₦{wd.fee_amount?.toLocaleString() ?? 0}</p>
+                                      </div>
+                                      <div className="col-span-2 md:col-span-5 border-t border-white/5 pt-2">
+                                        <p className="text-white/40 font-bold uppercase tracking-wider text-[9px] mb-1">User's Configured Wallet Bank Details (Profile)</p>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 bg-white/[0.01] p-3 rounded-lg border border-white/5">
+                                          <div>
+                                            <span className="text-[10px] text-white/30 uppercase font-bold block">Set Bank Name</span>
+                                            <span className="text-white font-bold">{(associatedUser as any)?.bankDetails?.bankName || 'Not Set'}</span>
+                                          </div>
+                                          <div>
+                                            <span className="text-[10px] text-white/30 uppercase font-bold block">Set Account Name</span>
+                                            <span className="text-white">{(associatedUser as any)?.bankDetails?.name || 'Not Set'}</span>
+                                          </div>
+                                          <div>
+                                            <span className="text-[10px] text-white/30 uppercase font-bold block">Set Account Number</span>
+                                            <span className="text-white font-mono">{(associatedUser as any)?.bankDetails?.account || 'Not Set'}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                      {wd.rejection_reason && (
+                                        <div className="col-span-2 md:col-span-5 border-t border-white/5 pt-2">
+                                          <p className="text-rose-400/80 font-bold uppercase tracking-wider text-[9px]">Rejection Reason</p>
+                                          <p className="text-rose-400 mt-1">{wd.rejection_reason}</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })
                       ) : (
                         <tr>
-                          <td colSpan={6} className="py-20 text-center text-muted-foreground opacity-50 uppercase font-black text-[10px] tracking-widest">
+                          <td colSpan={9} className="py-20 text-center text-muted-foreground opacity-50 uppercase font-black text-[10px] tracking-widest">
                              No payout requests found
                           </td>
                         </tr>

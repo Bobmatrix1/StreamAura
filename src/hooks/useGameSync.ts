@@ -14,6 +14,9 @@ export interface GameState {
   participants: any[];
   currentRound?: number;
   prizeAmount?: number;
+  numberOfRounds?: number;
+  isMultipleRounds?: boolean;
+  startCondition?: string;
 }
 
 export const useGameSync = (gameId: string | null, user: any) => {

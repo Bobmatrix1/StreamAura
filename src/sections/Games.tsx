@@ -7,13 +7,16 @@ import {
   Users, 
   Timer, 
   X, 
-  ChevronDown,
   ShieldAlert,
   Loader2,
   Swords,
   History,
   Trash2,
-  ArrowUpRight
+  ArrowUpRight,
+  Share2,
+  BookOpen,
+  Coins,
+  MessageSquare
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -21,7 +24,7 @@ import { Badge } from '../components/ui/badge';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { db, auth } from '../lib/firebase';
-import { collection, doc, getDoc, query, orderBy, limit, onSnapshot, where, writeBatch, increment, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, query, onSnapshot, writeBatch, increment, serverTimestamp } from 'firebase/firestore';
 import { API_BASE_URL } from '../api/mediaApi';
 
 import SplitOrStealGame from './SplitOrStealGame';
@@ -54,7 +57,6 @@ export default function Games() {
   const [roomName, setRoomName] = useState('');
   const [entryFee, setEntryFee] = useState('');
   const [startCondition, setStartCondition] = useState<'manual' | 'auto'>('auto');
-  const [autoStartUsers, setAutoStartUsers] = useState('10');
   
   // Multi-Round & Prize State
   const [isMultipleRounds, setIsMultipleRounds] = useState(false);
@@ -74,7 +76,7 @@ export default function Games() {
   const [insufficientFunds, setInsufficientFunds] = useState<{ show: boolean; type: 'normal' | 'referral'; required: number } | null>(null);
 
   // Payment Selection
-  const [paymentWallet, setPaymentWallet] = useState<'normal' | 'referral'>('normal');
+  const [paymentWallet] = useState<'normal' | 'referral'>('normal');
 
   const [hostBalance, setHostBalance] = useState(0);
 
@@ -97,8 +99,15 @@ export default function Games() {
         if (snap.exists()) setReferralBalance(snap.data().referralBalance || 0);
       });
 
-      const unsubActivity = onSnapshot(query(collection(db, 'game_wallets', user.uid, 'activity'), orderBy('timestamp', 'desc'), limit(10)), (snap) => {
-        setGameActivity(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const unsubActivity = onSnapshot(collection(db, 'game_wallets', user.uid, 'activity'), (snap) => {
+        const sorted = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a: any, b: any) => {
+            const tsA = a.timestamp?.seconds || (a.timestamp?.toMillis ? a.timestamp.toMillis() / 1000 : 0) || (Date.now() / 1000);
+            const tsB = b.timestamp?.seconds || (b.timestamp?.toMillis ? b.timestamp.toMillis() / 1000 : 0) || (Date.now() / 1000);
+            return tsB - tsA;
+          })
+          .slice(0, 10);
+        setGameActivity(sorted);
       });
 
       return () => { unsubGameWallet(); unsubMainWallet(); unsubUser(); unsubActivity(); };
@@ -115,8 +124,8 @@ export default function Games() {
   // Host Earnings Calculation (70% to host, 30% to platform. Admin gets 100%)
   const calculateHostEarnings = () => {
     const fee = parseFloat(entryFee) || 0;
-    const users = startCondition === 'auto' ? parseInt(autoStartUsers) || 2 : 2;
-    const totalEntryMoney = fee * users;
+    const rounds = isMultipleRounds ? parseInt(numberOfRounds) || 1 : 1;
+    const totalEntryMoney = fee * (rounds * 2);
     
     if (isAdmin) return totalEntryMoney; // Admin keeps 100%
     return totalEntryMoney * 0.70; // Regular host keeps 70%
@@ -251,7 +260,7 @@ export default function Games() {
       batch.set(activityRef, {
         type: 'fund_from_main',
         amount: amt,
-        desc: `Funded game wallet with ₦${amt.toLocaleString()} from ${fundingSource === 'host' ? 'host earnings' : fundingSource} wallet`,
+        desc: `Funded game wallet with ₦${amt.toLocaleString()} from ${fundingSource === 'host' ? 'host earnings' : fundingSource === 'funded' ? 'main' : 'referral'} wallet`,
         timestamp: serverTimestamp()
       });
 
@@ -287,6 +296,11 @@ export default function Games() {
       return;
     }
 
+    if (isMultipleRounds && (!numberOfRounds || isNaN(parseInt(numberOfRounds)) || parseInt(numberOfRounds) < 1)) {
+      showError('Please enter a valid number of rounds (minimum 1).');
+      return;
+    }
+
     if (isManualPairing && (!playerAId.trim() || !playerBId.trim())) {
       showError('Please enter Aura IDs for both Player A and Player B.');
       return;
@@ -294,13 +308,13 @@ export default function Games() {
 
     const totalCost = calculateTotalPrizeCost();
 
-    // Check Balance (Admins bypass funding requirement)
-    if (!isAdmin && totalCost > 0) {
+    // Check Balance
+    if (totalCost > 0) {
       if (paymentWallet === 'referral' && totalCost > referralBalance) {
         setInsufficientFunds({ show: true, type: 'referral', required: totalCost });
         return;
       }
-      if (paymentWallet === 'normal' && totalCost > mainWalletBalance) {
+      if (paymentWallet === 'normal' && totalCost > gameWalletBalance) {
         setInsufficientFunds({ show: true, type: 'normal', required: totalCost });
         return;
       }
@@ -315,10 +329,11 @@ export default function Games() {
         isMultipleRounds,
         numberOfRounds: isMultipleRounds ? parseInt(numberOfRounds) : 1,
         startCondition,
-        autoStartUsers: startCondition === 'auto' ? parseInt(autoStartUsers) : null,
+        autoStartUsers: startCondition === 'auto' ? (isMultipleRounds ? parseInt(numberOfRounds) * 2 : 2) : null,
         isManualPairing,
         playerAId,
-        playerBId
+        playerBId,
+        payment_wallet: paymentWallet
       };
 
       const token = await auth.currentUser?.getIdToken();
@@ -340,10 +355,15 @@ export default function Games() {
       setEntryFee('');
       setPrizePerRound('');
       setIsMultipleRounds(false);
+      setNumberOfRounds('2');
       setIsManualPairing(false);
       
       // Update local balance state
-      if (!isAdmin) setMainWalletBalance(prev => prev - totalCost);
+      if (paymentWallet === 'referral') {
+        setReferralBalance(prev => prev - totalCost);
+      } else {
+        setGameWalletBalance(prev => prev - totalCost);
+      }
       
     } catch (err: any) {
       showError(err.message || 'Failed to create game room.');
@@ -363,45 +383,117 @@ export default function Games() {
   const [rooms, setRooms] = useState<any[]>([]);
   useEffect(() => {
     // Include all statuses to ensure rooms don't "disappear" from the lobby until actually deleted
-    const q = query(
-      collection(db, 'game_rooms'), 
-      where('status', 'in', ['waiting', 'selecting', 'convincing', 'choosing', 'revealing', 'round_finished', 'finished'])
-    );
+    const q = query(collection(db, 'game_rooms'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const activeRooms = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const activeRooms = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() as any }))
+        .filter(room => ['waiting', 'selecting', 'convincing', 'choosing', 'revealing', 'round_finished', 'finished'].includes(room.status));
       setRooms(activeRooms);
     });
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const autoJoinId = sessionStorage.getItem('aura_auto_join_game');
+    if (autoJoinId && rooms.length > 0) {
+      const matchingRoom = rooms.find((r) => r.id === autoJoinId);
+      if (matchingRoom) {
+        sessionStorage.removeItem('aura_auto_join_game');
+        handleJoinClick(matchingRoom);
+      }
+    }
+  }, [rooms]);
+
   const [joiningGame, setJoiningGame] = useState<any | null>(null);
   const [showJoinChoice, setShowJoinChoice] = useState(false);
 
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
+  const [deletingGame, setDeletingGame] = useState<any | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const handleDeleteRoom = async (e: React.MouseEvent, game: any) => {
+  const handleDeleteRoom = (e: React.MouseEvent, game: any) => {
     e.stopPropagation();
     if (!isAdmin && game.hostUid !== user?.uid) return;
-    
-    if (!window.confirm(`Are you sure you want to delete "${game.roomName}"? This will close the room for everyone.`)) return;
+    setDeletingGame(game);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleShareRoom = (e: React.MouseEvent, game: any) => {
+    e.stopPropagation();
+    const shareUrl = `${window.location.origin}?tab=games&gameId=${game.id}`;
+    const shareTitle = `Split or Steal: ${game.roomName}`;
+    const shareText = `Join the live game room "${game.roomName}" hosted by ${game.hostName} on StreamAura! Paid pool entry fee: ₦${game.entryFee}. Split or Steal? Convince, Choose, Win!`;
+
+    if (navigator.share) {
+      navigator.share({
+        title: shareTitle,
+        text: shareText,
+        url: shareUrl
+      }).catch((err) => {
+        console.log("Web Share cancelled/errored:", err);
+      });
+    } else {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(shareUrl)
+          .then(() => showSuccess("Lobby link copied to clipboard! Share it with friends!"))
+          .catch(() => showError("Failed to copy link."));
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = shareUrl;
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+          document.execCommand("copy");
+          showSuccess("Lobby link copied to clipboard! Share it with friends!");
+        } catch (err) {
+          showError("Failed to copy link.");
+        }
+        document.body.removeChild(textArea);
+      }
+    }
+  };
+
+  const confirmDeleteRoom = async () => {
+    if (!deletingGame) return;
+    const game = deletingGame;
     
     setIsDeletingId(game.id);
+    setShowDeleteConfirm(false);
+    
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/games/${game.id}`, {
+      const token = await auth.currentUser?.getIdToken();
+      const response = await fetch(`${API_BASE_URL}/api/games/${game.id}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}` // Or however you handle auth
+          'Authorization': `Bearer ${token}`
         }
       });
       
-      const result = await response.json();
-      if (!result.success) throw new Error(result.detail || 'Failed to delete room');
+      let result: any = {};
+      try {
+        result = await response.json();
+      } catch (e) {
+        console.warn('Could not parse JSON from delete response', e);
+      }
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          setRooms(prev => prev.filter(r => r.id !== game.id));
+          showSuccess('Room was already deleted!');
+          return;
+        }
+        throw new Error(result.detail || 'Failed to delete room');
+      }
+
+      setRooms(prev => prev.filter(r => r.id !== game.id));
+      showSuccess('Room deleted successfully!');
       
     } catch (err: any) {
       console.error(err);
-      alert(err.message);
+      showError(err.message || 'Failed to delete room');
     } finally {
       setIsDeletingId(null);
+      setDeletingGame(null);
     }
   };
 
@@ -495,12 +587,33 @@ export default function Games() {
               <div className="space-y-2">
                  <h3 className="text-xl font-black uppercase text-white">Insufficient Balance</h3>
                  <p className="text-xs text-muted-foreground font-medium uppercase leading-relaxed tracking-wider">
-                    You need ₦{insufficientFunds.required.toLocaleString()} in your Main Wallet to fund the prize pool for this room.
+                    You need ₦{insufficientFunds.required.toLocaleString()} in your Game Wallet to fund the prize pool for this room. Add funds from your main wallet to your game wallet and try again.
                  </p>
               </div>
               <div className="flex flex-col gap-3">
-                 <Button onClick={handleGoToWallet} className="w-full gradient-bg h-12 font-black uppercase text-[10px]">Add Funds to Wallet</Button>
+                 <Button onClick={handleGoToWallet} className="w-full gradient-bg h-12 font-black uppercase text-[10px]">Go to Wallet</Button>
                  <Button variant="ghost" onClick={() => setInsufficientFunds(null)} className="w-full h-11 text-[10px] font-black uppercase border border-white/5">Cancel</Button>
+              </div>
+           </motion.div>
+        </div>, document.body
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && deletingGame && createPortal(
+        <div className="fixed inset-0 z-[5000] flex items-center justify-center p-4 bg-black/95 backdrop-blur-md">
+           <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-card max-w-sm w-full p-8 text-center space-y-6 border-white/10 shadow-2xl">
+              <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center mx-auto border border-rose-500/20">
+                 <Trash2 className="text-rose-500 w-8 h-8" />
+              </div>
+              <div className="space-y-2">
+                 <h3 className="text-xl font-black uppercase text-white">Delete Room?</h3>
+                 <p className="text-xs text-muted-foreground font-medium uppercase leading-relaxed tracking-wider">
+                    Are you sure you want to delete <span className="text-white font-bold">"{deletingGame.roomName}"</span>? This will close the room for everyone and cannot be undone.
+                 </p>
+              </div>
+              <div className="flex flex-col gap-3">
+                 <Button onClick={confirmDeleteRoom} className="w-full bg-rose-600 hover:bg-rose-700 text-white h-12 font-black uppercase text-[10px] tracking-widest shadow-lg shadow-rose-600/20">Delete Room</Button>
+                 <Button variant="ghost" onClick={() => { setShowDeleteConfirm(false); setDeletingGame(null); }} className="w-full h-11 text-[10px] font-black uppercase border border-white/5">Keep Room</Button>
               </div>
            </motion.div>
         </div>, document.body
@@ -533,7 +646,7 @@ export default function Games() {
                    <div className="flex flex-col gap-2">
                       <Button 
                         onClick={() => {
-                          setWithdrawAmountInput(gameWalletBalance.toString());
+                          setWithdrawAmountInput('');
                           setIsWithdrawAmountModalOpen(true);
                         }} 
                         disabled={isWithdrawing} 
@@ -541,7 +654,13 @@ export default function Games() {
                       >
                         {isWithdrawing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Withdraw'}
                       </Button>
-                      <Button onClick={() => setIsFundingModalOpen(true)} className="h-9 px-5 rounded-xl font-black uppercase text-[10px] bg-white/10 hover:bg-white/20 text-white border border-white/10">
+                      <Button 
+                        onClick={() => {
+                          setFundingAmount('');
+                          setIsFundingModalOpen(true);
+                        }} 
+                        className="h-9 px-5 rounded-xl font-black uppercase text-[10px] bg-white/10 hover:bg-white/20 text-white border border-white/10"
+                      >
                         Add Funds
                       </Button>
                    </div>
@@ -558,17 +677,25 @@ export default function Games() {
                     <span className="text-[10px] font-black uppercase tracking-widest text-slate-900 dark:text-white">Recent Activity</span>
                  </div>
                  <div className="flex-1 space-y-3 overflow-y-auto max-h-24 custom-scrollbar">
-                    {gameActivity.map((act) => (
-                      <div key={act.id} className="flex justify-between items-center">
-                         <div className="text-left">
-                            <p className="text-[10px] font-bold text-slate-700 dark:text-white/90">{act.desc}</p>
-                            <p className="text-[8px] text-muted-foreground uppercase">{new Date(act.timestamp?.toDate()).toLocaleDateString()}</p>
+                    {gameActivity.map((act) => {
+                       const dateStr = act.timestamp?.toDate 
+                         ? act.timestamp.toDate().toLocaleDateString() 
+                         : (act.timestamp ? new Date(act.timestamp).toLocaleDateString() : 'Recent');
+                       const isPositive = ['win', 'game_win', 'entry_earnings', 'referral_earning', 'fund_from_main', 'host_reclaim', 'create_room_refund'].includes(act.type);
+                       const amtVal = act.amount !== undefined && act.amount !== null ? act.amount.toLocaleString() : '0';
+                       
+                       return (
+                         <div key={act.id} className="flex justify-between items-center">
+                            <div className="text-left">
+                               <p className="text-[10px] font-bold text-slate-700 dark:text-white/90">{act.desc}</p>
+                               <p className="text-[8px] text-muted-foreground uppercase">{dateStr}</p>
+                            </div>
+                            <span className={`text-[10px] font-black ${isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                               {isPositive ? '+' : '-'}₦{amtVal}
+                            </span>
                          </div>
-                         <span className={`text-[10px] font-black ${['win', 'entry_earnings', 'referral_earning', 'fund_from_main'].includes(act.type) ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                            {['win', 'entry_earnings', 'referral_earning', 'fund_from_main'].includes(act.type) ? '+' : '-'}₦{act.amount.toLocaleString()}
-                         </span>
-                      </div>
-                    ))}
+                       );
+                     })}
                     {gameActivity.length === 0 && <p className="text-[10px] text-muted-foreground italic text-center py-4">No recent game transactions</p>}
                  </div>
               </div>
@@ -588,7 +715,7 @@ export default function Games() {
         <AnimatePresence>
           {isFundingModalOpen && (
             <div className="fixed inset-0 z-[6000] flex items-center justify-center p-4">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsFundingModalOpen(false)} className="absolute inset-0 bg-black/95 backdrop-blur-md" />
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setFundingAmount(''); setIsFundingModalOpen(false); }} className="absolute inset-0 bg-black/95 backdrop-blur-md" />
               <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card border-slate-200 dark:border-white/10 shadow-2xl p-8 space-y-8 max-h-[85vh] overflow-y-auto custom-scrollbar">
                  <div className="text-center space-y-2">
                     <div className="w-16 h-16 rounded-3xl bg-primary/10 flex items-center justify-center mx-auto mb-4 border border-primary/20">
@@ -603,7 +730,7 @@ export default function Games() {
                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select Source Balance</label>
                        <div className="grid grid-cols-1 gap-2">
                           {[
-                            { id: 'funded', label: 'Funded Balance', balance: mainWalletBalance, color: 'text-primary' },
+                            { id: 'funded', label: 'Main Wallet Balance', balance: mainWalletBalance, color: 'text-primary' },
                             { id: 'host', label: 'Host Earnings', balance: hostBalance, color: 'text-amber-500' },
                             { id: 'referral', label: 'Referral Balance', balance: referralBalance, color: 'text-orange-500' }
                           ].map(src => (
@@ -625,8 +752,13 @@ export default function Games() {
                           <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 dark:text-white/40">₦</span>
                           <input 
                             type="number" 
+                            min="0"
                             value={fundingAmount} 
-                            onChange={e => setFundingAmount(e.target.value)} 
+                            onChange={e => {
+                               const val = e.target.value;
+                               if (val.startsWith('-')) return;
+                               setFundingAmount(val);
+                            }} 
                             placeholder="0.00" 
                             className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-10 pr-4 text-sm font-black outline-none focus:border-primary/50 text-slate-900 dark:text-white" 
                           />
@@ -643,7 +775,7 @@ export default function Games() {
                     <Button onClick={handleFundFromWallet} disabled={isSubmittingFunding} className="w-full h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-xs">
                        {isSubmittingFunding ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Transfer'}
                     </Button>
-                    <Button variant="ghost" onClick={() => setIsFundingModalOpen(false)} className="text-[10px] font-black uppercase text-slate-500 hover:text-slate-900 dark:text-white/40 dark:hover:text-white">Cancel</Button>
+                    <Button variant="ghost" onClick={() => { setFundingAmount(''); setIsFundingModalOpen(false); }} className="text-[10px] font-black uppercase text-slate-500 hover:text-slate-900 dark:text-white/40 dark:hover:text-white">Cancel</Button>
                  </div>
               </motion.div>
             </div>
@@ -691,9 +823,38 @@ export default function Games() {
             <Card key={game.id} className="glass-card border-white/10 overflow-hidden group hover:border-yellow-500/30 transition-colors">
               <div className="p-5 space-y-4">
                 <div className="flex justify-between items-start">
-                  <Badge className={game.status === 'live' ? 'bg-rose-500 text-white' : 'bg-blue-500/20 text-blue-400'}>
-                    {game.status === 'live' ? 'LIVE NOW' : 'WAITING FOR PLAYERS'}
-                  </Badge>
+                   {(() => {
+                    const required = (game.numberOfRounds || 1) * 2;
+                    const filled = game.participants?.length || 0;
+                    const isComplete = filled === required;
+                    const isLive = game.status !== 'waiting' && game.status !== 'finished';
+                    
+                    if (game.status === 'finished') {
+                      return (
+                        <Badge className="bg-zinc-800 text-white/50 border border-white/10 uppercase font-black text-[9px] tracking-widest">
+                          ROOM ENDED
+                        </Badge>
+                      );
+                    } else if (isLive || game.status === 'live') {
+                      return (
+                        <Badge className="bg-rose-500 text-white border-none uppercase font-black text-[9px] tracking-widest">
+                          LIVE NOW
+                        </Badge>
+                      );
+                    } else if (isComplete) {
+                      return (
+                        <Badge className="bg-yellow-500/20 text-yellow-500 border border-yellow-500/30 uppercase font-black text-[9px] tracking-widest animate-pulse">
+                          LOBBY READY FOR ACTION
+                        </Badge>
+                      );
+                    } else {
+                      return (
+                        <Badge className="bg-blue-500/20 text-blue-400 border-none uppercase font-black text-[9px] tracking-widest">
+                          WAITING FOR PLAYERS
+                        </Badge>
+                      );
+                    }
+                  })()}
                   <div className="flex items-center gap-2">
                     {(isAdmin || game.hostUid === user?.uid) && (
                       <button 
@@ -706,7 +867,7 @@ export default function Games() {
                     )}
                     <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/5 text-[10px] font-black tracking-widest text-white/60">
                       <Users className="w-3.5 h-3.5" />
-                      {game.participants?.length || 0} / {game.autoStartUsers || '∞'}
+                      {game.participants?.length || 0} / {(game.numberOfRounds || 1) * 2}
                     </div>
                   </div>
                 </div>
@@ -717,21 +878,136 @@ export default function Games() {
                 </div>
 
                 <div className="pt-4 border-t border-white/5 flex justify-between items-end">
-                   <div>
-                     <p className="text-[9px] text-muted-foreground uppercase font-black tracking-widest">Entry Fee</p>
-                     <p className="text-lg font-black text-white">₦{game.entryFee}</p>
+                   <div className="flex gap-6">
+                      <div>
+                        <p className="text-[9px] text-muted-foreground uppercase font-black tracking-widest">Entry Fee</p>
+                        <p className="text-lg font-black text-white">₦{game.entryFee}</p>
+                      </div>
+                      {game.prizeAmount > 0 && (
+                        <div>
+                          <p className="text-[9px] text-yellow-500/80 uppercase font-black tracking-widest">Prize Pool</p>
+                          <p className="text-lg font-black text-yellow-500">₦{game.prizeAmount.toLocaleString()}</p>
+                        </div>
+                      )}
                    </div>
-                   <Button 
-                    disabled={isSubmitting}
-                    onClick={() => handleJoinClick(game)}
-                    className="h-9 px-6 rounded-xl font-black uppercase text-[10px] bg-white/10 hover:bg-yellow-500 hover:text-black transition-all"
-                   >
-                     {isSubmitting ? '...' : 'Enter Room'}
-                   </Button>
+                   <div className="flex gap-2 shrink-0">
+                     <Button
+                       onClick={(e) => handleShareRoom(e, game)}
+                       variant="outline"
+                       className="h-9 w-9 rounded-xl border-white/10 hover:bg-white/10 text-white flex items-center justify-center p-0"
+                       title="Share Room Link"
+                     >
+                       <Share2 className="w-3.5 h-3.5" />
+                     </Button>
+                     <Button 
+                      disabled={isSubmitting}
+                      onClick={() => handleJoinClick(game)}
+                      className="h-9 px-5 rounded-xl font-black uppercase text-[10px] bg-white/10 hover:bg-yellow-500 hover:text-black transition-all"
+                     >
+                       {isSubmitting ? '...' : 'Enter Room'}
+                     </Button>
+                   </div>
                 </div>
               </div>
             </Card>
           ))}
+        </div>
+      </div>
+
+      {/* Detailed Game Rules & Operator's Guide */}
+      <div className="glass-card p-6 md:p-10 border-white/10 relative overflow-hidden mt-12">
+        <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/5 via-purple-500/5 to-transparent pointer-events-none" />
+        <div className="relative z-10 space-y-8">
+           <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                 <BookOpen className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                 <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight">How it Works & Arena Rules</h2>
+                 <p className="text-[10px] md:text-xs text-muted-foreground font-bold uppercase tracking-widest">Master the Split or Steal Game & Lobbies</p>
+              </div>
+           </div>
+
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {/* Step 1: Create */}
+              <div className="space-y-3 p-5 rounded-2xl bg-white/5 border border-white/10 hover:border-primary/20 transition-all">
+                 <div className="w-8 h-8 rounded-lg bg-yellow-500/20 text-yellow-500 flex items-center justify-center font-black text-sm">1</div>
+                 <h4 className="font-black uppercase tracking-wider text-xs text-white">Create a Room</h4>
+                 <p className="text-[10px] leading-relaxed text-muted-foreground font-medium">
+                   Click <span className="text-yellow-500 font-bold">"Create Room"</span>. Specify the name, number of rounds, entry fee (from Game Wallet), and prize pool. You must fund the prize pool from your Game or Referral Wallet.
+                 </p>
+              </div>
+
+              {/* Step 2: Join */}
+              <div className="space-y-3 p-5 rounded-2xl bg-white/5 border border-white/10 hover:border-primary/20 transition-all">
+                 <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center font-black text-sm">2</div>
+                 <h4 className="font-black uppercase tracking-wider text-xs text-white">Invite & Join</h4>
+                 <p className="text-[10px] leading-relaxed text-muted-foreground font-medium">
+                   Click the <span className="text-purple-400 font-bold">Share icon</span> to copy the direct invite link. Users can join as a <span className="text-white font-bold">Player</span> (requires paying the entry fee to enter the contestant pool) or as a <span className="text-white font-bold">Viewer</span>.
+                 </p>
+              </div>
+
+              {/* Step 3: Matchmaking */}
+              <div className="space-y-3 p-5 rounded-2xl bg-white/5 border border-white/10 hover:border-primary/20 transition-all">
+                 <div className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-500 flex items-center justify-center font-black text-sm">3</div>
+                 <h4 className="font-black uppercase tracking-wider text-xs text-white">Arena Matchmaking</h4>
+                 <p className="text-[10px] leading-relaxed text-muted-foreground font-medium">
+                   Once the lobby is full, the host shuffles the participants. Two players enter the Arena per round. The host initiates a 60-second timer where they converse in the Arena Chat.
+                 </p>
+              </div>
+
+              {/* Step 4: Split or Steal */}
+              <div className="space-y-3 p-5 rounded-2xl bg-white/5 border border-white/10 hover:border-primary/20 transition-all">
+                 <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-500 flex items-center justify-center font-black text-sm">4</div>
+                 <h4 className="font-black uppercase tracking-wider text-xs text-white">The Choice (Payouts)</h4>
+                 <p className="text-[10px] leading-relaxed text-muted-foreground font-medium">
+                   Both players secretly choose to <span className="text-yellow-500 font-bold">Split</span> or <span className="text-purple-500 font-bold">Steal</span>. You have 10 seconds, but your choice is locked in during the final 5 seconds.
+                 </p>
+              </div>
+           </div>
+
+           {/* Outcomes & Financial breakdown */}
+           <div className="pt-6 border-t border-white/5 grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                 <h3 className="text-xs font-black uppercase tracking-[0.2em] text-yellow-500 flex items-center gap-2">
+                    <Coins className="w-4 h-4" /> Game Payout & Outcome Rules
+                 </h3>
+                 <div className="space-y-3 text-[10px] font-medium text-muted-foreground leading-relaxed">
+                    <div className="flex gap-3 items-start">
+                       <span className="font-black"><span className="text-yellow-500">Split</span> + <span className="text-yellow-500">Split</span> <span className="text-yellow-500">(Share):</span></span>
+                       <span>Both players split the prize pool for that round 50/50. Winnings are deposited immediately to your Game Wallet.</span>
+                    </div>
+                    <div className="flex gap-3 items-start">
+                        <span className="font-black"><span className="text-purple-400">Steal</span> + <span className="text-yellow-500">Split</span> <span className="text-purple-400">(Stealer Wins):</span></span>
+                       <span>The player who chose Steal wins 100% of the round's prize pool. The player who chose Split gets ₦0.</span>
+                    </div>
+                    <div className="flex gap-3 items-start">
+                        <span className="font-black"><span className="text-purple-400">Steal</span> + <span className="text-purple-400">Steal</span> <span className="text-rose-500">(No Winners):</span></span>
+                       <span>Both players choose Steal. Nobody gets any money; the prize pool for that round is forfeited back to the game platform.</span>
+                    </div>
+                 </div>
+              </div>
+
+              <div className="space-y-4">
+                 <h3 className="text-xs font-black uppercase tracking-[0.2em] text-purple-400 flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4" /> Host Earnings & Chat Control
+                 </h3>
+                 <div className="space-y-3 text-[10px] font-medium text-muted-foreground leading-relaxed">
+                    <div className="flex gap-3 items-start">
+                       <span className="text-white font-bold">Hosting Rewards:</span>
+                       <span>Hosts earn 100% of the player entry fees collected in the room. This makes room hosting an extremely profitable activity.</span>
+                    </div>
+                    <div className="flex gap-3 items-start">
+                       <span className="text-white font-bold">Arena Chat Lockdown:</span>
+                       <span>During active rounds, only the two active contestants are allowed to write in the Arena chat. Spectators and waiting players are view-only.</span>
+                    </div>
+                    <div className="flex gap-3 items-start">
+                       <span className="text-white font-bold">Global Spectator Chat:</span>
+                       <span>Viewers can chat in the Global channel to analyze the match, which is invisible to active contestants to prevent outside interference.</span>
+                    </div>
+                 </div>
+              </div>
+           </div>
         </div>
       </div>
 
@@ -776,7 +1052,7 @@ export default function Games() {
                              {isMultipleRounds && (
                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-2 overflow-hidden">
                                   <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Number of Rounds</label>
-                                  <input type="number" required={isMultipleRounds} value={numberOfRounds} onChange={e => setNumberOfRounds(e.target.value)} placeholder="e.g. 5" min="2" className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 px-4 text-sm font-bold outline-none focus:border-yellow-500/50" />
+                                  <input type="number" required={isMultipleRounds} value={numberOfRounds} onChange={e => setNumberOfRounds(e.target.value)} placeholder="e.g. 5" min="1" className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 px-4 text-sm font-bold outline-none focus:border-yellow-500/50" />
                                </motion.div>
                              )}
                           </AnimatePresence>
@@ -797,21 +1073,13 @@ export default function Games() {
                           {startCondition === 'auto' && (
                              <div className="space-y-2 pt-2">
                                <label className="text-[9px] font-bold text-muted-foreground uppercase">When pool reaches:</label>
-                               <div className="relative">
-                                 <select value={autoStartUsers} onChange={e => setAutoStartUsers(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 px-3 text-[11px] outline-none text-white appearance-none focus:border-yellow-500/50 font-black">
-                                   <option value="2">2 Users</option>
-                                   <option value="4">4 Users</option>
-                                   <option value="6">6 Users</option>
-                                   <option value="8">8 Users</option>
-                                   <option value="10">10 Users</option>
-                                   <option value="12">12 Users</option>
-                                   <option value="14">14 Users</option>
-                                   <option value="16">16 Users</option>
-                                   <option value="18">18 Users</option>
-                                   <option value="20">20 Users</option>
-                                 </select>
-                                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                               </div>
+                                <div className="p-3 bg-black/40 border border-white/10 rounded-xl text-[10px] font-bold text-yellow-500 uppercase tracking-widest text-center">
+                                  {isMultipleRounds 
+                                    ? (numberOfRounds && !isNaN(parseInt(numberOfRounds)) 
+                                        ? `${parseInt(numberOfRounds) * 2} Players (Lobby Full)` 
+                                        : 'Enter Rounds Count') 
+                                    : '2 Players (Lobby Full)'}
+                                </div>
                              </div>
                           )}
                        </div>
@@ -834,29 +1102,6 @@ export default function Games() {
                                </motion.div>
                              )}
                            </AnimatePresence>
-                         </div>
-                       )}
-
-                       {/* Payment Method */}
-                       {!isAdmin && calculateTotalPrizeCost() > 0 && (
-                         <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Pay Prize Pool With</p>
-                            <div className="flex p-1 bg-black/40 rounded-lg border border-white/5">
-                               <button 
-                                type="button" 
-                                onClick={() => setPaymentWallet('normal')}
-                                className={`flex-1 py-2 rounded text-[10px] font-black transition-all ${paymentWallet === 'normal' ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20' : 'text-muted-foreground hover:bg-white/5'}`}
-                               >
-                                 MAIN WALLET
-                               </button>
-                               <button 
-                                type="button" 
-                                onClick={() => setPaymentWallet('referral')}
-                                className={`flex-1 py-2 rounded text-[10px] font-black transition-all ${paymentWallet === 'referral' ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20' : 'text-muted-foreground hover:bg-white/5'}`}
-                               >
-                                 REFERRAL WALLET
-                               </button>
-                            </div>
                          </div>
                        )}
 
@@ -918,8 +1163,12 @@ export default function Games() {
                           <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 dark:text-white/40">₦</span>
                           <input 
                             type="number" 
-                            value={withdrawAmountInput} 
-                            onChange={e => setWithdrawAmountInput(e.target.value)} 
+                            min="0" value={withdrawAmountInput} 
+                             onChange={e => {
+                               const val = e.target.value;
+                               if (val.startsWith("-")) return;
+                               setWithdrawAmountInput(val);
+                             }} 
                             placeholder="0.00" 
                             className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-10 pr-4 text-sm font-black outline-none focus:border-primary/50 text-slate-900 dark:text-white" 
                           />
@@ -985,18 +1234,38 @@ export default function Games() {
                  </div>
 
                  <div className="grid grid-cols-1 gap-4">
-                    <button 
-                      onClick={() => handleSelectRole('player')}
-                      className="group p-6 rounded-2xl bg-yellow-500/10 border border-yellow-500/30 hover:bg-yellow-500 hover:text-black transition-all text-left flex items-center gap-4"
-                    >
-                       <div className="w-12 h-12 rounded-xl bg-yellow-500/20 group-hover:bg-black/10 flex items-center justify-center shrink-0">
-                          <Swords className="w-6 h-6 text-yellow-500 group-hover:text-black" />
-                       </div>
-                       <div>
-                          <p className="font-black uppercase text-sm">Join to Compete</p>
-                          <p className="text-[10px] font-bold opacity-60">Pay fee and enter prize pool</p>
-                       </div>
-                    </button>
+                     {(() => {
+                       const maxPlayers = (joiningGame?.numberOfRounds || 1) * 2;
+                       const currentPlayers = joiningGame?.participants?.length || 0;
+                       const isFull = currentPlayers >= maxPlayers;
+                       
+                       return (
+                         <button 
+                           disabled={isFull}
+                           onClick={() => handleSelectRole('player')}
+                           className={`group p-6 rounded-2xl border transition-all text-left flex items-center gap-4 ${
+                             isFull 
+                             ? 'opacity-40 cursor-not-allowed bg-red-500/5 border-red-500/20' 
+                             : 'bg-yellow-500/10 border-yellow-500/30 hover:bg-yellow-500 hover:text-black'
+                           }`}
+                         >
+                            <div className="w-12 h-12 rounded-xl bg-yellow-500/20 group-hover:bg-black/10 flex items-center justify-center shrink-0">
+                               <Swords className={`w-6 h-6 ${isFull ? 'text-red-400' : 'text-yellow-500 group-hover:text-black'}`} />
+                            </div>
+                            <div>
+                               <p className="font-black uppercase text-sm">
+                                 {isFull ? 'Player Slots Full' : 'Join to Compete'}
+                               </p>
+                               <p className="text-[10px] font-bold opacity-60">
+                                 {isFull 
+                                   ? `Limit of ${maxPlayers} players reached (${joiningGame?.numberOfRounds} rounds)`
+                                   : `Pay fee and enter prize pool (${currentPlayers}/${maxPlayers} filled)`
+                                 }
+                               </p>
+                            </div>
+                         </button>
+                       );
+                     })()}
 
                     <button 
                       onClick={() => handleSelectRole('viewer')}

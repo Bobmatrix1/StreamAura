@@ -38,9 +38,12 @@ self.addEventListener('fetch', (event) => {
     url.hostname.includes('google') ||
     url.hostname.includes('googleapis') ||
     url.hostname.includes('paystack') ||
+    url.hostname.includes('transactpay') ||
     url.hostname.includes('agora') ||
     url.hostname.includes('sd-rtn') || // Agora edge nodes
     url.hostname.includes('unsplash') ||
+    url.hostname.includes('cdn.streamaura.site') ||
+    url.hostname.includes('api.dicebear.com') ||
     url.pathname.startsWith('/api') ||
     url.port === '1578' ||
     url.href.includes('hot-update')
@@ -70,8 +73,8 @@ self.addEventListener('fetch', (event) => {
           const offlinePage = await caches.match('/offline.html');
           if (offlinePage) return offlinePage;
         }
-        // Let the browser handle the network error for images/scripts
-        throw error;
+        // Return a clean error Response instead of throwing to avoid uncaught promise rejections
+        return new Response('', { status: 408, statusText: 'Network Error' });
       }
     })()
   );

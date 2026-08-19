@@ -10,7 +10,8 @@ import {
   Zap,
   Inbox,
   CheckCheck,
-  RefreshCcw
+  RefreshCcw,
+  Banknote
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { 
@@ -91,10 +92,18 @@ const Notifications: React.FC = () => {
     setIsConfirmOpen(false);
   };
 
-  const getIcon = (type: string) => {
+  const getIcon = (notif: AppNotification) => {
+    const type = notif.type;
+    const title = notif.title || '';
+
+    if (type === 'withdrawal_approved' || (type === 'success' && title.toLowerCase().includes('withdrawal'))) {
+      return <Banknote className="w-5 h-5 text-emerald-400" />;
+    }
+
     switch (type) {
       case 'update': return <Zap className="w-5 h-5 text-rose-400" />;
       case 'alert': return <AlertTriangle className="w-5 h-5 text-orange-400" />;
+      case 'success': return <CheckCircle2 className="w-5 h-5 text-emerald-400" />;
       default: return <Info className="w-5 h-5 text-rose-400" />;
     }
   };
@@ -244,7 +253,7 @@ const Notifications: React.FC = () => {
                   className={`p-5 flex items-start gap-4 transition-colors ${notif.read ? 'opacity-60' : 'bg-white/[0.03]'}`}
                 >
                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 border border-white/10 ${notif.read ? 'bg-white/5' : 'bg-white/10 shadow-lg'}`}>
-                    {getIcon(notif.type)}
+                    {getIcon(notif)}
                   </div>
                   
                   <div className="flex-1 min-w-0 space-y-1">

@@ -20,7 +20,8 @@ import {
   Zap,
   Inbox,
   CheckCheck,
-  RefreshCcw
+  RefreshCcw,
+  Banknote
 } from 'lucide-react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { 
@@ -71,40 +72,72 @@ const Notifications: React.FC = () => {
     );
   };
 
-  const getIcon = (type: string) => {
+  const getIconData = (item: AppNotification) => {
+    const type = item.type;
+    const title = item.title || '';
+
+    if (type === 'withdrawal_approved' || (type === 'success' && title.toLowerCase().includes('withdrawal'))) {
+      return {
+        icon: <Banknote size={20} color="#34d399" />,
+        bgColor: 'rgba(52, 211, 153, 0.1)'
+      };
+    }
+
+    if (type === 'success') {
+      return {
+        icon: <CheckCircle2 size={20} color="#34d399" />,
+        bgColor: 'rgba(52, 211, 153, 0.1)'
+      };
+    }
+
     switch (type) {
-      case 'update': return <Zap size={20} color="#fb7185" />;
-      case 'alert': return <AlertTriangle size={20} color="#fbbf24" />;
-      default: return <Info size={20} color="#fb7185" />;
+      case 'update':
+        return {
+          icon: <Zap size={20} color="#fb7185" />,
+          bgColor: 'rgba(251, 113, 133, 0.1)'
+        };
+      case 'alert':
+        return {
+          icon: <AlertTriangle size={20} color="#fbbf24" />,
+          bgColor: 'rgba(251, 191, 36, 0.1)'
+        };
+      default:
+        return {
+          icon: <Info size={20} color="#fb7185" />,
+          bgColor: 'rgba(251, 113, 133, 0.1)'
+        };
     }
   };
 
-  const renderItem = ({ item }: { item: AppNotification }) => (
-    <View style={[styles.notifCard, item.read && styles.notifRead]}>
-      <View style={[styles.iconBox, { backgroundColor: item.read ? 'rgba(255,255,255,0.05)' : 'rgba(251, 113, 133, 0.1)' }]}>
-        {getIcon(item.type)}
-      </View>
-      <View style={styles.notifInfo}>
-        <View style={styles.notifHeader}>
-          <Text style={[styles.notifTitle, item.read && styles.textRead]}>{item.title}</Text>
-          <Text style={styles.notifTime}>{new Date(item.timestamp).toLocaleDateString()}</Text>
+  const renderItem = ({ item }: { item: AppNotification }) => {
+    const iconData = getIconData(item);
+    return (
+      <View style={[styles.notifCard, item.read && styles.notifRead]}>
+        <View style={[styles.iconBox, { backgroundColor: item.read ? 'rgba(255,255,255,0.05)' : iconData.bgColor }]}>
+          {iconData.icon}
         </View>
-        <Text style={[styles.notifMessage, item.read && styles.textRead]} numberOfLines={2}>{item.message}</Text>
-        <View style={styles.notifActions}>
-          {!item.read && (
-            <TouchableOpacity onPress={() => handleMarkRead(item.id)} style={styles.actionBtn}>
-              <CheckCircle2 size={12} color="#fb7185" />
-              <Text style={styles.actionText}>Mark read</Text>
+        <View style={styles.notifInfo}>
+          <View style={styles.notifHeader}>
+            <Text style={[styles.notifTitle, item.read && styles.textRead]}>{item.title}</Text>
+            <Text style={styles.notifTime}>{new Date(item.timestamp).toLocaleDateString()}</Text>
+          </View>
+          <Text style={[styles.notifMessage, item.read && styles.textRead]} numberOfLines={2}>{item.message}</Text>
+          <View style={styles.notifActions}>
+            {!item.read && (
+              <TouchableOpacity onPress={() => handleMarkRead(item.id)} style={styles.actionBtn}>
+                <CheckCircle2 size={12} color="#fb7185" />
+                <Text style={styles.actionText}>Mark read</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity onPress={async () => { if (user?.uid) await clearNotification(user.uid, item.id); }} style={styles.actionBtn}>
+              <Trash2 size={12} color="#ef4444" />
+              <Text style={[styles.actionText, { color: '#ef4444' }]}>Remove</Text>
             </TouchableOpacity>
-          )}
-          <TouchableOpacity onPress={async () => { if (user?.uid) await clearNotification(user.uid, item.id); }} style={styles.actionBtn}>
-            <Trash2 size={12} color="#ef4444" />
-            <Text style={[styles.actionText, { color: '#ef4444' }]}>Remove</Text>
-          </TouchableOpacity>
+          </View>
         </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>

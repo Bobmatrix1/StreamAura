@@ -133,14 +133,14 @@ const Wallet: React.FC = () => {
       loadBank();
 
       // Combined History Listener (Transactions + Withdrawals)
-      const qTx = query(collection(db, 'transactions'), where('user_uid', '==', user.uid), orderBy('timestamp', 'desc'));
-      const qWd = query(collection(db, 'withdrawals'), where('user_uid', '==', user.uid), orderBy('created_at', 'desc'));
+      const qTx = query(collection(db, 'transactions'), where('user_uid', '==', user.uid));
+      const qWd = query(collection(db, 'withdrawals'), where('user_uid', '==', user.uid));
       
       let allItems: any[] = [];
       const updateHistory = () => {
          const sorted = [...allItems].sort((a, b) => {
-            const tsA = a.timestamp?.seconds || (a.created_at?.seconds) || 0;
-            const tsB = b.timestamp?.seconds || (b.created_at?.seconds) || 0;
+             const tsA = a.timestamp?.seconds || (a.created_at?.seconds) || (Date.now() / 1000);
+             const tsB = b.timestamp?.seconds || (b.created_at?.seconds) || (Date.now() / 1000);
             return tsB - tsA;
          });
          setTransactions(sorted);
@@ -375,6 +375,7 @@ const Wallet: React.FC = () => {
     );
   };
 
+
   const handleEnterRoom = (ticket: TicketItem) => {
     const ticketDateStr = `${ticket.date} ${ticket.time}`;
     const scheduledTime = new Date(ticketDateStr).getTime();
@@ -537,7 +538,7 @@ const Wallet: React.FC = () => {
           </Button>
           <Button onClick={() => {
             setActiveTab('overview');
-            setScrollToTab('overview');
+            document.getElementById('quick-deposit')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }} className="flex-1 gradient-bg rounded-xl h-12 text-xs font-black uppercase tracking-widest shadow-lg shadow-primary/20 active:scale-95 transition-all gap-2">
             <Plus className="w-4 h-4" /> Add Funds
           </Button>
@@ -553,7 +554,7 @@ const Wallet: React.FC = () => {
                   <div className="flex flex-wrap justify-between items-start gap-4 w-full">
                     <div className="space-y-1 min-w-[120px] flex-1">
                       <p className="text-white/40 text-[9px] uppercase font-black tracking-widest flex items-center gap-1.5">
-                        <WalletIconLucide className="w-3 h-3 text-primary" /> Funded
+                        <WalletIconLucide className="w-3 h-3 text-primary" /> Main Wallet
                       </p>
                       <h2 className="text-[clamp(1.25rem,4.5vw,1.75rem)] font-black text-white tracking-tighter break-all">₦{balance.available.toLocaleString()}</h2>
                     </div>
@@ -619,7 +620,7 @@ const Wallet: React.FC = () => {
                 />
               </div>
               <Button onClick={handleAddFunds} disabled={isAddingFunds} className="w-full gradient-bg h-14 font-black uppercase text-[11px] tracking-[0.2em] shadow-xl shadow-primary/10">
-                {isAddingFunds ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Pay with Paystack'}
+                {isAddingFunds ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Fund Account'}
               </Button>
               <p className="text-[8px] text-center text-muted-foreground uppercase font-bold tracking-[0.1em] leading-relaxed">Secured via encrypted gateway. 100% full refund policy active.</p>
             </div>
@@ -766,7 +767,13 @@ const Wallet: React.FC = () => {
                            <p className={`text-sm font-black ${['earning', 'deposit', 'transfer_in', 'payout_refund'].includes(tx.type) ? 'text-emerald-500' : 'text-foreground'}`}>
                               {['earning', 'deposit', 'transfer_in', 'payout_refund'].includes(tx.type) ? '+' : '-'}₦{tx.amount.toLocaleString()}
                            </p>
-                           <Badge variant="outline" className={`mt-1 text-[8px] uppercase tracking-widest ${tx.status === 'completed' ? 'border-emerald-500/30 text-emerald-500' : 'border-amber-500/30 text-amber-500'}`}>{tx.status}</Badge>
+                           <Badge variant="outline" className={`mt-1 text-[8px] uppercase tracking-widest ${
+                              tx.status === 'completed' 
+                                ? 'border-emerald-500/30 text-emerald-500' 
+                                : tx.status === 'rejected'
+                                ? 'border-red-500/30 text-red-500'
+                                : 'border-amber-500/30 text-amber-500'
+                            }`}>{tx.status}</Badge>
                         </div>
                      </div>
                    ))}
@@ -1008,7 +1015,17 @@ const Wallet: React.FC = () => {
                                </div>
                                
                                <div className="flex gap-3 pt-2">
-                                 <Button variant="ghost" onClick={() => setActiveTab('overview')} className="flex-1 h-12 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:bg-white/5 rounded-xl border border-white/10">
+                                 <Button 
+                                    variant="ghost" 
+                                    onClick={() => {
+                                      if (bankDetails.account.length === 10 && bankDetails.bankName && bankDetails.name) {
+                                        setHasBankSet(true);
+                                      } else {
+                                        setActiveTab('overview');
+                                      }
+                                    }} 
+                                    className="flex-1 h-12 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:bg-white/5 rounded-xl border border-white/10"
+                                 >
                                     Cancel
                                  </Button>
                                  <Button 
@@ -1058,7 +1075,7 @@ const Wallet: React.FC = () => {
                                            <WalletIconLucide className="w-4 h-4 text-primary" />
                                            {withdrawSource === 'funded' && <CheckCircle2 className="w-3.5 h-3.5 text-primary" />}
                                         </div>
-                                        <p className="text-[10px] font-black uppercase text-slate-900 dark:text-white">Funded</p>
+                                        <p className="text-[10px] font-black uppercase text-slate-900 dark:text-white">Main Wallet</p>
                                         <p className="text-[9px] font-bold text-muted-foreground">₦{balance.available.toLocaleString()}</p>
                                      </button>
                                      <button 
