@@ -93,8 +93,16 @@ export interface AppNotification {
   message: string;
   timestamp: number;
   read: boolean;
-  type: 'update' | 'alert' | 'general';
+  type: 'update' | 'alert' | 'general' | 'preorder_delivered' | 'success' | 'withdrawal_approved' | string;
   link?: string;
+  preorderId?: string;
+  movieId?: string;
+  movieTitle?: string;
+  movieUrl?: string;
+  thumbnailUrl?: string;
+  mediaType?: 'movie' | 'series';
+  season?: string;
+  episode?: string;
 }
 
 export const requestNotificationPermission = async (userId: string) => {
@@ -809,7 +817,17 @@ export const updatePreOrderStatus = async (preOrderId: string, status: 'watched'
   await updateDoc(doc(db, 'preorders', preOrderId), { userStatus: status });
 };
 
-export const fulfillPreOrder = async (preorderId: string, userId: string, movieTitle: string, movieUrl: string, thumbnailUrl: string): Promise<void> => {
+export const fulfillPreOrder = async (
+  preorderId: string, 
+  userId: string, 
+  movieTitle: string, 
+  movieUrl: string, 
+  thumbnailUrl: string,
+  movieId?: string,
+  mediaType?: 'movie' | 'series',
+  season?: string,
+  episode?: string
+): Promise<void> => {
   try {
     await updateDoc(doc(db, 'preorders', preorderId), { 
       status: 'available', 
@@ -824,8 +842,16 @@ export const fulfillPreOrder = async (preorderId: string, userId: string, movieT
       message: `The movie "${movieTitle}" you pre-ordered is now live! You can watch or download it now.`,
       timestamp: Date.now(),
       read: false,
-      type: 'update',
-      link: `/?tab=movie&preorder=${preorderId}`
+      type: 'preorder_delivered',
+      link: `/?tab=movie&preorder=${preorderId}`,
+      preorderId,
+      movieId: movieId || '',
+      movieTitle,
+      movieUrl,
+      thumbnailUrl,
+      mediaType: mediaType || 'movie',
+      season: season || '',
+      episode: episode || ''
     });
     await updateDoc(doc(db, 'users', userId), { unreadCount: increment(1) });
   } catch (error) { throw new Error('Failed to fulfill pre-order'); }

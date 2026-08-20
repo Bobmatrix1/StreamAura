@@ -29,7 +29,8 @@ import {
   Share2,
   Home,
   Gamepad2,
-  ArrowUp
+  ArrowUp,
+  ArrowLeft
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -80,6 +81,33 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showScrollTop, setShowScrollTop] = useState(false);
+
+  const prevTabRef = React.useRef<ViewType>(activeTab);
+  const [historyStack, setHistoryStack] = useState<ViewType[]>([]);
+  const [isBackAction, setIsBackAction] = useState(false);
+
+  useEffect(() => {
+    const prevTab = prevTabRef.current;
+    if (activeTab !== prevTab) {
+      if (isBackAction) {
+        setIsBackAction(false);
+      } else {
+        setHistoryStack(prev => {
+          if (prev.length > 0 && prev[prev.length - 1] === prevTab) return prev;
+          return [...prev, prevTab];
+        });
+      }
+      prevTabRef.current = activeTab;
+    }
+  }, [activeTab, isBackAction]);
+
+  const handleBack = () => {
+    if (historyStack.length === 0) return;
+    const previous = historyStack[historyStack.length - 1];
+    setHistoryStack(prev => prev.slice(0, -1));
+    setIsBackAction(true);
+    onTabChange(previous);
+  };
 
   useEffect(() => {
     const handleScroll = () => {
@@ -358,7 +386,25 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
 
       {/* Main Content */}
       <main className={`flex-1 overflow-auto transition-all duration-300 ${isMobileMenuOpen ? 'blur-sm brightness-90 md:blur-none md:brightness-100' : ''}`}>
-        <div className="p-4 md:p-8 max-w-7xl mx-auto">
+        <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
+          <AnimatePresence>
+            {historyStack.length > 0 && (
+              <motion.div 
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="flex items-center gap-3 pb-2 border-b border-white/5"
+              >
+                <button
+                  onClick={handleBack}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-white text-xs font-black uppercase tracking-widest transition-all active:scale-95 group"
+                >
+                  <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+                  <span>Back</span>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
           {children}
         </div>
       </main>

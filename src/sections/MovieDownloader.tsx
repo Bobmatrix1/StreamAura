@@ -92,6 +92,49 @@ const MovieDownloader: React.FC = () => {
     }
   }, [activeTab, user?.uid]);
 
+  useEffect(() => {
+    const checkAutoWatch = () => {
+      const autoWatchData = sessionStorage.getItem('aura_auto_watch_movie');
+      if (autoWatchData) {
+        try {
+          const movie = JSON.parse(autoWatchData);
+          setCloudData({
+            id: movie.movieId || movie.id || '',
+            title: movie.title,
+            thumbnail: movie.thumbnail || '',
+            description: 'Pre-ordered content is now available.',
+            year: new Date().getFullYear().toString(),
+            rating: '8.5',
+            streamUrl: movie.movieUrl || movie.streamUrl || '',
+            downloadUrl: movie.movieUrl || movie.downloadUrl || '',
+            mediaType: movie.mediaType || 'movie',
+            season: movie.season,
+            episode: movie.episode,
+            addedAt: Date.now()
+          } as any);
+          
+          if (movie.season) {
+            setSelectedSeason(movie.season.toString());
+          }
+          if (movie.episode) {
+            setSelectedEpisode(movie.episode.toString());
+          }
+          
+          setShowPlayer(true);
+        } catch (e) {
+          console.error('[MovieDownloader] Error auto-watching pre-order:', e);
+        } finally {
+          sessionStorage.removeItem('aura_auto_watch_movie');
+        }
+      }
+    };
+    
+    checkAutoWatch();
+    
+    window.addEventListener('focus', checkAutoWatch);
+    return () => window.removeEventListener('focus', checkAutoWatch);
+  }, []);
+
   const loadTrending = async () => {
     setIsSearching(true);
     setSelectedMovie(null);

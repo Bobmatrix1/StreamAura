@@ -11,7 +11,12 @@ import {
   Inbox,
   CheckCheck,
   RefreshCcw,
-  Banknote
+  Banknote,
+  Play,
+  Download,
+  Users,
+  Film,
+  Tv
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { 
@@ -20,6 +25,7 @@ import {
   markAllAsRead,
   clearNotification, 
   clearAllUserNotifications,
+  updatePreOrderStatus,
   type AppNotification 
 } from '../lib/firebase';
 
@@ -40,6 +46,7 @@ const Notifications: React.FC = () => {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [selectedNotifForOptions, setSelectedNotifForOptions] = useState<AppNotification | null>(null);
 
   const loadNotifications = () => {
     if (!user?.uid) return () => {};
@@ -101,6 +108,10 @@ const Notifications: React.FC = () => {
     }
 
     switch (type) {
+      case 'preorder_delivered': 
+        return notif.mediaType === 'series' 
+          ? <Tv className="w-5 h-5 text-cyan-400" /> 
+          : <Film className="w-5 h-5 text-cyan-400" />;
       case 'update': return <Zap className="w-5 h-5 text-rose-400" />;
       case 'alert': return <AlertTriangle className="w-5 h-5 text-orange-400" />;
       case 'success': return <CheckCircle2 className="w-5 h-5 text-emerald-400" />;
@@ -110,6 +121,112 @@ const Notifications: React.FC = () => {
 
   return (
     <div className="max-w-3xl mx-auto space-y-8 pb-32">
+      {/* Interactive Delivery Options Modal */}
+      <AnimatePresence>
+        {selectedNotifForOptions && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedNotifForOptions(null)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-sm glass-card p-8 border-white/10 shadow-2xl text-center space-y-6"
+            >
+              {selectedNotifForOptions.thumbnailUrl && (
+                <div className="w-24 h-32 rounded-2xl overflow-hidden border border-white/10 mx-auto shadow-lg">
+                  <img src={selectedNotifForOptions.thumbnailUrl} className="w-full h-full object-cover" alt={selectedNotifForOptions.movieTitle} />
+                </div>
+              )}
+              
+              <div className="space-y-2">
+                <h3 className="text-xl font-bold text-white">🎥 Content Delivered!</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Choose how you want to experience <strong className="text-white">"{selectedNotifForOptions.movieTitle}"</strong>:
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3 pt-2">
+                <button 
+                  onClick={async () => {
+                    if (!selectedNotifForOptions.movieUrl) return;
+                    sessionStorage.setItem('aura_auto_watch_movie', JSON.stringify({
+                      movieId: selectedNotifForOptions.movieId,
+                      title: selectedNotifForOptions.movieTitle,
+                      movieUrl: selectedNotifForOptions.movieUrl,
+                      thumbnail: selectedNotifForOptions.thumbnailUrl,
+                      mediaType: selectedNotifForOptions.mediaType,
+                      season: selectedNotifForOptions.season,
+                      episode: selectedNotifForOptions.episode
+                    }));
+                    
+                    await handleMarkRead(selectedNotifForOptions.id);
+                    if (selectedNotifForOptions.preorderId) {
+                      await updatePreOrderStatus(selectedNotifForOptions.preorderId, 'watched');
+                    }
+                    setSelectedNotifForOptions(null);
+                    window.dispatchEvent(new CustomEvent('navigate', { detail: { view: 'movie' } }));
+                  }}
+                  className="w-full py-3.5 rounded-xl gradient-bg text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-primary/20 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
+                >
+                  <Play className="w-4 h-4 fill-current" /> Watch Now
+                </button>
+
+                <button 
+                  onClick={async () => {
+                    if (!selectedNotifForOptions.movieUrl) return;
+                    window.open(selectedNotifForOptions.movieUrl, '_blank');
+                    
+                    await handleMarkRead(selectedNotifForOptions.id);
+                    if (selectedNotifForOptions.preorderId) {
+                      await updatePreOrderStatus(selectedNotifForOptions.preorderId, 'downloaded');
+                    }
+                    setSelectedNotifForOptions(null);
+                  }}
+                  className="w-full py-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs font-black uppercase tracking-wider hover:bg-white/10 active:scale-95 transition-all flex items-center justify-center gap-2"
+                >
+                  <Download className="w-4 h-4" /> Download Movie
+                </button>
+
+                <button 
+                  onClick={async () => {
+                    if (!selectedNotifForOptions.movieUrl) return;
+                    const url = new URL(window.location.origin);
+                    url.searchParams.set('tab', 'cinema');
+                    url.searchParams.set('create', 'true');
+                    url.searchParams.set('movie_id', selectedNotifForOptions.movieId || selectedNotifForOptions.preorderId || '');
+                    url.searchParams.set('title', selectedNotifForOptions.movieTitle || '');
+                    url.searchParams.set('thumbnail', selectedNotifForOptions.thumbnailUrl || '');
+                    url.searchParams.set('movie_url', selectedNotifForOptions.movieUrl || '');
+                    if (selectedNotifForOptions.season) url.searchParams.set('season', selectedNotifForOptions.season.toString());
+                    if (selectedNotifForOptions.episode) url.searchParams.set('episode', selectedNotifForOptions.episode.toString());
+                    
+                    await handleMarkRead(selectedNotifForOptions.id);
+                    setSelectedNotifForOptions(null);
+                    window.location.href = url.toString();
+                  }}
+                  className="w-full py-3.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-black uppercase tracking-wider hover:bg-cyan-500/20 active:scale-95 transition-all flex items-center justify-center gap-2"
+                >
+                  <Users className="w-4 h-4" /> Watch with Friends
+                </button>
+
+                <button 
+                  onClick={() => setSelectedNotifForOptions(null)}
+                  className="w-full py-3 mt-1 rounded-xl text-[10px] font-black uppercase text-muted-foreground hover:text-white transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Custom Confirm Modal */}
       <AnimatePresence>
         {isConfirmOpen && (
@@ -250,7 +367,12 @@ const Notifications: React.FC = () => {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, scale: 0.95 }}
-                  className={`p-5 flex items-start gap-4 transition-colors ${notif.read ? 'opacity-60' : 'bg-white/[0.03]'}`}
+                  className={`p-5 flex items-start gap-4 transition-colors ${notif.read ? 'opacity-60' : 'bg-white/[0.03]'} ${notif.type === 'preorder_delivered' ? 'cursor-pointer hover:bg-white/[0.06] border-l-2 border-cyan-500' : ''}`}
+                  onClick={() => {
+                    if (notif.type === 'preorder_delivered') {
+                      setSelectedNotifForOptions(notif);
+                    }
+                  }}
                 >
                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 border border-white/10 ${notif.read ? 'bg-white/5' : 'bg-white/10 shadow-lg'}`}>
                     {getIcon(notif)}
@@ -271,16 +393,24 @@ const Notifications: React.FC = () => {
                     </p>
                     
                     <div className="flex items-center gap-3 pt-2">
+                      {notif.type === 'preorder_delivered' && (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setSelectedNotifForOptions(notif); }}
+                          className="flex items-center gap-1.5 text-[10px] font-black uppercase text-cyan-400 hover:brightness-125 transition-all"
+                        >
+                          <Play className="w-3 h-3" /> Action Options
+                        </button>
+                      )}
                       {!notif.read && (
                         <button 
-                          onClick={() => handleMarkRead(notif.id)}
+                          onClick={(e) => { e.stopPropagation(); handleMarkRead(notif.id); }}
                           className="flex items-center gap-1.5 text-[10px] font-black uppercase text-rose-400 hover:brightness-125 transition-all"
                         >
                           <CheckCircle2 className="w-3 h-3" /> Mark as read
                         </button>
                       )}
                       <button 
-                        onClick={() => handleClear(notif.id)}
+                        onClick={(e) => { e.stopPropagation(); handleClear(notif.id); }}
                         className="flex items-center gap-1.5 text-[10px] font-black uppercase text-red-400 hover:brightness-125 transition-all"
                       >
                         <Trash2 className="w-3 h-3" /> Remove

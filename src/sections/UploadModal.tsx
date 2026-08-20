@@ -67,7 +67,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({ preOrder, onClose, onS
       await uploadToCloud({ ...movieData, id: cloudId });
       
       // 4. Mark pre-order as available and notify user
-      await fulfillPreOrder(preOrder.id, preOrder.userId, preOrder.title, movieUrl, coverUrl);
+      await fulfillPreOrder(
+        preOrder.id, 
+        preOrder.userId, 
+        preOrder.title, 
+        movieUrl, 
+        coverUrl,
+        preOrder.movieId,
+        preOrder.mediaType,
+        preOrder.season?.toString(),
+        preOrder.episode?.toString()
+      );
       
       showSuccess('Movie uploaded and user notified!');
       onSuccess();
