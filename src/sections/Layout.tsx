@@ -397,9 +397,9 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
               >
                 <button
                   onClick={handleBack}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-white text-xs font-black uppercase tracking-widest transition-all active:scale-95 group"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.08] dark:bg-white/[0.06] backdrop-blur-md border border-white/10 dark:border-white/5 hover:bg-white/[0.12] hover:border-white/20 active:scale-95 shadow-[0_4px_12px_rgba(0,0,0,0.1)] text-white text-xs font-black uppercase tracking-widest transition-all duration-200 group"
                 >
-                  <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+                  <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
                   <span>Back</span>
                 </button>
               </motion.div>
