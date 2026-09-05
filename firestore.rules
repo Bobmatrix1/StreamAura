@@ -47,7 +47,7 @@ service cloud.firestore {
 
       match /notifications/{notifId} {
         allow read, update, delete: if isOwner(userId) || isAdmin();
-        allow create: if isOwner(userId) || isAdmin();
+        allow create: if isAuthenticated();
       }
     }
 

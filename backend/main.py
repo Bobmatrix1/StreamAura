@@ -1177,7 +1177,9 @@ def format_order_telegram_keyboard(order_id: str, status: str = "pending") -> di
         return {
             "inline_keyboard": [
                 [
-                    {"text": "✅ Accept Order", "callback_data": f"accept_{order_id}"},
+                    {"text": "✅ Accept Order", "callback_data": f"accept_{order_id}"}
+                ],
+                [
                     {"text": "❌ Cancel Order", "callback_data": f"cancel_{order_id}"}
                 ]
             ]
@@ -1189,8 +1191,10 @@ def format_order_telegram_keyboard(order_id: str, status: str = "pending") -> di
                     {"text": "🚚 Out for Delivery (Set ETA)", "callback_data": f"prompt_ship_{order_id}"}
                 ],
                 [
-                    {"text": "📦 Mark Delivered", "callback_data": f"deliver_{order_id}"},
-                    {"text": "❌ Cancel", "callback_data": f"cancel_{order_id}"}
+                    {"text": "📦 Mark as Delivered", "callback_data": f"deliver_{order_id}"}
+                ],
+                [
+                    {"text": "❌ Cancel Order", "callback_data": f"cancel_{order_id}"}
                 ]
             ]
         }
@@ -1198,8 +1202,10 @@ def format_order_telegram_keyboard(order_id: str, status: str = "pending") -> di
         return {
             "inline_keyboard": [
                 [
-                    {"text": "📦 Mark as Delivered", "callback_data": f"deliver_{order_id}"},
-                    {"text": "⏱️ Change ETA", "callback_data": f"prompt_ship_{order_id}"}
+                    {"text": "📦 Mark as Delivered", "callback_data": f"deliver_{order_id}"}
+                ],
+                [
+                    {"text": "⏱️ Update Delivery ETA", "callback_data": f"prompt_ship_{order_id}"}
                 ],
                 [
                     {"text": "❌ Cancel Order", "callback_data": f"cancel_{order_id}"}
@@ -1210,7 +1216,7 @@ def format_order_telegram_keyboard(order_id: str, status: str = "pending") -> di
         return {
             "inline_keyboard": [
                 [
-                    {"text": "✅ Completed & Delivered", "callback_data": f"noop_{order_id}"}
+                    {"text": "✅ Delivered & Completed (Finalized)", "callback_data": f"noop_{order_id}"}
                 ]
             ]
         }
@@ -1218,7 +1224,7 @@ def format_order_telegram_keyboard(order_id: str, status: str = "pending") -> di
         return {
             "inline_keyboard": [
                 [
-                    {"text": "❌ Cancelled Order", "callback_data": f"noop_{order_id}"}
+                    {"text": "❌ Cancelled (Finalized)", "callback_data": f"noop_{order_id}"}
                 ]
             ]
         }
@@ -1290,7 +1296,8 @@ async def execute_order_status_change(
                         notif_msg = f"Your order #{order_num} was just accepted by {vendor_name} and is being processed!"
                     elif new_status == "shipped":
                         notif_title = f"🚚 Order Out for Delivery - #{order_num}"
-                        eta_text = f" and would arrive in {eta}." if eta else "."
+                        eta_val = eta or order_dict.get("estimatedDeliveryTime")
+                        eta_text = f" and would arrive in {eta_val}." if eta_val else "."
                         notif_msg = f"Your product is out for delivery and on its way{eta_text}"
                     elif new_status == "delivered":
                         notif_title = f"🎉 Order Delivered - #{order_num}"
@@ -1303,7 +1310,7 @@ async def execute_order_status_change(
                     notif_data = {
                         "title": notif_title,
                         "message": notif_msg,
-                        "timestamp": firestore.SERVER_TIMESTAMP,
+                        "timestamp": now_ms,
                         "read": False,
                         "type": notif_type,
                         "orderId": order_id,
@@ -1311,12 +1318,17 @@ async def execute_order_status_change(
                         "vendorId": order_dict.get("vendorId") or vendor_id or "",
                         "vendorName": vendor_name,
                         "orderStatus": new_status,
-                        "estimatedDeliveryTime": eta or order_dict.get("estimatedDeliveryTime"),
+                        "estimatedDeliveryTime": eta or order_dict.get("estimatedDeliveryTime") or "",
                         "ratingPrompt": rating_prompt,
                         "rated": False
                     }
-                    db_admin.collection('users').document(uid).collection('notifications').add(notif_data)
-                    db_admin.collection('users').document(uid).update({"unreadCount": firestore.Increment(1)})
+                    try:
+                        db_admin.collection('users').document(uid).collection('notifications').add(notif_data)
+                        db_admin.collection('users').document(uid).set({"unreadCount": firestore.Increment(1)}, merge=True)
+                        print(f"[StoreOrder] Successfully created in-app notification '{notif_title}' for user {uid}")
+                    except Exception as notif_err:
+                        print(f"[StoreOrder] Failed to write in-app notification: {notif_err}")
+                        traceback.print_exc()
         except Exception as err:
             print(f"Firestore update error in execute_order_status_change: {err}")
             traceback.print_exc()

@@ -169,6 +169,7 @@ export const listenToNotifications = (userId: string, callback: (notifs: AppNoti
         const data = doc.data();
         let ts = Date.now();
         if (data.timestamp?.toMillis) ts = data.timestamp.toMillis();
+        else if (data.timestamp?.seconds) ts = data.timestamp.seconds * 1000;
         else if (data.timestamp instanceof Date) ts = data.timestamp.getTime();
         else if (typeof data.timestamp === 'number') ts = data.timestamp;
         return { id: doc.id, ...data, timestamp: ts };
@@ -1185,9 +1186,75 @@ export const updateOrderStatus = async (
   }
   await updateDoc(orderRef, updateData);
 
-  // Sync to Backend to update Telegram and notify customer
+  // Retrieve userId, orderNumber, vendorName if not passed in extra
+  let targetUserId = extra?.userId;
+  let targetOrderNum = extra?.orderNumber;
+  let targetVendorName = extra?.vendorName;
+  let targetVendorId = extra?.vendorId;
+
+  if (!targetUserId || !targetOrderNum || !targetVendorName) {
+    try {
+      const snap = await getDoc(orderRef);
+      if (snap.exists()) {
+        const d = snap.data();
+        targetUserId = targetUserId || d.userId;
+        targetOrderNum = targetOrderNum || d.orderNumber || orderId.substring(0, 8).toUpperCase();
+        targetVendorName = targetVendorName || d.vendorName || 'Vendor';
+        targetVendorId = targetVendorId || d.vendorId;
+      }
+    } catch (e) {
+      console.warn('Failed to retrieve order details for notification:', e);
+    }
+  }
+
+  // 1. Instant Direct In-App Notification creation for customer
+  if (targetUserId) {
+    try {
+      let notifTitle = '';
+      let notifMsg = '';
+      const notifType = `order_${status}`;
+      let ratingPrompt = false;
+
+      if (status === 'accepted') {
+        notifTitle = `✅ Order Accepted - #${targetOrderNum}`;
+        notifMsg = `Your order #${targetOrderNum} was just accepted by ${targetVendorName} and is being processed!`;
+      } else if (status === 'shipped') {
+        notifTitle = `🚚 Order Out for Delivery - #${targetOrderNum}`;
+        const etaText = estimatedDeliveryTime ? ` and would arrive in ${estimatedDeliveryTime}.` : '.';
+        notifMsg = `Your product is out for delivery and on its way${etaText}`;
+      } else if (status === 'delivered') {
+        notifTitle = `🎉 Order Delivered - #${targetOrderNum}`;
+        notifMsg = `Your order #${targetOrderNum} was delivered successfully! Please rate your experience with ${targetVendorName} in app.`;
+        ratingPrompt = true;
+      } else if (status === 'cancelled') {
+        notifTitle = `❌ Order Cancelled - #${targetOrderNum}`;
+        notifMsg = `Your order #${targetOrderNum} has been cancelled by ${targetVendorName}.`;
+      }
+
+      await addDoc(collection(db, 'users', targetUserId, 'notifications'), {
+        title: notifTitle,
+        message: notifMsg,
+        timestamp: nowMs,
+        read: false,
+        type: notifType,
+        orderId,
+        orderNumber: targetOrderNum,
+        vendorId: targetVendorId || '',
+        vendorName: targetVendorName || 'Vendor',
+        orderStatus: status,
+        estimatedDeliveryTime: estimatedDeliveryTime || '',
+        ratingPrompt,
+        rated: false
+      });
+      await updateDoc(doc(db, 'users', targetUserId), { unreadCount: increment(1) }).catch(() => {});
+    } catch (notifErr) {
+      console.warn('Direct order notification write error:', notifErr);
+    }
+  }
+
+  // 2. Sync to Backend to update Telegram group message & buttons
   try {
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const API_URL = import.meta.env.VITE_API_URL || '';
     await fetch(`${API_URL}/api/store/order/status`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1195,8 +1262,8 @@ export const updateOrderStatus = async (
         orderId,
         status,
         estimatedDeliveryTime,
-        vendorId: extra?.vendorId,
-        userId: extra?.userId
+        vendorId: targetVendorId,
+        userId: targetUserId
       })
     });
   } catch (err) {
