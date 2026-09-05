@@ -19,6 +19,8 @@ import {
   Menu,
   X,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Shield,
   Film,
   Bell,
@@ -30,7 +32,8 @@ import {
   Home,
   Gamepad2,
   ArrowUp,
-  ArrowLeft
+  ArrowLeft,
+  Store
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -69,6 +72,7 @@ const tabs: Tab[] = [
   { id: 'about', label: 'About', icon: Info, color: 'fuchsia' },
   { id: 'privacy', label: 'Privacy', icon: Shield, color: 'emerald' },
   { id: 'contact', label: 'Contact', icon: HelpCircle, color: 'lime' },
+  { id: 'vendor', label: 'Vendor Portal', icon: Store, color: 'amber' },
   { id: 'admin', label: 'Admin Dashboard', icon: Shield, color: 'red', adminOnly: true }
 ];
 
@@ -81,7 +85,19 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    return localStorage.getItem('aura_sidebar_collapsed') === 'true';
+  });
 
+  const toggleCollapse = () => {
+    setIsCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem('aura_sidebar_collapsed', String(next));
+      return next;
+    });
+  };
+
+  const mainRef = React.useRef<HTMLElement>(null);
   const prevTabRef = React.useRef<ViewType>(activeTab);
   const [historyStack, setHistoryStack] = useState<ViewType[]>([]);
   const [isBackAction, setIsBackAction] = useState(false);
@@ -111,22 +127,43 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
 
   useEffect(() => {
     const handleScroll = () => {
-      if (window.scrollY > 400) {
+      const scrollY = isMobile
+        ? window.scrollY
+        : (mainRef.current ? mainRef.current.scrollTop : window.scrollY);
+      if (scrollY > 400) {
         setShowScrollTop(true);
       } else {
         setShowScrollTop(false);
       }
     };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    const mainEl = mainRef.current;
+    if (mainEl) {
+      mainEl.addEventListener('scroll', handleScroll, { passive: true });
+    }
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      if (mainEl) {
+        mainEl.removeEventListener('scroll', handleScroll);
+      }
+    };
+  }, [isMobile]);
 
   const scrollToTop = () => {
     window.scrollTo({
       top: 0,
       behavior: 'smooth'
     });
+    mainRef.current?.scrollTo({
+      top: 0,
+      behavior: 'smooth'
+    });
   };
+
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0, behavior: 'instant' });
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [activeTab]);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -162,7 +199,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
   const queueCount = queue.filter(item => item.status === 'waiting' || item.status === 'processing').length;
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row">
+    <div className="min-h-screen md:h-screen flex flex-col md:flex-row md:overflow-hidden bg-background">
       {/* Mobile Header */}
       <div className="md:hidden glass-card mx-4 mt-4 p-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -209,26 +246,48 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
           opacity: { duration: 0.2 } 
         }}
         className={`
-          fixed inset-y-0 left-0 z-50 w-72 m-4 
+          fixed inset-y-0 left-0 z-50 m-4 
           -translate-x-[110%] opacity-0
-          md:m-0 md:static md:translate-x-0 md:opacity-100
+          md:m-0 md:sticky md:top-0 md:translate-x-0 md:opacity-100
+          md:shrink-0
+          ${isCollapsed ? 'w-72 md:w-20' : 'w-72 md:w-64 lg:w-72'}
           flex flex-col md:rounded-none md:border-r md:border-l-0 md:border-t-0 md:border-b-0
-          bg-background md:bg-transparent glass-card md:glass-none
+          border-white/10 dark:border-white/5
+          bg-background/95 md:bg-card/30 md:backdrop-blur-xl glass-card md:glass-none
           h-[calc(100vh-2rem)] md:h-screen
+          transition-[width] duration-300 ease-in-out
         `}
       >
-        {/* Logo */}
-        <div className="p-6 hidden md:flex items-center gap-3 flex-shrink-0">
-          <div className="w-14 h-14 rounded-2xl overflow-hidden flex items-center justify-center p-1.5 bg-white/5 shadow-xl border border-white/10">
+        {/* Logo & Header */}
+        <div className={`p-4 hidden md:flex items-center ${isCollapsed ? 'justify-center flex-col gap-3' : 'justify-between'} flex-shrink-0 border-b border-white/5`}>
+          <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} overflow-hidden`}>
+            <div className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center p-1 bg-white/5 shadow-xl border border-white/10 flex-shrink-0" title="StreamAura">
+              <img src="/logo.png" alt="StreamAura" className="w-full h-full object-contain" />
+            </div>
+            {!isCollapsed && <span className="font-bold text-lg gradient-text truncate">StreamAura</span>}
+          </div>
+          <button
+            onClick={toggleCollapse}
+            className="p-1.5 rounded-lg hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors"
+            title={isCollapsed ? 'Expand menu' : 'Collapse menu'}
+          >
+            {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          </button>
+        </div>
+
+        {/* Mobile-only logo */}
+        <div className="p-6 md:hidden flex items-center gap-3 flex-shrink-0 border-b border-white/5">
+          <div className="w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center p-1 bg-white/5 shadow-xl border border-white/10">
             <img src="/logo.png" alt="StreamAura" className="w-full h-full object-contain" />
           </div>
           <span className="font-bold text-xl gradient-text">StreamAura</span>
         </div>
 
         {/* Navigation - Scrollable Area */}
-        <nav className="flex-1 px-4 py-4 space-y-2 overflow-y-auto custom-scrollbar">
+        <nav className="flex-1 px-3 py-4 space-y-1.5 overflow-y-auto custom-scrollbar">
           {tabs.map((tab) => {
             if (tab.adminOnly && !isAdmin) return null;
+            if (tab.id === 'vendor' && !isAdmin && !user?.isVendor) return null;
             
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -247,8 +306,9 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
               fuchsia: 'bg-fuchsia-500/10 text-fuchsia-500 border-fuchsia-500/20 shadow-fuchsia-500/10',        
               lime: 'bg-lime-500/10 text-lime-500 border-lime-500/20 shadow-lime-500/10',
               yellow: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20 shadow-yellow-500/10',
+              amber: 'bg-amber-500/10 text-amber-500 border-amber-500/20 shadow-amber-500/10',
               neon: 'bg-gradient-to-r from-cyan-500/15 to-pink-500/15 text-cyan-400 border-white/10 shadow-[0_0_15px_rgba(34,211,238,0.2)]'
-              };
+            };
             const activeClass = colorClasses[tab.color] || colorClasses.blue;
             
             return (
@@ -260,25 +320,32 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
                 }}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
+                title={tab.label}
                 className={`
-                  w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300
+                  w-full flex items-center ${isCollapsed ? 'justify-center px-2.5' : 'gap-3 px-3.5'} py-2.5 rounded-xl transition-all duration-300 relative
                   ${isActive 
                     ? `${activeClass} border shadow-sm` 
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
                   }
                 `}
               >
-                <Icon className={`w-5 h-5`} />
-                <span className="font-medium">{tab.label}</span>
-                {tab.id === 'bulk' && queueCount > 0 && (
+                <Icon className="w-5 h-5 flex-shrink-0" />
+                {!isCollapsed && <span className="font-medium truncate text-sm">{tab.label}</span>}
+                {!isCollapsed && tab.id === 'bulk' && queueCount > 0 && (
                   <span className={`ml-auto ${isActive ? 'bg-orange-500' : 'bg-muted-foreground/30'} text-white text-xs px-2 py-0.5 rounded-full`}>
                     {queueCount}
                   </span>
                 )}
-                {tab.id === 'notifications' && unreadCount > 0 && (
+                {!isCollapsed && tab.id === 'notifications' && unreadCount > 0 && (
                   <span className={`ml-auto ${isActive ? 'bg-rose-500' : 'bg-rose-500/50'} text-white text-[10px] font-black px-2 py-0.5 rounded-full`}>
                     {unreadCount}
                   </span>
+                )}
+                {isCollapsed && tab.id === 'bulk' && queueCount > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-orange-500" />
+                )}
+                {isCollapsed && tab.id === 'notifications' && unreadCount > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
                 )}
               </motion.button>
             );
@@ -286,13 +353,13 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
         </nav>
 
         {/* Bottom Section */}
-        <div className="p-4 border-t border-white/10 space-y-2 flex-shrink-0">
+        <div className="p-3 border-t border-white/10 space-y-1.5 flex-shrink-0">
           {/* Active Downloads Indicator */}
           {activeDownloads > 0 && (
-            <div className="px-4 py-2 bg-primary/10 rounded-xl border border-primary/20">
+            <div className={`px-3 py-2 bg-primary/10 rounded-xl border border-primary/20 ${isCollapsed ? 'flex justify-center' : ''}`} title={`${activeDownloads} active download(s)`}>
               <div className="flex items-center gap-2 text-sm">
-                <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
-                <span className="text-primary font-medium">{activeDownloads} active download(s)</span>
+                <div className="w-2 h-2 bg-primary rounded-full animate-pulse flex-shrink-0" />
+                {!isCollapsed && <span className="text-primary font-medium text-xs truncate">{activeDownloads} active download(s)</span>}
               </div>
             </div>
           )}
@@ -300,16 +367,21 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
           {/* Theme Toggle */}
           <button
             onClick={toggleTheme}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all duration-300"
+            title={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+            className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2.5' : 'gap-3 px-3.5'} py-2.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all duration-300`}
           >
-            {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            <span className="font-medium">{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+            {theme === 'dark' ? <Sun className="w-5 h-5 flex-shrink-0" /> : <Moon className="w-5 h-5 flex-shrink-0" />}
+            {!isCollapsed && <span className="font-medium text-sm truncate">{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>}
           </button>
 
           {/* Admin Badge */}
           {isAdmin && (
-            <div className="px-4 py-2 bg-primary/10 rounded-xl border border-primary/20">
-              <span className="text-sm font-medium text-primary">Admin</span>
+            <div className={`px-3 py-1.5 bg-primary/10 rounded-xl border border-primary/20 ${isCollapsed ? 'flex justify-center' : ''}`} title="Admin">
+              {isCollapsed ? (
+                <Shield className="w-4 h-4 text-primary" />
+              ) : (
+                <span className="text-xs font-medium text-primary">Admin</span>
+              )}
             </div>
           )}
 
@@ -317,24 +389,29 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
           <div className="relative">
             <button
               onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted/50 transition-all duration-300"
+              title={user?.displayName || 'User profile'}
+              className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-3.5'} py-2 rounded-xl hover:bg-muted/50 transition-all duration-300`}
             >
               {user?.photoURL ? (
                 <img 
                   src={user.photoURL} 
                   alt={user.displayName || 'User'} 
-                  className="w-8 h-8 rounded-full object-cover"
+                  className="w-8 h-8 rounded-full object-cover flex-shrink-0"
                 />
               ) : (
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
                   <User className="w-4 h-4 text-white" />
                 </div>
               )}
-              <div className="flex-1 text-left overflow-hidden">
-                <p className="text-sm font-medium text-foreground truncate">{user?.displayName || 'Guest User'}</p>
-                <p className="text-xs text-muted-foreground truncate">{user?.email || 'Login to sync data'}</p>
-              </div>
-              <ChevronDown className={`w-4 h-4 transition-transform text-muted-foreground ${isUserMenuOpen ? 'rotate-180' : ''}`} />
+              {!isCollapsed && (
+                <>
+                  <div className="flex-1 text-left overflow-hidden">
+                    <p className="text-sm font-medium text-foreground truncate">{user?.displayName || 'Guest User'}</p>
+                    <p className="text-xs text-muted-foreground truncate">{user?.email || 'Login to sync data'}</p>
+                  </div>
+                  <ChevronDown className={`w-4 h-4 transition-transform text-muted-foreground ${isUserMenuOpen ? 'rotate-180' : ''}`} />
+                </>
+              )}
             </button>
 
             {/* User Dropdown */}
@@ -344,7 +421,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  className="absolute bottom-full left-0 right-0 mb-2 glass-card overflow-hidden"
+                  className={`absolute ${isCollapsed ? 'bottom-0 left-full ml-3 w-48' : 'bottom-full left-0 right-0 mb-2'} glass-card overflow-hidden z-50 bg-background/95 border border-white/10 shadow-2xl`}
                 >
                   {isAuthenticated ? (
                     <button
@@ -385,7 +462,10 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
       </AnimatePresence>
 
       {/* Main Content */}
-      <main className={`flex-1 overflow-auto transition-all duration-300 ${isMobileMenuOpen ? 'blur-sm brightness-90 md:blur-none md:brightness-100' : ''}`}>
+      <main 
+        ref={mainRef}
+        className={`flex-1 md:h-screen md:overflow-y-auto overflow-x-hidden custom-scrollbar transition-all duration-300 ${isMobileMenuOpen ? 'blur-sm brightness-90 md:blur-none md:brightness-100' : ''}`}
+      >
         <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
           <AnimatePresence>
             {historyStack.length > 0 && (

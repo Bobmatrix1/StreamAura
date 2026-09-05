@@ -11,7 +11,7 @@ import random
 from typing import List, Optional, Union
 import firebase_admin
 from firebase_admin import credentials, messaging, firestore
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Query
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, RedirectResponse, HTMLResponse
 from pydantic import BaseModel
@@ -60,11 +60,12 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Start the periodic cleanup workers
+    # Startup: Start the periodic cleanup workers and telegram polling worker
     from websockets.game_sync import start_periodic_cleanup
     from websockets.room_sync import start_periodic_cinema_cleanup
     asyncio.create_task(start_periodic_cleanup())
     asyncio.create_task(start_periodic_cinema_cleanup())
+    asyncio.create_task(telegram_polling_worker())
     yield
 
 # =========================
@@ -260,8 +261,10 @@ async def get_visitor_location(request: Request):
         "device": device
     }
 
+from core.security import get_current_admin
+
 @app.post("/api/admin/broadcast")
-async def broadcast_notification(request: Request):
+async def broadcast_notification(request: Request, admin: dict = Depends(get_current_admin)):
     if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Offline"})
     try:
         data = await request.json()
@@ -1125,6 +1128,344 @@ async def dynamic_share_preview(
     """
     return HTMLResponse(content=html_content)
 
+def escape_tg(text: str) -> str:
+    if not text: return ""
+    return str(text).replace("*", "").replace("_", "").replace("`", "").replace("[", "(").replace("]", ")")
+
+def format_order_telegram_message(order: dict, status: str = "pending", eta: Optional[str] = None) -> str:
+    order_num = escape_tg(order.get("orderNumber") or str(order.get("id", ""))[:8].upper())
+    cust_name = escape_tg(order.get("userName") or order.get("customerName", "Valued Customer"))
+    cust_phone = escape_tg(order.get("userPhone") or order.get("customerPhone", "N/A"))
+    cust_addr = escape_tg(order.get("deliveryAddress") or order.get("customerAddress", "N/A"))
+    vendor_name = escape_tg(order.get("vendorName", "Store Vendor"))
+    total = order.get("totalAmount") if order.get("totalAmount") is not None else order.get("total", 0)
+    
+    items = order.get("items", [])
+    items_lines = []
+    for item in items:
+        name = escape_tg(item.get("name", "Item") if isinstance(item, dict) else getattr(item, "name", "Item"))
+        qty = item.get("quantity", 1) if isinstance(item, dict) else getattr(item, "quantity", 1)
+        price = item.get("price", 0) if isinstance(item, dict) else getattr(item, "price", 0)
+        items_lines.append(f"• {name} x{qty} (₦{price:,.0f})")
+    items_text = "\n".join(items_lines) if items_lines else "• Order items"
+    
+    status_display = "🟡 *Pending Vendor Acceptance*"
+    if status == "accepted":
+        status_display = "👨‍🍳 *Accepted & Being Processed*"
+    elif status == "shipped":
+        eta_str = f" (ETA: {escape_tg(eta)})" if eta else ""
+        status_display = f"🚚 *Out for Delivery*{eta_str} 🛵"
+    elif status == "delivered":
+        status_display = "🟢 *Delivered Successfully* ✅"
+    elif status == "cancelled":
+        status_display = "🔴 *Cancelled* ❌"
+        
+    msg = (
+        f"🛒 *Order #{order_num}*\n\n"
+        f"*Customer:* {cust_name}\n"
+        f"*Phone:* {cust_phone}\n"
+        f"*Address:* {cust_addr}\n\n"
+        f"*Items:*\n{items_text}\n\n"
+        f"*Total Paid:* ₦{total:,.0f}\n\n"
+        f"*Status:* {status_display}\n\n"
+        f"Sent for {vendor_name}."
+    )
+    return msg
+
+def format_order_telegram_keyboard(order_id: str, status: str = "pending") -> dict:
+    if status == "pending":
+        return {
+            "inline_keyboard": [
+                [
+                    {"text": "✅ Accept Order", "callback_data": f"accept_{order_id}"},
+                    {"text": "❌ Cancel Order", "callback_data": f"cancel_{order_id}"}
+                ]
+            ]
+        }
+    elif status == "accepted":
+        return {
+            "inline_keyboard": [
+                [
+                    {"text": "🚚 Out for Delivery (Set ETA)", "callback_data": f"prompt_ship_{order_id}"}
+                ],
+                [
+                    {"text": "📦 Mark Delivered", "callback_data": f"deliver_{order_id}"},
+                    {"text": "❌ Cancel", "callback_data": f"cancel_{order_id}"}
+                ]
+            ]
+        }
+    elif status == "shipped":
+        return {
+            "inline_keyboard": [
+                [
+                    {"text": "📦 Mark as Delivered", "callback_data": f"deliver_{order_id}"},
+                    {"text": "⏱️ Change ETA", "callback_data": f"prompt_ship_{order_id}"}
+                ],
+                [
+                    {"text": "❌ Cancel Order", "callback_data": f"cancel_{order_id}"}
+                ]
+            ]
+        }
+    elif status == "delivered":
+        return {
+            "inline_keyboard": [
+                [
+                    {"text": "✅ Completed & Delivered", "callback_data": f"noop_{order_id}"}
+                ]
+            ]
+        }
+    elif status == "cancelled":
+        return {
+            "inline_keyboard": [
+                [
+                    {"text": "❌ Cancelled Order", "callback_data": f"noop_{order_id}"}
+                ]
+            ]
+        }
+    return {"inline_keyboard": []}
+
+def format_eta_keyboard(order_id: str) -> dict:
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "⏱️ 15 Mins", "callback_data": f"ship_{order_id}_15 mins"},
+                {"text": "⏱️ 30 Mins", "callback_data": f"ship_{order_id}_30 mins"}
+            ],
+            [
+                {"text": "⏱️ 45 Mins", "callback_data": f"ship_{order_id}_45 mins"},
+                {"text": "⏱️ 1 Hour", "callback_data": f"ship_{order_id}_1 hour"}
+            ],
+            [
+                {"text": "⏱️ 2 Hours", "callback_data": f"ship_{order_id}_2 hours"},
+                {"text": "🔙 Back", "callback_data": f"view_{order_id}"}
+            ]
+        ]
+    }
+
+async def execute_order_status_change(
+    order_id: str, 
+    new_status: str, 
+    client: httpx.AsyncClient, 
+    bot_token: str, 
+    chat_id: Optional[Union[str, int]] = None, 
+    message_id: Optional[int] = None, 
+    cb_id: Optional[str] = None, 
+    eta: Optional[str] = None,
+    vendor_id: Optional[str] = None,
+    user_id: Optional[str] = None
+):
+    order_dict = {}
+    if db_admin:
+        try:
+            doc_ref = db_admin.collection('orders').document(order_id)
+            doc_snap = doc_ref.get()
+            if doc_snap.exists:
+                order_dict = doc_snap.to_dict() or {}
+                order_dict["id"] = order_id
+                
+                # Update status
+                now_ms = int(time.time() * 1000)
+                update_data = {
+                    "status": new_status,
+                    f"{new_status}At": now_ms
+                }
+                if eta:
+                    update_data["estimatedDeliveryTime"] = eta
+                doc_ref.update(update_data)
+                order_dict.update(update_data)
+                
+                # Notify User in-app
+                uid = order_dict.get("userId") or user_id
+                order_num = order_dict.get("orderNumber") or order_id[:8].upper()
+                vendor_name = order_dict.get("vendorName") or "Vendor"
+                
+                if uid:
+                    notif_title = ""
+                    notif_msg = ""
+                    notif_type = f"order_{new_status}"
+                    rating_prompt = False
+                    
+                    if new_status == "accepted":
+                        notif_title = f"✅ Order Accepted - #{order_num}"
+                        notif_msg = f"Your order #{order_num} was just accepted by {vendor_name} and is being processed!"
+                    elif new_status == "shipped":
+                        notif_title = f"🚚 Order Out for Delivery - #{order_num}"
+                        eta_text = f" and would arrive in {eta}." if eta else "."
+                        notif_msg = f"Your product is out for delivery and on its way{eta_text}"
+                    elif new_status == "delivered":
+                        notif_title = f"🎉 Order Delivered - #{order_num}"
+                        notif_msg = f"Your order #{order_num} was delivered successfully! Please rate your experience with {vendor_name} in app."
+                        rating_prompt = True
+                    elif new_status == "cancelled":
+                        notif_title = f"❌ Order Cancelled - #{order_num}"
+                        notif_msg = f"Your order #{order_num} has been cancelled by {vendor_name}."
+                        
+                    notif_data = {
+                        "title": notif_title,
+                        "message": notif_msg,
+                        "timestamp": firestore.SERVER_TIMESTAMP,
+                        "read": False,
+                        "type": notif_type,
+                        "orderId": order_id,
+                        "orderNumber": order_num,
+                        "vendorId": order_dict.get("vendorId") or vendor_id or "",
+                        "vendorName": vendor_name,
+                        "orderStatus": new_status,
+                        "estimatedDeliveryTime": eta or order_dict.get("estimatedDeliveryTime"),
+                        "ratingPrompt": rating_prompt,
+                        "rated": False
+                    }
+                    db_admin.collection('users').document(uid).collection('notifications').add(notif_data)
+                    db_admin.collection('users').document(uid).update({"unreadCount": firestore.Increment(1)})
+        except Exception as err:
+            print(f"Firestore update error in execute_order_status_change: {err}")
+            traceback.print_exc()
+
+    # Determine chat_id and message_id if not supplied
+    if not chat_id and order_dict.get("telegramChatId"):
+        chat_id = order_dict.get("telegramChatId")
+    if not message_id and order_dict.get("telegramMessageId"):
+        message_id = order_dict.get("telegramMessageId")
+
+    # Update Telegram Message
+    if chat_id and message_id and bot_token:
+        try:
+            txt = format_order_telegram_message(order_dict, status=new_status, eta=eta or order_dict.get("estimatedDeliveryTime"))
+            kb = format_order_telegram_keyboard(order_id, status=new_status)
+            edit_url = f"https://api.telegram.org/bot{bot_token}/editMessageText"
+            await client.post(edit_url, json={
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": txt,
+                "parse_mode": "Markdown",
+                "reply_markup": kb
+            })
+        except Exception as tg_err:
+            print(f"Failed to edit Telegram message: {tg_err}")
+
+    # Answer callback query if from Telegram
+    if cb_id and bot_token:
+        try:
+            ans_text = f"Order #{order_dict.get('orderNumber', order_id[:8])} marked as {new_status.title()}!"
+            if eta:
+                ans_text += f" (ETA: {eta})"
+            ans_url = f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery"
+            await client.post(ans_url, json={"callback_query_id": cb_id, "text": ans_text})
+        except Exception as e:
+            print(f"Failed to answer callback query: {e}")
+
+async def handle_telegram_callback(callback_query: dict, bot_token: str):
+    cb_id = callback_query.get("id")
+    data = callback_query.get("data", "")
+    msg = callback_query.get("message", {})
+    chat_id = msg.get("chat", {}).get("id")
+    message_id = msg.get("message_id")
+    
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            if data.startswith("accept_"):
+                order_id = data.replace("accept_", "")
+                await execute_order_status_change(order_id, "accepted", client, bot_token, chat_id, message_id, cb_id)
+            elif data.startswith("prompt_ship_"):
+                order_id = data.replace("prompt_ship_", "")
+                kb = format_eta_keyboard(order_id)
+                edit_url = f"https://api.telegram.org/bot{bot_token}/editMessageReplyMarkup"
+                await client.post(edit_url, json={"chat_id": chat_id, "message_id": message_id, "reply_markup": kb})
+                ans_url = f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery"
+                await client.post(ans_url, json={"callback_query_id": cb_id, "text": "Select Estimated Delivery Time"})
+            elif data.startswith("ship_"):
+                # format: ship_{orderId}_{eta}
+                parts = data.split("_", 2)
+                if len(parts) >= 3:
+                    order_id = parts[1]
+                    eta = parts[2]
+                else:
+                    order_id = parts[1]
+                    eta = "30 mins"
+                await execute_order_status_change(order_id, "shipped", client, bot_token, chat_id, message_id, cb_id, eta=eta)
+            elif data.startswith("deliver_"):
+                order_id = data.replace("deliver_", "")
+                await execute_order_status_change(order_id, "delivered", client, bot_token, chat_id, message_id, cb_id)
+            elif data.startswith("cancel_"):
+                order_id = data.replace("cancel_", "")
+                await execute_order_status_change(order_id, "cancelled", client, bot_token, chat_id, message_id, cb_id)
+            elif data.startswith("view_"):
+                order_id = data.replace("view_", "")
+                if db_admin:
+                    doc_snap = db_admin.collection('orders').document(order_id).get()
+                    if doc_snap.exists:
+                        order_dict = doc_snap.to_dict() or {}
+                        order_dict["id"] = order_id
+                        st = order_dict.get("status", "pending")
+                        eta = order_dict.get("estimatedDeliveryTime")
+                        txt = format_order_telegram_message(order_dict, status=st, eta=eta)
+                        kb = format_order_telegram_keyboard(order_id, status=st)
+                        edit_url = f"https://api.telegram.org/bot{bot_token}/editMessageText"
+                        await client.post(edit_url, json={"chat_id": chat_id, "message_id": message_id, "text": txt, "parse_mode": "Markdown", "reply_markup": kb})
+                ans_url = f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery"
+                await client.post(ans_url, json={"callback_query_id": cb_id})
+            elif data.startswith("noop_"):
+                ans_url = f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery"
+                await client.post(ans_url, json={"callback_query_id": cb_id, "text": "Order is finalized."})
+        except Exception as e:
+            print(f"Error handling TG callback {data}: {e}")
+            traceback.print_exc()
+            try:
+                ans_url = f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery"
+                await client.post(ans_url, json={"callback_query_id": cb_id, "text": "Action failed. Please try again."})
+            except: pass
+
+async def handle_telegram_message(message: dict, bot_token: str):
+    text = message.get("text", "").strip()
+    chat_id = message.get("chat", {}).get("id")
+    
+    if text.startswith("/eta"):
+        parts = text.split(" ", 2)
+        if len(parts) >= 3:
+            order_id = parts[1].strip()
+            eta = parts[2].strip()
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                await execute_order_status_change(order_id, "shipped", client, bot_token, chat_id=chat_id, eta=eta)
+                url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                await client.post(url, json={"chat_id": chat_id, "text": f"✅ Order #{order_id[:8]} ETA set to: {eta}!"})
+
+async def telegram_polling_worker():
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "8601644738:AAG5MMSgR0paQ_wI_ZHkCyy4ekeQL1Sus5Q")
+    if not bot_token:
+        print("Telegram bot token not configured; polling disabled.")
+        return
+        
+    print("Telegram Polling Worker started successfully...")
+    offset = 0
+    
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=35.0) as client:
+                url = f"https://api.telegram.org/bot{bot_token}/getUpdates"
+                params = {"offset": offset, "timeout": 25, "allowed_updates": ["message", "callback_query"]}
+                response = await client.get(url, params=params)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("ok"):
+                        updates = data.get("result", [])
+                        for update in updates:
+                            offset = max(offset, update["update_id"] + 1)
+                            if "callback_query" in update:
+                                asyncio.create_task(handle_telegram_callback(update["callback_query"], bot_token))
+                            elif "message" in update:
+                                asyncio.create_task(handle_telegram_message(update["message"], bot_token))
+                elif response.status_code == 409:
+                    print("Telegram polling conflict (HTTP 409). Sleeping 10s...")
+                    await asyncio.sleep(10)
+                else:
+                    await asyncio.sleep(5)
+        except httpx.RequestError:
+            await asyncio.sleep(3)
+        except Exception as e:
+            print(f"Telegram polling loop exception: {e}")
+            await asyncio.sleep(5)
+
 class OrderItem(BaseModel):
     productId: str
     name: str
@@ -1133,6 +1474,7 @@ class OrderItem(BaseModel):
 
 class OrderRequest(BaseModel):
     orderId: str
+    orderNumber: Optional[str] = None
     vendorId: str
     vendorName: str
     telegramGroupId: Optional[str]
@@ -1141,37 +1483,28 @@ class OrderRequest(BaseModel):
     customerAddress: str
     items: List[OrderItem]
     total: float
+    userId: Optional[str] = None
 
 @app.post("/api/store/order")
 async def process_store_order(order: OrderRequest):
     try:
-        bot_token = "8601644738:AAG5MMSgR0paQ_wI_ZHkCyy4ekeQL1Sus5Q"
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "8601644738:AAG5MMSgR0paQ_wI_ZHkCyy4ekeQL1Sus5Q")
+        order_num = order.orderNumber or order.orderId[:8].upper()
         
-        # Construct Message
-        items_text = "\n".join([f"• {item.name} x{item.quantity} (₦{item.price:,.0f})" for item in order.items])
-        
-        message = (
-            f"🛒 *New Order #{order.orderId}*\n\n"
-            f"*Customer:* {order.customerName}\n"
-            f"*Phone:* {order.customerPhone}\n"
-            f"*Address:* {order.customerAddress}\n\n"
-            f"*Items:*\n{items_text}\n\n"
-            f"*Total Paid:* ₦{order.total:,.0f}\n\n"
-            f"Sent only to {order.vendorName} group."
-        )
-        
-        # Inline Keyboard
-        keyboard = {
-            "inline_keyboard": [
-                [
-                    {"text": "✅ Accept Order", "callback_data": f"accept_{order.orderId}"},
-                    {"text": "🚚 Delivered", "callback_data": f"deliver_{order.orderId}"}
-                ],
-                [
-                    {"text": "❌ Cancelled", "callback_data": f"cancel_{order.orderId}"}
-                ]
-            ]
+        # Construct message & keyboard
+        order_dict = {
+            "orderNumber": order_num,
+            "id": order.orderId,
+            "userName": order.customerName,
+            "userPhone": order.customerPhone,
+            "deliveryAddress": order.customerAddress,
+            "vendorName": order.vendorName,
+            "totalAmount": order.total,
+            "items": [{"name": i.name, "quantity": i.quantity, "price": i.price} for i in order.items]
         }
+        
+        message = format_order_telegram_message(order_dict, status="pending")
+        keyboard = format_order_telegram_keyboard(order.orderId, status="pending")
         
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         payload = {
@@ -1181,21 +1514,132 @@ async def process_store_order(order: OrderRequest):
             "reply_markup": keyboard
         }
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(url, json=payload)
             response_data = response.json()
             
         if not response_data.get("ok"):
-            print(f"Telegram Error: {response_data}")
-            return JSONResponse(status_code=500, content={"success": False, "error": "Failed to send Telegram message"})
+            print(f"Telegram Send Error: {response_data}")
+            return JSONResponse(status_code=500, content={"success": False, "error": "Failed to send Telegram message", "details": response_data})
             
-        return {"success": True, "message": "Order processed and notification sent"}
+        # Save message ID and chat ID to Firestore order document for subsequent editing
+        msg_id = response_data.get("result", {}).get("message_id")
+        chat_id = response_data.get("result", {}).get("chat", {}).get("id")
+        if db_admin and msg_id and chat_id:
+            try:
+                db_admin.collection('orders').document(order.orderId).update({
+                    "telegramMessageId": msg_id,
+                    "telegramChatId": str(chat_id)
+                })
+            except Exception as e:
+                print(f"Failed to record TG message ID on order: {e}")
+                
+        return {
+            "success": True, 
+            "message": "Order processed and notification sent to Telegram",
+            "telegramMessageId": msg_id
+        }
         
     except Exception as e:
         print(f"Store Order Error: {str(e)}")
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
+class OrderStatusUpdateRequest(BaseModel):
+    orderId: str
+    status: str
+    estimatedDeliveryTime: Optional[str] = None
+    vendorId: Optional[str] = None
+    userId: Optional[str] = None
+
+@app.post("/api/store/order/status")
+async def update_order_status_endpoint(req: OrderStatusUpdateRequest):
+    try:
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "8601644738:AAG5MMSgR0paQ_wI_ZHkCyy4ekeQL1Sus5Q")
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            await execute_order_status_change(
+                order_id=req.orderId,
+                new_status=req.status,
+                client=client,
+                bot_token=bot_token,
+                eta=req.estimatedDeliveryTime,
+                vendor_id=req.vendorId,
+                user_id=req.userId
+            )
+        return {"success": True, "message": f"Order status updated to {req.status}"}
+    except Exception as e:
+        print(f"Status update endpoint error: {e}")
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+class RateVendorRequest(BaseModel):
+    orderId: str
+    vendorId: str
+    userId: str
+    rating: float
+    review: Optional[str] = ""
+    notificationId: Optional[str] = None
+
+@app.post("/api/store/rate-vendor")
+async def rate_vendor_endpoint(req: RateVendorRequest):
+    if not db_admin:
+        return JSONResponse(status_code=500, content={"success": False, "error": "Database offline"})
+    try:
+        # 1. Update order document
+        try:
+            db_admin.collection('orders').document(req.orderId).update({
+                "rated": True,
+                "rating": req.rating,
+                "review": req.review or "",
+                "ratedAt": int(time.time() * 1000)
+            })
+        except Exception as oe:
+            print(f"Order rating update failed: {oe}")
+        
+        # 2. Update notification if provided
+        if req.notificationId and req.userId:
+            try:
+                db_admin.collection('users').document(req.userId).collection('notifications').document(req.notificationId).update({
+                    "rated": True,
+                    "rating": req.rating
+                })
+            except Exception as ne:
+                print(f"Notification rating update failed: {ne}")
+                
+        # 3. Update vendor rating stats
+        v_ref = db_admin.collection('vendors').document(req.vendorId)
+        v_snap = v_ref.get()
+        if v_snap.exists:
+            v_data = v_snap.to_dict() or {}
+            cur_count = int(v_data.get("ratingCount", 0))
+            cur_points = float(v_data.get("totalRatingPoints", (v_data.get("rating", 5.0) * cur_count) if cur_count > 0 else 0))
+            new_count = cur_count + 1
+            new_points = cur_points + float(req.rating)
+            avg = round(new_points / new_count, 1)
+            v_ref.update({
+                "rating": avg,
+                "ratingCount": new_count,
+                "totalRatingPoints": new_points
+            })
+            
+        return {"success": True, "message": "Rating submitted successfully"}
+    except Exception as e:
+        print(f"Rate vendor error: {e}")
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+@app.post("/api/store/telegram-webhook")
+async def telegram_webhook(request: Request):
+    try:
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "8601644738:AAG5MMSgR0paQ_wI_ZHkCyy4ekeQL1Sus5Q")
+        update = await request.json()
+        if "callback_query" in update:
+            asyncio.create_task(handle_telegram_callback(update["callback_query"], bot_token))
+        elif "message" in update:
+            asyncio.create_task(handle_telegram_message(update["message"], bot_token))
+        return {"ok": True}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, ws="wsproto", reload=True)
+

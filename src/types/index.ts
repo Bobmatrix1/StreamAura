@@ -5,6 +5,7 @@ export interface User {
   displayName: string | null;
   photoURL: string | null;
   isAdmin: boolean;
+  isVendor?: boolean;
   createdAt: number;
   referralBalance: number;
   bonusBalance?: number; // Non-withdrawable signup bonuses (₦100 per referral)
@@ -150,7 +151,7 @@ export interface Toast {
 }
 
 // App state types
-export type ViewType = MediaType | 'home' | 'bulk' | 'history' | 'admin' | 'notifications' | 'about' | 'privacy' | 'contact' | 'cinema' | 'wallet' | 'referral' | 'games' | 'profile';
+export type ViewType = MediaType | 'home' | 'bulk' | 'history' | 'admin' | 'notifications' | 'about' | 'privacy' | 'contact' | 'cinema' | 'wallet' | 'referral' | 'games' | 'profile' | 'vendor';
 
 export interface AppState {
   isAuthenticated: boolean;
@@ -212,6 +213,9 @@ export interface Vendor {
   name: string;
   telegramGroupId: string;
   logo?: string;
+  rating?: number;
+  ratingCount?: number;
+  totalRatingPoints?: number;
 }
 
 export interface Product {
@@ -223,8 +227,10 @@ export interface Product {
   image: string;
   vendorId: string;
   inStock: boolean;
+  stockStatus?: 'in_stock' | 'out_of_stock' | 'restocking';
   quantity: number;
   category: string;
+  available?: boolean;
 }
 
 export interface Partner {
@@ -236,6 +242,7 @@ export interface Partner {
 
 export interface Order {
   id: string;
+  orderNumber?: string;
   userId: string;
   userName: string;
   userEmail: string;
@@ -249,6 +256,17 @@ export interface Order {
   }[];
   totalAmount: number;
   vendorId: string;
-  status: 'pending' | 'accepted' | 'delivered' | 'cancelled';
+  vendorName?: string;
+  status: 'pending' | 'accepted' | 'shipped' | 'delivered' | 'cancelled';
+  estimatedDeliveryTime?: string;
+  acceptedAt?: number;
+  shippedAt?: number;
+  deliveredAt?: number;
+  cancelledAt?: number;
+  rated?: boolean;
+  rating?: number;
+  review?: string;
+  telegramMessageId?: number;
+  telegramChatId?: string | number;
   createdAt: number;
 }

@@ -13,7 +13,8 @@ import {
   LogOut,
   AlertTriangle,
   Eye,
-  EyeOff
+  EyeOff,
+  X
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -31,28 +32,6 @@ interface Bank {
   code: string;
   slug?: string;
 }
-
-const BANK_PREFIXES: Record<string, string[]> = {
-  "044": ["Access Bank"],
-  "050": ["Ecobank"],
-  "070": ["Fidelity Bank"],
-  "011": ["First Bank"],
-  "214": ["First City Monument Bank"],
-  "058": ["GTBank"],
-  "030": ["Heritage Bank"],
-  "082": ["Keystone Bank"],
-  "999992": ["OPay"],
-  "999991": ["PalmPay"],
-  "076": ["Polaris Bank"],
-  "101": ["Providus Bank"],
-  "032": ["Union Bank"],
-  "033": ["United Bank For Africa"],
-  "215": ["Unity Bank"],
-  "035": ["Wema Bank"],
-  "057": ["Zenith Bank"],
-  "50211": ["Kuda Bank"],
-  "50515": ["Moniepoint"]
-};
 
 const Profile: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth();
@@ -87,7 +66,9 @@ const Profile: React.FC = () => {
 
   // Bank State
   const [availableBanks, setAvailableBanks] = useState<Bank[]>([]);
+  const [savedBankDetails, setSavedBankDetails] = useState({ name: '', account: '', bankName: '', bankCode: '', logo: '' });
   const [bankDetails, setBankDetails] = useState({ name: '', account: '', bankName: '', bankCode: '', logo: '' });
+  const [isEditingBank, setIsEditingBank] = useState(false);
   const [bankSearch, setBankQuery] = useState('');
   const [showBankDropdown, setShowBankDropdown] = useState(false);
   const [isResolving, setIsResolving] = useState(false);
@@ -112,12 +93,42 @@ const Profile: React.FC = () => {
           const data = snap.data();
           if (data.displayName) setDisplayName(data.displayName);
           if (data.bio) setBio(data.bio);
-          if (data.bankDetails) setBankDetails(data.bankDetails);
+          if (data.bankDetails) {
+            setSavedBankDetails(data.bankDetails);
+            setBankDetails(data.bankDetails);
+          }
         }
       });
       return () => unsub();
     }
   }, [user?.uid]);
+
+  const hasSavedBank = Boolean(
+    savedBankDetails.account && 
+    savedBankDetails.account.length === 10 && 
+    savedBankDetails.bankName && 
+    savedBankDetails.bankCode && 
+    savedBankDetails.name
+  );
+
+  const handleCancelBankEdit = () => {
+    setBankDetails(savedBankDetails);
+    setBankQuery('');
+    setShowBankDropdown(false);
+    setIsEditingBank(false);
+  };
+
+  // Reset transient bank edit state when navigating to bank tab
+  useEffect(() => {
+    if (activeTab === 'bank') {
+      if (savedBankDetails.account && savedBankDetails.name && savedBankDetails.bankName && savedBankDetails.bankCode) {
+        setBankDetails(savedBankDetails);
+        setIsEditingBank(false);
+      }
+      setBankQuery('');
+      setShowBankDropdown(false);
+    }
+  }, [activeTab, savedBankDetails]);
 
   // Load Banks
   useEffect(() => {
@@ -342,14 +353,17 @@ const Profile: React.FC = () => {
   };
 
   const handleSaveBank = async () => {
-    if (!bankDetails.name || bankDetails.account.length !== 10) {
-      return showError("Please verify your account details first");
+    if (!bankDetails.name || !bankDetails.bankName || !bankDetails.bankCode || bankDetails.account.length !== 10) {
+      return showError("Please select a bank and verify your 10-digit account details first");
     }
 
     setIsSavingBank(true);
     try {
       await updateDoc(doc(db, 'users', user!.uid), { bankDetails });
-      showSuccess("Bank details saved!");
+      setSavedBankDetails(bankDetails);
+      setIsEditingBank(false);
+      setBankQuery('');
+      showSuccess("Bank details saved successfully!");
     } catch (err: any) {
       showError("Failed to save bank details");
     } finally {
@@ -382,24 +396,40 @@ const Profile: React.FC = () => {
     }
   };
 
-  const getSuggestedBanks = () => {
-    if (bankDetails.account.length >= 3) {
-      const p3 = bankDetails.account.substring(0, 3);
-      const p5 = bankDetails.account.substring(0, 5);
-      const p6 = bankDetails.account.substring(0, 6);
-      return BANK_PREFIXES[p6] || BANK_PREFIXES[p5] || BANK_PREFIXES[p3] || [];
-    }
-    return [];
-  };
-
   const filteredBanks = availableBanks.filter(b => {
     if (bankSearch) return b.name.toLowerCase().includes(bankSearch.toLowerCase());
-    const suggested = getSuggestedBanks();
-    if (suggested.length > 0 && bankDetails.account.length >= 3 && !bankDetails.bankCode) {
-      return suggested.some(name => b.name.toLowerCase().includes(name.toLowerCase()));
-    }
     return true;
   });
+
+  const handleSelectBank = async (bank: Bank) => {
+    setBankDetails(prev => ({ ...prev, bankName: bank.name, bankCode: bank.code, name: '' }));
+    setBankQuery(bank.name);
+    setShowBankDropdown(false);
+
+    if (bankDetails.account.length === 10) {
+      setIsResolving(true);
+      try {
+        const result = await resolveBankAccount(bankDetails.account, bank.code);
+        if (result.status && result.data?.account_name) {
+          setBankDetails(prev => ({
+            ...prev,
+            bankName: bank.name,
+            bankCode: bank.code,
+            name: result.data.account_name
+          }));
+          showSuccess("Account verified!");
+        } else {
+          showError(result.message || "Could not verify account. Please check number and bank.");
+          setBankDetails(prev => ({ ...prev, name: '' }));
+        }
+      } catch (err: any) {
+        showError("Verification failed.");
+        setBankDetails(prev => ({ ...prev, name: '' }));
+      } finally {
+        setIsResolving(false);
+      }
+    }
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-20">
@@ -557,128 +587,209 @@ const Profile: React.FC = () => {
                  </form>
               </Card>
            </motion.div>
-         )}          {activeTab === 'bank' && (
-           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
-              <Card className="glass-card p-8 border-slate-200 dark:border-white/10 shadow-2xl overflow-visible">
-                 <div className="flex items-center gap-3 mb-8 pb-4 border-b border-slate-200 dark:border-white/5">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 border border-emerald-500/20">
-                       <Building className="w-5 h-5 text-emerald-500" />
-                    </div>
-                    <div>
-                       <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">Payout Configuration</h2>
-                       <p className="text-[9px] text-slate-500 dark:text-white/40 font-bold uppercase tracking-widest">Where your earnings go</p>
-                    </div>
-                 </div>
+         )}
+         {activeTab === 'bank' && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+               <Card className="glass-card p-8 border-slate-200 dark:border-white/10 shadow-2xl overflow-visible">
+                  <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-200 dark:border-white/5">
+                     <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 border border-emerald-500/20">
+                           <Building className="w-5 h-5 text-emerald-500" />
+                        </div>
+                        <div>
+                           <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">Payout Configuration</h2>
+                           <p className="text-[9px] text-slate-500 dark:text-white/40 font-bold uppercase tracking-widest">Where your earnings go</p>
+                        </div>
+                     </div>
+                     {hasSavedBank && isEditingBank && (
+                        <Button
+                           type="button"
+                           variant="ghost"
+                           size="sm"
+                           onClick={handleCancelBankEdit}
+                           className="text-slate-500 hover:text-slate-900 dark:text-white/40 dark:hover:text-white text-[10px] font-black uppercase tracking-widest"
+                        >
+                           Cancel
+                        </Button>
+                     )}
+                  </div>
 
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                    <div className="space-y-6">
-                       <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Account Number</label>
-                          <div className="relative">
-                             <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-white/20" />
-                             <input 
-                               type="text"
-                               inputMode="numeric"
-                               maxLength={10}
-                               value={bankDetails.account}
-                               onChange={e => {
-                                  const val = e.target.value.replace(/[^0-9]/g, '').slice(0, 10);
-                                  setBankDetails(prev => ({ ...prev, account: val }));
-                               }}
-                               placeholder="10 Digits"
-                               className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-11 pr-4 text-sm font-black outline-none focus:border-emerald-500/50 text-slate-900 dark:text-white" 
-                             />
-                             {isResolving && (
-                               <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                                  <Loader2 className="w-4 h-4 text-emerald-500 animate-spin" />
-                                </div>
-                             )}
-                          </div>
-                       </div>
+                  {hasSavedBank && !isEditingBank ? (
+                     <div className="p-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 flex flex-col sm:flex-row sm:items-center justify-between gap-6 group">
+                        <div className="flex items-center gap-4">
+                           <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 border border-emerald-500/20 shrink-0">
+                              <Building className="w-7 h-7" />
+                           </div>
+                           <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                 <Badge className="bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full">
+                                    Verified Payout Account
+                                 </Badge>
+                              </div>
+                              <p className="text-base font-black text-slate-900 dark:text-white uppercase">{savedBankDetails.bankName}</p>
+                              <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold tracking-wider font-mono">
+                                 {savedBankDetails.account} • {savedBankDetails.name}
+                              </p>
+                           </div>
+                        </div>
+                        <Button 
+                           variant="ghost" 
+                           onClick={() => {
+                              setBankDetails(savedBankDetails);
+                              setBankQuery(savedBankDetails.bankName);
+                              setIsEditingBank(true);
+                           }}
+                           className="text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 text-xs font-black uppercase tracking-widest px-5 h-11 rounded-xl border border-emerald-500/20 shrink-0"
+                        >
+                           Edit Bank Details
+                        </Button>
+                     </div>
+                  ) : (
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                        <div className="space-y-6">
+                           <div className="space-y-2">
+                              <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Account Number</label>
+                              <div className="relative">
+                                 <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-white/20" />
+                                 <input 
+                                   type="text"
+                                   inputMode="numeric"
+                                   maxLength={10}
+                                   value={bankDetails.account}
+                                   onChange={e => {
+                                      const val = e.target.value.replace(/[^0-9]/g, '').slice(0, 10);
+                                      setBankDetails(prev => ({ 
+                                        ...prev, 
+                                        account: val,
+                                        name: val.length !== 10 ? '' : (val !== prev.account ? '' : prev.name)
+                                      }));
+                                   }}
+                                   placeholder="10 Digits"
+                                   className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-11 pr-4 text-sm font-black outline-none focus:border-emerald-500/50 text-slate-900 dark:text-white" 
+                                 />
+                                 {isResolving && (
+                                   <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                                      <Loader2 className="w-4 h-4 text-emerald-500 animate-spin" />
+                                    </div>
+                                 )}
+                              </div>
+                           </div>
 
-                       <div className="space-y-2 relative" ref={dropdownRef}>
-                          <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Bank Name</label>
-                          <div className="relative">
-                             <Building className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-white/20" />
-                             <input 
-                               type="text" 
-                               value={bankSearch || bankDetails.bankName}
-                               onFocus={() => setShowBankDropdown(true)}
-                               onChange={e => {
-                                  setBankQuery(e.target.value);
-                                  setBankDetails(prev => ({ ...prev, bankName: e.target.value, bankCode: '', name: '' }));
-                               }}
-                               placeholder="Search bank..."
-                               className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-11 pr-4 text-sm font-bold outline-none focus:border-emerald-500/50 text-slate-900 dark:text-white" 
-                             />
-                             <ChevronDown className={`absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-white/20 transition-transform ${showBankDropdown ? 'rotate-180' : ''}`} />
-                          </div>
-
-                          <AnimatePresence>
-                             {showBankDropdown && (
-                               <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute z-[100] left-0 right-0 mt-2 bg-card border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden max-h-48 overflow-y-auto custom-scrollbar animate-in fade-in-50 slide-in-from-top-2">
-                                  {filteredBanks.map((bank, index) => (
+                           <div className="space-y-2 relative" ref={dropdownRef}>
+                              <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Bank Name</label>
+                              <div className="relative">
+                                 <Building className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-white/20" />
+                                 <input 
+                                   type="text" 
+                                   value={bankSearch || bankDetails.bankName}
+                                   onFocus={() => setShowBankDropdown(true)}
+                                   onChange={e => {
+                                      setBankQuery(e.target.value);
+                                      setBankDetails(prev => ({ ...prev, bankName: e.target.value, bankCode: '', name: '' }));
+                                      setShowBankDropdown(true);
+                                   }}
+                                   placeholder="Search bank..."
+                                   className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-11 pr-14 text-sm font-bold outline-none focus:border-emerald-500/50 text-slate-900 dark:text-white" 
+                                 />
+                                 <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                    {(bankSearch || bankDetails.bankName) && (
+                                      <button 
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setBankQuery('');
+                                          setBankDetails(prev => ({ ...prev, bankName: '', bankCode: '', name: '' }));
+                                        }}
+                                        className="p-1 hover:bg-slate-200 dark:hover:bg-white/10 rounded-full text-slate-400 dark:text-white/40 hover:text-slate-700 dark:hover:text-white transition-colors"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
                                     <button 
-                                      key={`${bank.code}-${index}`}
-                                      onClick={() => {
-                                         setBankDetails(prev => ({ ...prev, bankName: bank.name, bankCode: bank.code }));
-                                         setBankQuery(bank.name);
-                                         setShowBankDropdown(false);
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowBankDropdown(!showBankDropdown);
                                       }}
-                                      className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 dark:text-white/80 hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-white transition-colors flex items-center gap-3 border-b border-slate-100 dark:border-white/5 last:border-0"
+                                      className="p-1 hover:bg-slate-200 dark:hover:bg-white/10 rounded-full text-slate-400 dark:text-white/40 hover:text-slate-700 dark:hover:text-white transition-colors"
                                     >
-                                       <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center text-[8px] font-black uppercase overflow-hidden">
-                                          {bank.slug ? (
-                                            <img src={`https://raw.githubusercontent.com/iam-kevin/nigerian-banks-logos/master/logos/${bank.slug}.png`} alt="" onError={(e) => (e.target as any).style.display='none'} />
-                                          ) : bank.name.substring(0, 2)}
-                                       </div>
-                                       {bank.name}
+                                      <ChevronDown className={`w-4 h-4 transition-transform ${showBankDropdown ? 'rotate-180' : ''}`} />
                                     </button>
-                                  ))}
-                                  {filteredBanks.length === 0 && <div className="p-4 text-center text-[10px] font-black text-slate-500 dark:text-white/20 uppercase tracking-widest">No banks found</div>}
-                               </motion.div>
-                             )}
-                          </AnimatePresence>
-                       </div>
+                                 </div>
+                              </div>
 
-                       <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Account Name</label>
-                          <div className="relative">
-                             <input 
-                               value={bankDetails.name} 
-                               readOnly 
-                               placeholder="Verifies automatically..." 
-                               className="w-full bg-slate-100/50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 rounded-xl py-3.5 px-4 text-sm font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-tight cursor-not-allowed" 
-                             />
-                             {bankDetails.name && <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />}
-                          </div>
-                       </div>
-                    </div>
+                              <AnimatePresence>
+                                 {showBankDropdown && (
+                                   <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute z-[100] left-0 right-0 mt-2 bg-card border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden max-h-48 overflow-y-auto custom-scrollbar animate-in fade-in-50 slide-in-from-top-2">
+                                      {filteredBanks.map((bank, index) => (
+                                        <button 
+                                          key={`${bank.code}-${index}`}
+                                          onClick={() => handleSelectBank(bank)}
+                                          className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 dark:text-white/80 hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-white transition-colors flex items-center gap-3 border-b border-slate-100 dark:border-white/5 last:border-0"
+                                        >
+                                           <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center text-[8px] font-black uppercase overflow-hidden">
+                                              {bank.slug ? (
+                                                <img src={`https://raw.githubusercontent.com/iam-kevin/nigerian-banks-logos/master/logos/${bank.slug}.png`} alt="" onError={(e) => (e.target as any).style.display='none'} />
+                                              ) : bank.name.substring(0, 2)}
+                                           </div>
+                                           {bank.name}
+                                        </button>
+                                      ))}
+                                      {filteredBanks.length === 0 && <div className="p-4 text-center text-[10px] font-black text-slate-500 dark:text-white/20 uppercase tracking-widest">No banks found</div>}
+                                   </motion.div>
+                                 )}
+                              </AnimatePresence>
+                           </div>
 
-                    <div className="flex flex-col justify-between">
-                       <div className="p-6 rounded-2xl bg-amber-500/5 border border-amber-500/20 space-y-4">
-                          <div className="flex items-center gap-2 text-amber-500">
-                             <AlertTriangle className="w-4 h-4" />
-                             <span className="text-[10px] font-black uppercase tracking-widest">Payout Safety Info</span>
-                          </div>
-                          <p className="text-[10px] text-amber-700 dark:text-amber-200/60 font-medium leading-relaxed uppercase tracking-tight">
-                             Ensure your bank details are correct. StreamAura is not responsible for funds sent to incorrect accounts. Transfers are typically processed within 24 hours.
-                          </p>
-                       </div>
+                           <div className="space-y-2">
+                              <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Account Name</label>
+                              <div className="relative">
+                                 <input 
+                                   value={bankDetails.name} 
+                                   readOnly 
+                                   placeholder="Verifies automatically..." 
+                                   className="w-full bg-slate-100/50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 rounded-xl py-3.5 px-4 text-sm font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-tight cursor-not-allowed" 
+                                 />
+                                 {bankDetails.name && <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />}
+                              </div>
+                           </div>
+                        </div>
 
-                       <div className="pt-6">
-                          <Button 
-                            onClick={handleSaveBank}
-                            disabled={!bankDetails.name || isSavingBank}
-                            className="w-full h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-emerald-500/10"
-                          >
-                             {isSavingBank ? <Loader2 className="w-6 h-6 animate-spin" /> : 'Secure & Save Bank Info'}
-                          </Button>
-                       </div>
-                    </div>
-                 </div>
-              </Card>
-           </motion.div>
+                        <div className="flex flex-col justify-between">
+                           <div className="p-6 rounded-2xl bg-amber-500/5 border border-amber-500/20 space-y-4">
+                              <div className="flex items-center gap-2 text-amber-500">
+                                 <AlertTriangle className="w-4 h-4" />
+                                 <span className="text-[10px] font-black uppercase tracking-widest">Payout Safety Info</span>
+                              </div>
+                              <p className="text-[10px] text-amber-700 dark:text-amber-200/60 font-medium leading-relaxed uppercase tracking-tight">
+                                 Ensure your bank details are correct. StreamAura is not responsible for funds sent to incorrect accounts. Transfers are typically processed within 24 hours.
+                              </p>
+                           </div>
+
+                           <div className="flex gap-3 pt-6">
+                              {hasSavedBank && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  onClick={handleCancelBankEdit}
+                                  className="flex-1 h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] border-slate-200 dark:border-white/10 text-slate-500 dark:text-white/60 hover:text-slate-900 dark:hover:text-white"
+                                >
+                                  Cancel Changes
+                                </Button>
+                              )}
+                              <Button 
+                                onClick={handleSaveBank}
+                                disabled={!bankDetails.name || !bankDetails.bankName || !bankDetails.bankCode || bankDetails.account.length !== 10 || isResolving || isSavingBank}
+                                className={`${hasSavedBank ? 'flex-[2]' : 'w-full'} h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-emerald-500/10 disabled:opacity-50`}
+                              >
+                                 {isSavingBank ? <Loader2 className="w-6 h-6 animate-spin" /> : 'Secure & Save Bank Info'}
+                              </Button>
+                           </div>
+                        </div>
+                     </div>
+                  )}
+               </Card>
+            </motion.div>
          )}
 
          {activeTab === 'security' && (

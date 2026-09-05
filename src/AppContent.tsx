@@ -14,6 +14,7 @@ import Profile from '@/sections/Profile';
 import BulkDownloader from '@/sections/BulkDownloader';
 import History from '@/sections/History';
 import AdminDashboard from '@/sections/AdminDashboard';
+import { VendorDashboard } from '@/sections/VendorDashboard';
 import Notifications from '@/sections/Notifications';
 import About from '@/sections/About';
 import PrivacyPolicy from '@/sections/PrivacyPolicy';
@@ -37,7 +38,7 @@ export const AppContent: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as ViewType;
-    const allowedTabs = ['home', 'video', 'music', 'movie', 'cinema', 'games', 'wallet', 'bulk', 'admin', 'notifications', 'history', 'referral', 'profile', 'about', 'privacy', 'contact'];
+    const allowedTabs = ['home', 'video', 'music', 'movie', 'cinema', 'games', 'wallet', 'bulk', 'admin', 'notifications', 'history', 'referral', 'profile', 'about', 'privacy', 'contact', 'vendor'];
     
     // Handle Referral Code FIRST so it's captured even if routing changes
     const refCode = params.get('ref');
@@ -294,6 +295,8 @@ export const AppContent: React.FC = () => {
             {activeView === 'contact' && <ContactUs />}
             {activeView === 'admin' && isAdmin && <AdminDashboard />}
             {activeView === 'admin' && !isAdmin && <VideoDownloader />}
+            {activeView === 'vendor' && (isAdmin || user?.isVendor) && <VendorDashboard />}
+            {activeView === 'vendor' && !(isAdmin || user?.isVendor) && <Home onNavigate={handleTabChange} />}
           </motion.div>
         </AnimatePresence>
       </Layout>

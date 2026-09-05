@@ -286,8 +286,30 @@ async def start_periodic_cleanup():
         await asyncio.sleep(600) # Run every 10 minutes
 
 @router.websocket("/{game_id}/ws")
-async def game_websocket_endpoint(websocket: WebSocket, game_id: str):
+async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str = None):
     print(f"WS CONNECTION REQUEST: game_id={game_id}")
+    from firebase_admin import auth
+    
+    if not token:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "Authentication token missing"})
+        await websocket.close(code=4001)
+        return
+        
+    try:
+        decoded_token = auth.verify_id_token(token)
+        uid = decoded_token.get("uid")
+        is_admin = decoded_token.get("admin") or decoded_token.get("isAdmin", False)
+        if not is_admin:
+            db = firestore.client()
+            user_doc = db.collection("users").document(uid).get()
+            is_admin = user_doc.exists and user_doc.to_dict().get("isAdmin", False)
+    except Exception as e:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": f"Authentication failed: {str(e)}"})
+        await websocket.close(code=4002)
+        return
+        
     try:
         await manager.connect(websocket, game_id)
         print(f"WS ACCEPTED: {game_id}")
@@ -345,7 +367,7 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str):
             try:
                 data = await websocket.receive_text()
                 msg = json.loads(data)
-                uid = msg.get("uid")
+                # uid is bound to connection session, do not overwrite with client-supplied value
                 action = msg.get("type")
                 state = manager.game_states[game_id]
 
@@ -380,7 +402,7 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str):
                     await manager.broadcast({"type": "chat", "message": message}, game_id)
 
                 elif action == "add_bots":
-                    if msg.get("isAdmin", False):
+                    if is_admin:
                         num_rounds = state.get("numberOfRounds", 1)
                         max_parts = num_rounds * 2
                         current_parts = len(state.get("participants", []))
@@ -408,7 +430,7 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str):
                     }, game_id)
 
                 elif action == "pick_random_players":
-                    is_admin_action = msg.get("isAdmin", False)
+                    is_admin_action = is_admin
                     state["status"] = "selecting"
                     state["choices"] = {}
                     state["revealResult"] = None
@@ -479,17 +501,19 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str):
                         traceback.print_exc()
 
                 elif action == "make_choice":
-                    if state["status"] in ["choosing", "revealing"]:
-                        if state["status"] == "revealing" and state.get("timer", 0) <= 5:
-                            # Locked in, cannot change choice
-                            pass
-                        else:
-                            state["choices"][uid] = msg.get("choice")
-                            room_ref.update({"choices": state["choices"]})
-                            await manager.broadcast({
-                                "type": "game_update", 
-                                "state": {"choices": {k: True for k in state["choices"].keys()}}
-                            }, game_id)
+                    player_uids = [p["uid"] for p in [state.get("playerA"), state.get("playerB")] if p]
+                    if uid in player_uids:
+                        if state["status"] in ["choosing", "revealing"]:
+                            if state["status"] == "revealing" and state.get("timer", 0) <= 5:
+                                # Locked in, cannot change choice
+                                pass
+                            else:
+                                state["choices"][uid] = msg.get("choice")
+                                room_ref.update({"choices": state["choices"]})
+                                await manager.broadcast({
+                                    "type": "game_update", 
+                                    "state": {"choices": {k: True for k in state["choices"].keys()}}
+                                }, game_id)
 
                 elif action == "emoji":
                     await manager.broadcast({
@@ -501,7 +525,7 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str):
 
                 elif action == "delete_room":
                     # Only Host or Admin can delete
-                    is_admin_action = msg.get("isAdmin", False)
+                    is_admin_action = is_admin
                     is_host_action = uid == state.get("hostUid")
                     
                     if is_admin_action or is_host_action:

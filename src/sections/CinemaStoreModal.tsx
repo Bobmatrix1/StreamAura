@@ -21,16 +21,15 @@ import { Card } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
 import { 
-  getProducts, 
-  getPartners, 
   placeOrder,
   type Product, 
   type Partner,
   type Vendor,
-  getVendors
+  db
 } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE_URL } from '../api/mediaApi';
+import { doc, getDoc, setDoc, addDoc, updateDoc, collection, increment, serverTimestamp, onSnapshot } from 'firebase/firestore';
 
 interface CinemaStoreModalProps {
   isOpen: boolean;
@@ -67,21 +66,49 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
   }, [isOpen]);
 
   useEffect(() => {
-    if (isOpen) {
-      fetchData();
-    }
-  }, [isOpen]);
+    if (!isOpen) return;
 
-  const fetchData = async () => {
-    try {
-      const [p, pt, v] = await Promise.all([getProducts(), getPartners(), getVendors()]);
-      setProducts(p.filter(prod => prod.inStock));
-      setPartners(pt);
-      setVendors(v);
-    } catch (error) {
-      toast.error('Failed to load store');
-    }
-  };
+    // Real-time synchronization for Cinema Store products, partners, and vendors
+    const unsubProducts = onSnapshot(collection(db, 'products'), (snap) => {
+      const prods = snap.docs.map(d => {
+        const data = d.data();
+        const isInStock = data.inStock ?? (data.available !== false && data.stockStatus !== 'out_of_stock');
+        const stockStatus = data.stockStatus || (isInStock ? 'in_stock' : 'out_of_stock');
+        return {
+          id: d.id,
+          name: data.name || '',
+          description: data.description || '',
+          price: Number(data.price) || 0,
+          slashPrice: data.slashPrice ? Number(data.slashPrice) : undefined,
+          image: data.image || '',
+          vendorId: data.vendorId || '',
+          inStock: isInStock,
+          stockStatus: stockStatus,
+          available: data.available ?? isInStock,
+          quantity: data.quantity ?? 10,
+          category: data.category || 'snack'
+        } as Product;
+      });
+      setProducts(prods);
+    }, (err) => {
+      console.error('Failed to listen to products:', err);
+      toast.error('Failed to load store products');
+    });
+
+    const unsubPartners = onSnapshot(collection(db, 'partners'), (snap) => {
+      setPartners(snap.docs.map(d => ({ id: d.id, ...d.data() } as Partner)));
+    }, (err) => console.error('Failed to listen to partners:', err));
+
+    const unsubVendors = onSnapshot(collection(db, 'vendors'), (snap) => {
+      setVendors(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vendor)));
+    }, (err) => console.error('Failed to listen to vendors:', err));
+
+    return () => {
+      unsubProducts();
+      unsubPartners();
+      unsubVendors();
+    };
+  }, [isOpen]);
 
   const addToCart = (product: Product) => {
     setCart(prev => {
@@ -124,13 +151,41 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
 
     setIsSubmitting(true);
     try {
+      // 1. Check Customer Wallet Balance
+      const customerWalletRef = doc(db, 'room_wallets', user.uid);
+      const customerWalletSnap = await getDoc(customerWalletRef);
+      const customerBalance = customerWalletSnap.exists() ? (customerWalletSnap.data().funded_balance || 0) : 0;
+
+      if (customerBalance < cartTotal) {
+        toast.error(`Insufficient wallet balance. Total is ₦${cartTotal.toLocaleString()} but your balance is ₦${customerBalance.toLocaleString()}. Please fund your wallet first.`);
+        setIsSubmitting(false);
+        return;
+      }
+
       // Group items by vendor
       const vendorGroups = cart.reduce((acc, item) => {
-        const vId = item.product.vendorId;
+        const vId = item.product.vendorId || 'admin-store';
         if (!acc[vId]) acc[vId] = [];
         acc[vId].push(item);
         return acc;
       }, {} as Record<string, typeof cart>);
+
+      // Deduct Customer Wallet Balance
+      await setDoc(customerWalletRef, {
+        funded_balance: increment(-cartTotal),
+        balance: increment(-cartTotal)
+      }, { merge: true });
+
+      // Save Customer Transaction Log
+      const txCol = collection(db, 'transactions');
+      await addDoc(txCol, {
+        user_uid: user.uid,
+        type: 'purchase',
+        amount: cartTotal,
+        title: `Store Purchase: ${cart.map(i => `${i.quantity}x ${i.product.name}`).join(', ')}`,
+        status: 'completed',
+        timestamp: serverTimestamp()
+      });
 
       // Place orders for each vendor
       for (const [vendorId, items] of Object.entries(vendorGroups)) {
@@ -150,36 +205,97 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
             price: item.product.price
           })),
           totalAmount: orderTotal,
-          vendorId: vendorId
+          vendorId: vendorId,
+          vendorName: vendor?.name || 'Snack Vendor'
         };
 
-        const orderId = await placeOrder(orderData);
+        const { id: orderId, orderNumber } = await placeOrder(orderData);
+
+        // Send In-App Notification to Customer with unique order number and details
+        try {
+          const notifRef = collection(db, 'users', user.uid, 'notifications');
+          await addDoc(notifRef, {
+            title: `🛒 Order Placed - #${orderNumber}`,
+            message: `Your order for ${orderData.items.map(i => `${i.quantity}x ${i.name}`).join(', ')} totaling ₦${orderTotal.toLocaleString()} has been placed and sent to ${vendor?.name || 'the vendor'}. Delivery to: ${deliveryInfo.address}`,
+            timestamp: Date.now(),
+            read: false,
+            type: 'order_placed',
+            orderId,
+            orderNumber,
+            vendorId,
+            vendorName: vendor?.name || 'Vendor',
+            orderStatus: 'pending',
+            estimatedDeliveryTime: ''
+          });
+          await updateDoc(doc(db, 'users', user.uid), { unreadCount: increment(1) });
+        } catch (ne) {
+          console.warn('Failed to add in-app purchase notification:', ne);
+        }
+
+        // Credit Vendor Wallet (70% Share) & Log Earnings Stats
+        const vendorShare = orderTotal * 0.70;
+        const platformShare = orderTotal * 0.30;
+        const itemsCount = items.reduce((sum, item) => sum + item.quantity, 0);
+
+        const vendorWalletRef = doc(db, 'room_wallets', vendorId);
+        await setDoc(vendorWalletRef, {
+          funded_balance: increment(vendorShare),
+          balance: increment(vendorShare),
+          vendor_earnings: increment(vendorShare),
+          vendor_revenue: increment(orderTotal),
+          vendor_sales_count: increment(itemsCount),
+          vendor_fees: increment(platformShare)
+        }, { merge: true });
+
+        // Save Vendor Transaction Log
+        await addDoc(txCol, {
+          user_uid: vendorId,
+          type: 'vendor_earning',
+          amount: vendorShare,
+          title: `Earning from order #${orderNumber} (${orderData.items.map(i => `${i.quantity}x ${i.name}`).join(', ')})`,
+          status: 'completed',
+          timestamp: serverTimestamp()
+        });
+
+        // Update Platform Fees global stats
+        const statsRef = doc(db, 'system_analytics', 'global_counters');
+        await setDoc(statsRef, {
+          [`payments.success.count`]: increment(1),
+          [`payments.success.totalAmount`]: increment(orderTotal),
+          [`payments.platform_fees`]: increment(platformShare)
+        }, { merge: true });
 
         // Send to Telegram Bot via backend
-        await fetch(`${API_BASE_URL}/api/store/order`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            orderId,
-            vendorId,
-            vendorName: vendor?.name || 'Unknown Vendor',
-            telegramGroupId: vendor?.telegramGroupId,
-            customerName: deliveryInfo.name,
-            customerPhone: deliveryInfo.phone,
-            customerAddress: deliveryInfo.address,
-            items: orderData.items,
-            total: orderTotal
-          })
-        });
+        try {
+          await fetch(`${API_BASE_URL}/api/store/order`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderId,
+              orderNumber,
+              vendorId,
+              vendorName: vendor?.name || 'Snack Vendor',
+              telegramGroupId: vendor?.telegramGroupId,
+              customerName: deliveryInfo.name,
+              customerPhone: deliveryInfo.phone,
+              customerAddress: deliveryInfo.address,
+              items: orderData.items,
+              total: orderTotal,
+              userId: user.uid
+            })
+          });
+        } catch (tge) {
+          console.warn('Failed to dispatch telegram order notification:', tge);
+        }
       }
 
-      toast.success('Order placed successfully! We will contact you soon.');
+      toast.success('Order placed successfully! Wallet debited.');
       setCart([]);
       setActiveTab('store');
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Checkout error:', error);
-      toast.error('Failed to place order');
+      toast.error(error.message || 'Payment processing failed');
     } finally {
       setIsSubmitting(false);
     }
@@ -288,59 +404,88 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
 
                     {/* Products Grid */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {products.map(product => (
-                        <Card key={product.id} className="overflow-hidden glass-card border-white/10 group flex flex-col">
-                          <div className="relative aspect-square overflow-hidden bg-black/40">
-                            <img 
-                              src={product.image} 
-                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" 
-                              alt={product.name} 
-                            />
-                            {product.slashPrice && (
-                              <Badge className="absolute top-2 left-2 bg-rose-600 text-[9px] font-black uppercase">
-                                Sale
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="p-4 flex-1 flex flex-col justify-between">
-                            <div className="space-y-1">
-                              <div className="flex justify-between items-start">
-                                <h4 className="font-black text-sm uppercase leading-tight line-clamp-1">{product.name}</h4>
-                                <div className="flex items-center text-amber-500">
-                                  <Star className="w-3 h-3 fill-current" />
-                                  <span className="text-[10px] font-black ml-1">4.8</span>
-                                </div>
-                              </div>
-                              <p className="text-[10px] text-muted-foreground font-bold italic truncate">
-                                by {vendors.find(v => v.id === product.vendorId)?.name}
-                              </p>
-                              <p className="text-[10px] text-muted-foreground line-clamp-2 mt-2 leading-relaxed">
-                                {product.description}
-                              </p>
+                      {products.map(product => {
+                        const isOutOfStock = product.stockStatus === 'out_of_stock' || product.inStock === false || product.available === false;
+                        const isRestocking = product.stockStatus === 'restocking';
+                        const isUnavailable = isOutOfStock || isRestocking;
+
+                        return (
+                          <Card key={product.id} className={`overflow-hidden glass-card border-white/10 group flex flex-col transition-all duration-300 ${isUnavailable ? 'opacity-50 bg-black/10' : ''}`}>
+                            <div className="relative aspect-square overflow-hidden bg-black/40">
+                              <img 
+                                src={product.image} 
+                                className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${isUnavailable ? 'grayscale' : ''}`}
+                                alt={product.name} 
+                              />
+                              {product.slashPrice && !isUnavailable && (
+                                <Badge className="absolute top-2 left-2 bg-rose-600 text-[9px] font-black uppercase">
+                                  Sale
+                                </Badge>
+                              )}
+                              {isOutOfStock && (
+                                <Badge className="absolute top-2 left-2 bg-red-600 text-[9px] font-black uppercase">
+                                  Out of Stock
+                                </Badge>
+                              )}
+                              {isRestocking && (
+                                <Badge className="absolute top-2 left-2 bg-amber-600 text-[9px] font-black uppercase">
+                                  Restocking
+                                </Badge>
+                              )}
                             </div>
-                            
-                            <div className="mt-4 flex items-center justify-between">
-                              <div className="flex flex-col">
-                                {product.slashPrice && (
-                                  <span className="text-[10px] text-muted-foreground line-through italic decoration-rose-500/50">
-                                    ₦{product.slashPrice.toLocaleString()}
+                            <div className="p-4 flex-1 flex flex-col justify-between">
+                              <div className="space-y-1">
+                                {(() => {
+                                  const vendorObj = vendors.find(v => v.id === product.vendorId);
+                                  const vendorRating = vendorObj?.rating ? Number(vendorObj.rating).toFixed(1) : (vendorObj?.ratingCount ? '5.0' : '5.0');
+                                  const vendorReviewCount = vendorObj?.ratingCount || 0;
+                                  return (
+                                    <>
+                                      <div className="flex justify-between items-start">
+                                        <h4 className="font-black text-sm uppercase leading-tight line-clamp-1">{product.name}</h4>
+                                        <div className="flex items-center text-amber-500" title={vendorReviewCount > 0 ? `${vendorReviewCount} ratings` : '5.0 (New Vendor)'}>
+                                          <Star className="w-3 h-3 fill-current" />
+                                          <span className="text-[10px] font-black ml-1">{vendorRating}</span>
+                                          {vendorReviewCount > 0 && (
+                                            <span className="text-[8px] text-muted-foreground ml-0.5 font-bold">({vendorReviewCount})</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                      <p className="text-[10px] text-muted-foreground font-bold italic truncate">
+                                        by {vendorObj?.name || 'Store'}
+                                      </p>
+                                    </>
+                                  );
+                                })()}
+                                <p className="text-[10px] text-muted-foreground line-clamp-2 mt-2 leading-relaxed">
+                                  {product.description}
+                                </p>
+                              </div>
+                              
+                              <div className="mt-4 flex items-center justify-between">
+                                <div className="flex flex-col">
+                                  {product.slashPrice && (
+                                    <span className="text-[10px] text-muted-foreground line-through italic decoration-rose-500/50">
+                                      ₦{product.slashPrice.toLocaleString()}
+                                    </span>
+                                  )}
+                                  <span className="text-sm font-black text-emerald-400 tracking-tighter">
+                                    ₦{product.price.toLocaleString()}
                                   </span>
-                                )}
-                                <span className="text-sm font-black text-emerald-400 tracking-tighter">
-                                  ₦{product.price.toLocaleString()}
-                                </span>
+                                </div>
+                                <Button 
+                                  size="sm" 
+                                  onClick={() => addToCart(product)}
+                                  disabled={isUnavailable}
+                                  className={`h-9 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest ${isUnavailable ? 'bg-white/5 border border-white/10 text-muted-foreground cursor-not-allowed' : 'gradient-bg'}`}
+                                >
+                                  {isOutOfStock ? 'Sold Out' : isRestocking ? 'Restock' : <><Plus className="w-3.5 h-3.5 mr-1" /> Add</>}
+                                </Button>
                               </div>
-                              <Button 
-                                size="sm" 
-                                onClick={() => addToCart(product)}
-                                className="h-9 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gradient-bg"
-                              >
-                                <Plus className="w-3.5 h-3.5 mr-1" /> Add
-                              </Button>
                             </div>
-                          </div>
-                        </Card>
-                      ))}
+                          </Card>
+                        );
+                      })}
                     </div>
                   </motion.div>
                 )}

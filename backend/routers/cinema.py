@@ -12,6 +12,8 @@ import uuid
 import time
 import hashlib
 import json
+import urllib.parse
+from typing import Optional
 from firebase_admin import firestore
 
 router = APIRouter()
@@ -19,6 +21,61 @@ router = APIRouter()
 # Get Firestore db from firebase-admin (Lazy initialization)
 def get_db():
     return firestore.client()
+
+def check_is_admin(user: dict) -> bool:
+    if user.get("admin") or user.get("isAdmin"):
+        return True
+    try:
+        db = get_db()
+        user_doc = db.collection("users").document(user["uid"]).get()
+        if user_doc.exists and user_doc.to_dict().get("isAdmin", False):
+            return True
+    except Exception as e:
+        print(f"Error checking admin status: {e}")
+    return False
+
+def is_r2_url(url: str) -> bool:
+    if not url or not isinstance(url, str):
+        return False
+    url = url.strip()
+    base_url = (settings.R2_PUBLIC_BASE_URL or "").rstrip("/")
+    if base_url and base_url in url:
+        return True
+    if "r2.cloudflarestorage.com" in url or "r2.dev" in url or "streamaura.site" in url:
+        return True
+    if settings.R2_BUCKET_ASSETS and f"/{settings.R2_BUCKET_ASSETS}/" in url:
+        return True
+    if settings.R2_BUCKET_MOVIES and f"/{settings.R2_BUCKET_MOVIES}/" in url:
+        return True
+    # If not an absolute URL, check if it looks like an object key (not starting with http/https)
+    if not url.startswith("http://") and not url.startswith("https://"):
+        return True
+    return False
+
+def extract_r2_key(url: str) -> Optional[str]:
+    if not url or not isinstance(url, str):
+        return None
+    url = url.split("?")[0].split("#")[0].strip()
+    
+    # If base url configured, strip it
+    base_url = (settings.R2_PUBLIC_BASE_URL or "").rstrip("/")
+    if base_url and base_url in url:
+        key = url.split(base_url)[-1].lstrip("/")
+    else:
+        # Standard URL parsing
+        parsed = urllib.parse.urlparse(url)
+        if parsed.netloc:
+            key = parsed.path.lstrip("/")
+        else:
+            key = url.lstrip("/")
+            
+    # Strip bucket names if prefixed in path
+    if settings.R2_BUCKET_ASSETS and key.startswith(f"{settings.R2_BUCKET_ASSETS}/"):
+        key = key[len(settings.R2_BUCKET_ASSETS) + 1:]
+    if settings.R2_BUCKET_MOVIES and key.startswith(f"{settings.R2_BUCKET_MOVIES}/"):
+        key = key[len(settings.R2_BUCKET_MOVIES) + 1:]
+        
+    return key
 
 from core.payouts import calculate_payout_split
 
@@ -32,6 +89,10 @@ async def verify_wallet_funding(reference: str, user: dict = Depends(get_current
         response = await verify_transaction(reference)
         
         if response["data"]["status"] == "success":
+            # Check transaction owner to prevent reference theft
+            metadata = response["data"].get("metadata", {})
+            if metadata and metadata.get("user_uid") != user["uid"]:
+                raise HTTPException(status_code=403, detail="Unauthorized transaction reference")
             amount_kobo = response["data"]["amount"]
             amount_naira = amount_kobo / 100
             
@@ -267,36 +328,56 @@ async def pay_with_referral_balance(room_id: str, user: dict = Depends(get_curre
     Pay for a room ticket using referral balance.
     """
     db = get_db()
-    room_doc = db.collection("cinema_rooms").document(room_id).get()
-    if not room_doc.exists:
-        raise HTTPException(status_code=404, detail="Room not found")
+    uid = user["uid"]
+    
+    try:
+        room_ref = db.collection("cinema_rooms").document(room_id)
+        user_ref = db.collection("users").document(uid)
         
-    room = room_doc.to_dict()
-    if room.get("room_type") != "paid":
-        raise HTTPException(status_code=400, detail="This room does not require payment")
+        transaction = db.transaction()
         
-    price = room.get("ticket_price", 0)
-    
-    user_ref = db.collection("users").document(user["uid"])
-    user_doc = user_ref.get()
-    user_data = user_doc.to_dict()
-    
-    current_balance = user_data.get("referralBalance", 0)
-    if current_balance < price:
-        raise HTTPException(status_code=400, detail=f"Insufficient referral balance. Need ₦{price}")
-        
-    # Deduct balance and grant pass
-    user_ref.update({"referralBalance": firestore.Increment(-price)})
-    
-    pass_id = f"pass_{uuid.uuid4().hex}"
-    db.collection("room_access_passes").document(pass_id).set({
-        "room_id": room_id,
-        "user_uid": user["uid"],
-        "payment_method": "referral_balance",
-        "granted_at": firestore.SERVER_TIMESTAMP
-    })
-    
-    return {"success": True, "message": "Ticket purchased with referral balance!"}
+        @firestore.transactional
+        def transactional_pay(transaction):
+            # Read room
+            room_snapshot = room_ref.get(transaction=transaction)
+            if not room_snapshot.exists:
+                raise HTTPException(status_code=404, detail="Room not found")
+                
+            room = room_snapshot.to_dict()
+            if room.get("room_type") != "paid":
+                raise HTTPException(status_code=400, detail="This room does not require payment")
+                
+            price = room.get("ticket_price", 0)
+            
+            # Read user
+            user_snapshot = user_ref.get(transaction=transaction)
+            if not user_snapshot.exists:
+                raise HTTPException(status_code=404, detail="User not found")
+                
+            user_data = user_snapshot.to_dict()
+            current_balance = user_data.get("referralBalance", 0)
+            if current_balance < price:
+                raise HTTPException(status_code=400, detail=f"Insufficient referral balance. Need ₦{price}")
+                
+            # Perform updates
+            transaction.update(user_ref, {"referralBalance": firestore.Increment(-price)})
+            
+            pass_id = f"pass_{uuid.uuid4().hex}"
+            pass_ref = db.collection("room_access_passes").document(pass_id)
+            transaction.set(pass_ref, {
+                "room_id": room_id,
+                "user_uid": uid,
+                "payment_method": "referral_balance",
+                "granted_at": firestore.SERVER_TIMESTAMP
+            })
+            
+            return {"success": True, "message": "Ticket purchased with referral balance!"}
+            
+        return transactional_pay(transaction)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/rooms/create")
 async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(get_current_user)):
@@ -332,42 +413,61 @@ async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(ge
         else:
             normal_to_deduct += (seats * 1000) # Normal rate
     # --- PERFORM DEDUCTIONS ---
-    user_ref = db.collection("users").document(uid)
-    
-    if bonus_to_deduct > 0:
-        user_doc = user_ref.get()
-        if not user_doc.exists or user_doc.to_dict().get("bonusBalance", 0) < bonus_to_deduct:
-            raise HTTPException(status_code=400, detail="Insufficient bonus balance for series discount.")
-        user_ref.update({"bonusBalance": firestore.Increment(-bonus_to_deduct)})
-
-    if referral_to_deduct > 0:
-        user_doc = user_ref.get()
-        if not user_doc.exists or user_doc.to_dict().get("referralBalance", 0) < referral_to_deduct:
-            raise HTTPException(status_code=400, detail="Insufficient referral commission balance.")
-        user_ref.update({"referralBalance": firestore.Increment(-referral_to_deduct)})
-
-    if normal_to_deduct > 0:
+    try:
+        user_ref = db.collection("users").document(uid)
         wallet_ref = db.collection("room_wallets").document(uid)
-        wallet_doc = wallet_ref.get()
-        if not wallet_doc.exists or wallet_doc.to_dict().get("balance", 0) < normal_to_deduct:
-            raise HTTPException(status_code=400, detail="Insufficient wallet balance.")
         
-        # Unified deduction (Funded first, then Host)
-        w_data = wallet_doc.to_dict()
-        fb = w_data.get("funded_balance", 0)
+        transaction = db.transaction()
         
-        if fb >= normal_to_deduct:
-            wallet_ref.update({
-                "funded_balance": firestore.Increment(-normal_to_deduct),
-                "balance": firestore.Increment(-normal_to_deduct)
-            })
-        else:
-            remaining = normal_to_deduct - fb
-            wallet_ref.update({
-                "funded_balance": 0,
-                "host_balance": firestore.Increment(-remaining),
-                "balance": firestore.Increment(-normal_to_deduct)
-            })
+        @firestore.transactional
+        def transactional_deduct(transaction):
+            user_snapshot = user_ref.get(transaction=transaction)
+            user_data = user_snapshot.to_dict() if user_snapshot.exists else {}
+            
+            wallet_snapshot = wallet_ref.get(transaction=transaction)
+            w_data = wallet_snapshot.to_dict() if wallet_snapshot.exists else {}
+            
+            if bonus_to_deduct > 0:
+                if user_data.get("bonusBalance", 0) < bonus_to_deduct:
+                    raise HTTPException(status_code=400, detail="Insufficient bonus balance for series discount.")
+                    
+            if referral_to_deduct > 0:
+                if user_data.get("referralBalance", 0) < referral_to_deduct:
+                    raise HTTPException(status_code=400, detail="Insufficient referral commission balance.")
+                    
+            if normal_to_deduct > 0:
+                if w_data.get("balance", 0) < normal_to_deduct:
+                    raise HTTPException(status_code=400, detail="Insufficient wallet balance.")
+                    
+            # Perform Writes
+            user_updates = {}
+            if bonus_to_deduct > 0:
+                user_updates["bonusBalance"] = firestore.Increment(-bonus_to_deduct)
+            if referral_to_deduct > 0:
+                user_updates["referralBalance"] = firestore.Increment(-referral_to_deduct)
+            if user_updates:
+                transaction.update(user_ref, user_updates)
+                
+            if normal_to_deduct > 0:
+                fb = w_data.get("funded_balance", 0)
+                if fb >= normal_to_deduct:
+                    transaction.update(wallet_ref, {
+                        "funded_balance": firestore.Increment(-normal_to_deduct),
+                        "balance": firestore.Increment(-normal_to_deduct)
+                    })
+                else:
+                    remaining = normal_to_deduct - fb
+                    transaction.update(wallet_ref, {
+                        "funded_balance": 0,
+                        "host_balance": firestore.Increment(-remaining),
+                        "balance": firestore.Increment(-normal_to_deduct)
+                    })
+                    
+        transactional_deduct(transaction)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
     room_data = request.dict()
     room_data.update({
@@ -461,6 +561,22 @@ async def verify_room_payment(room_id: str, reference: str, user: dict = Depends
     """
     db = get_db()
     try:
+        # Verify transaction database existence, status, owner, and room ID
+        tx_ref = db.collection("transactions").document(reference)
+        tx_doc = tx_ref.get()
+        if not tx_doc.exists:
+            raise HTTPException(status_code=404, detail="Transaction reference not found")
+            
+        tx_data = tx_doc.to_dict()
+        if tx_data.get("status") == "completed":
+            raise HTTPException(status_code=400, detail="Transaction has already been verified/completed")
+            
+        if tx_data.get("user_uid") != user["uid"]:
+            raise HTTPException(status_code=403, detail="Unauthorized transaction reference owner")
+            
+        if tx_data.get("room_id") != room_id:
+            raise HTTPException(status_code=400, detail="Transaction reference does not match room ID")
+
         response = await verify_transaction(reference)
         
         if response["data"]["status"] == "success":
@@ -541,40 +657,52 @@ async def request_withdrawal(request: WithdrawalRequest, user: dict = Depends(ge
             balance_field = "referralBalance"
         else:
             user_ref = db.collection("room_wallets").document(uid)
-            balance_field = "funded_balance" if request.balance_type == "funded" else "host_balance"
+            balance_field = "funded_balance" if (request.balance_type == "funded" or request.balance_type == "vendor") else "host_balance"
             
-        user_doc = user_ref.get()
-        if not user_doc.exists:
-            raise HTTPException(status_code=404, detail="Wallet not found")
-            
-        data = user_doc.to_dict()
-        current_balance = data.get(balance_field, 0)
+        transaction = db.transaction()
+        current_balance = 0.0
         
-        if current_balance < request.amount or request.amount <= 0:
-            raise HTTPException(status_code=400, detail=f"Insufficient {request.balance_type} balance")
+        @firestore.transactional
+        def transactional_withdraw(transaction):
+            nonlocal current_balance
+            user_snapshot = user_ref.get(transaction=transaction)
+            if not user_snapshot.exists:
+                raise HTTPException(status_code=404, detail="Wallet not found")
+                
+            data = user_snapshot.to_dict()
+            current_balance = float(data.get(balance_field, 0) or 0)
             
-        # 1. Deduct balance immediately
-        updates = {balance_field: firestore.Increment(-request.amount)}
-        if request.balance_type != "referral":
-            updates["balance"] = firestore.Increment(-request.amount) # keep total synced
-        user_ref.update(updates)
+            if current_balance < request.amount or request.amount <= 0:
+                raise HTTPException(status_code=400, detail=f"Insufficient {request.balance_type} balance")
+                
+            # 1. Deduct balance immediately
+            updates = {balance_field: firestore.Increment(-request.amount)}
+            if request.balance_type != "referral":
+                updates["balance"] = firestore.Increment(-request.amount) # keep total synced
+            transaction.update(user_ref, updates)
+            return current_balance
+            
+        tx_result = transactional_withdraw(transaction)
+        if tx_result is not None:
+            current_balance = float(tx_result)
         
         # 2. Apply Fees Logic
-        # Funded: 5% fee (User gets 95%)
+        # Funded/Vendor: 5% fee (User gets 95%)
         # Host/Referral: 1% fee (User gets 99%)
-        fee_percentage = 5 if request.balance_type == "funded" else 1
+        fee_percentage = 5 if (request.balance_type == "funded" or request.balance_type == "vendor") else 1
         fee_amount = (request.amount * fee_percentage) / 100
         payout_amount = request.amount - fee_amount
         
-        # Resolve bank name from user profile
-        bank_name = ""
-        try:
-            profile_ref = db.collection("users").document(uid).get()
-            if profile_ref.exists:
-                bank_details = profile_ref.to_dict().get("bankDetails", {})
-                bank_name = bank_details.get("bankName", "")
-        except Exception:
-            pass
+        # Resolve bank name from request or user profile
+        bank_name = request.bank_name or ""
+        if not bank_name:
+            try:
+                profile_ref = db.collection("users").document(uid).get()
+                if profile_ref.exists:
+                    bank_details = profile_ref.to_dict().get("bankDetails", {})
+                    bank_name = bank_details.get("bankName", "")
+            except Exception:
+                pass
 
         withdrawal_id = f"wd_{uuid.uuid4().hex[:12]}"
         withdrawal_data = {
@@ -639,7 +767,7 @@ async def process_payout(withdrawal_id: str, action: str, reason: str = None, ad
                 user_ref.update({"referralBalance": firestore.Increment(wd_data["amount"])})
             else:
                 user_ref = db.collection("room_wallets").document(uid)
-                balance_field = "funded_balance" if balance_type == "funded" else "host_balance"
+                balance_field = "funded_balance" if (balance_type == "funded" or balance_type == "vendor") else "host_balance"
                 user_ref.update({
                     balance_field: firestore.Increment(wd_data["amount"]),
                     "balance": firestore.Increment(wd_data["amount"])
@@ -748,6 +876,9 @@ async def presign_part(request: MultipartPartRequest, user: dict = Depends(get_c
     """
     Step 2: Get a signed URL for a specific part (e.g. part 1, 2, 3...)
     """
+    if not request.key.startswith(f"{user['uid']}/"):
+        raise HTTPException(status_code=403, detail="Unauthorized upload key")
+
     bucket_name = settings.R2_BUCKET_ASSETS if request.bucket_type == "assets" else settings.R2_BUCKET_MOVIES
     
     url = generate_presigned_part_url(
@@ -767,6 +898,9 @@ async def complete_upload(request: MultipartCompleteRequest, user: dict = Depend
     """
     Step 3: Tell R2 to join all the uploaded parts into a single file.
     """
+    if not request.key.startswith(f"{user['uid']}/"):
+        raise HTTPException(status_code=403, detail="Unauthorized upload key")
+
     bucket_name = settings.R2_BUCKET_ASSETS if request.bucket_type == "assets" else settings.R2_BUCKET_MOVIES
     
     success = complete_multipart_upload(
@@ -848,28 +982,100 @@ class DeleteAssetRequest(BaseModel):
 async def delete_asset(request: DeleteAssetRequest, user: dict = Depends(get_current_user)):
     """
     Deletes an asset from Cloudflare R2 given its public URL.
-    To prevent unauthorized deletions, we ensure the object name starts with the user's UID.
+    Authorized if the user is an admin OR if the object key belongs to the user's UID.
     """
     url = request.url
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
         
-    base_url = settings.R2_PUBLIC_BASE_URL
-    if base_url in url:
-        key = url.split(base_url + "/")[-1]
-    else:
-        key = url
+    if not is_r2_url(url):
+        return {"success": True, "message": "Not an R2 asset, skipped"}
         
-    # Strip any query parameters or hash fragments from the key (e.g. ?t=timestamp)
-    key = key.split("?")[0].split("#")[0]
+    key = extract_r2_key(url)
+    if not key:
+        raise HTTPException(status_code=400, detail="Could not extract key from URL")
         
-    # SECURITY: Ensure user is only deleting their own files!
-    if not key.startswith(f"{user['uid']}/"):
+    uid = user.get("uid") or user.get("sub")
+    is_admin = check_is_admin(user)
+    
+    # SECURITY: Non-admins can only delete their own uploaded files!
+    if not is_admin and not key.startswith(f"{uid}/"):
         raise HTTPException(status_code=403, detail="Unauthorized to delete this object")
         
-    # Delete from assets bucket
-    success = delete_object(settings.R2_BUCKET_ASSETS, key)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to delete object from storage")
+    # Delete from assets bucket (and check movies bucket as well)
+    delete_object(settings.R2_BUCKET_ASSETS, key)
+    delete_object(settings.R2_BUCKET_MOVIES, key)
         
-    return {"success": True, "message": "Object deleted"}
+    return {"success": True, "message": "Object deleted from Cloudflare", "key": key}
+
+
+@router.delete("/products/{product_id}")
+@router.post("/products/{product_id}/delete")
+async def delete_product(product_id: str, user: dict = Depends(get_current_user)):
+    """
+    Deletes a product from the Firestore database AND removes its image asset(s) from Cloudflare R2.
+    Only the vendor owner who owns the product or an admin is authorized to perform this deletion.
+    """
+    db = get_db()
+    product_ref = db.collection("products").document(product_id)
+    product_doc = product_ref.get()
+    
+    if not product_doc.exists:
+        return {"success": True, "message": "Product not found or already deleted"}
+        
+    product_data = product_doc.to_dict() or {}
+    vendor_id = product_data.get("vendorId")
+    uid = user.get("uid") or user.get("sub")
+    is_admin = check_is_admin(user)
+    is_owner = (vendor_id == uid or product_data.get("userId") == uid or product_data.get("creatorId") == uid)
+    
+    if not (is_admin or is_owner):
+        raise HTTPException(
+            status_code=403, 
+            detail="You do not have permission to delete this product. Only the vendor owner or an admin can delete it."
+        )
+        
+    deleted_assets = []
+    
+    # 1. Delete primary image from Cloudflare R2
+    image_url = product_data.get("image")
+    if image_url and is_r2_url(image_url):
+        key = extract_r2_key(image_url)
+        if key:
+            try:
+                delete_object(settings.R2_BUCKET_ASSETS, key)
+                delete_object(settings.R2_BUCKET_MOVIES, key)
+                deleted_assets.append(key)
+                print(f"[R2 CLEANUP] Successfully deleted product image {key} from Cloudflare R2")
+            except Exception as e:
+                print(f"[R2 CLEANUP ERROR] Failed to delete image {key}: {e}")
+                
+    # 2. Check for any additional images in an images array
+    images = product_data.get("images", [])
+    if isinstance(images, list):
+        for img_url in images:
+            if isinstance(img_url, str) and is_r2_url(img_url):
+                key = extract_r2_key(img_url)
+                if key and key not in deleted_assets:
+                    try:
+                        delete_object(settings.R2_BUCKET_ASSETS, key)
+                        delete_object(settings.R2_BUCKET_MOVIES, key)
+                        deleted_assets.append(key)
+                        print(f"[R2 CLEANUP] Successfully deleted secondary product image {key} from Cloudflare R2")
+                    except Exception as e:
+                        print(f"[R2 CLEANUP ERROR] Failed to delete secondary image {key}: {e}")
+
+    # 3. Delete product document from Firestore database
+    try:
+        product_ref.delete()
+        print(f"[DB CLEANUP] Successfully deleted product document {product_id} from Firestore")
+    except Exception as e:
+        print(f"[DB CLEANUP ERROR] Failed to delete product document {product_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete product from database: {str(e)}")
+        
+    return {
+        "success": True,
+        "message": f"Product {product_id} deleted from database and Cloudflare",
+        "deleted_assets": deleted_assets
+    }
+

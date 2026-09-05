@@ -32,7 +32,7 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { doc, collection, query, where, onSnapshot, orderBy, getDoc, updateDoc, limit } from 'firebase/firestore';
+import { doc, collection, query, where, onSnapshot, orderBy, updateDoc, limit } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { API_BASE_URL } from '../api/mediaApi';
 import { initializePaystackPayment, fetchBanks, resolveBankAccount } from '../api/paymentApi';
@@ -80,6 +80,7 @@ const Wallet: React.FC = () => {
   
   // Bank States
   const [availableBanks, setAvailableBanks] = useState<Bank[]>([]);
+  const [savedBankDetails, setSavedBankDetails] = useState({ name: '', account: '', bankName: '', bankCode: '', logo: '' });
   const [bankDetails, setBankDetails] = useState({ name: '', account: '', bankName: '', bankCode: '', logo: '' });
   const [hasBankSet, setHasBankSet] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
@@ -89,6 +90,18 @@ const Wallet: React.FC = () => {
   const [scrollToTab, setScrollToTab] = useState<'history' | 'overview' | null>(null);
   
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Reset bank edit draft when switching to withdraw tab
+  useEffect(() => {
+    if (activeTab === 'withdraw') {
+      if (savedBankDetails.account && savedBankDetails.name && savedBankDetails.bankName && savedBankDetails.bankCode && savedBankDetails.account.length === 10) {
+        setBankDetails(savedBankDetails);
+        setBankQuery('');
+        setShowBankDropdown(false);
+        setHasBankSet(true);
+      }
+    }
+  }, [activeTab, savedBankDetails]);
 
   // Handle cross-component deep linking (e.g. from Games modal 'Add Funds')
   useEffect(() => {
@@ -121,16 +134,23 @@ const Wallet: React.FC = () => {
          }
       });
 
-      // Load Bank Details from Profile
-      const loadBank = async () => {
-         const userRef = doc(db, 'users', user.uid);
-         const userSnap = await getDoc(userRef);
-         if (userSnap.exists() && userSnap.data().bankDetails) {
-            setBankDetails(userSnap.data().bankDetails);
-            setHasBankSet(true);
+      // Load Bank Details from Profile in real-time
+      const unsubUser = onSnapshot(doc(db, 'users', user.uid), (snap) => {
+         if (snap.exists() && snap.data().bankDetails) {
+            const details = snap.data().bankDetails;
+            setSavedBankDetails(details);
+            setBankDetails(details);
+            if (details.name && details.account && details.bankName && details.bankCode && details.account.length === 10) {
+               setHasBankSet(true);
+            } else {
+               setHasBankSet(false);
+            }
+         } else {
+            setSavedBankDetails({ name: '', account: '', bankName: '', bankCode: '', logo: '' });
+            setBankDetails({ name: '', account: '', bankName: '', bankCode: '', logo: '' });
+            setHasBankSet(false);
          }
-      };
-      loadBank();
+      });
 
       // Combined History Listener (Transactions + Withdrawals)
       const qTx = query(collection(db, 'transactions'), where('user_uid', '==', user.uid));
@@ -175,32 +195,9 @@ const Wallet: React.FC = () => {
          updateHistory();
       });
 
-      return () => { unsubBalance(); unsubTx(); unsubWd(); };
+      return () => { unsubBalance(); unsubTx(); unsubWd(); unsubUser(); };
     }
   }, [user?.uid]);
-
-  // Common Nigerian Bank Prefixes (for OPay-style auto-detection)
-  const BANK_PREFIXES: Record<string, string[]> = {
-    "044": ["Access Bank"],
-    "050": ["Ecobank"],
-    "070": ["Fidelity Bank"],
-    "011": ["First Bank"],
-    "214": ["First City Monument Bank"],
-    "058": ["GTBank"],
-    "030": ["Heritage Bank"],
-    "082": ["Keystone Bank"],
-    "999992": ["OPay"],
-    "999991": ["PalmPay"],
-    "076": ["Polaris Bank"],
-    "101": ["Providus Bank"],
-    "032": ["Union Bank"],
-    "033": ["United Bank For Africa"],
-    "215": ["Unity Bank"],
-    "035": ["Wema Bank"],
-    "057": ["Zenith Bank"],
-    "50211": ["Kuda Bank"],
-    "50515": ["Moniepoint"]
-  };
 
   // History Pagination
   const [historyPage, setHistoryPage] = useState(1);
@@ -241,15 +238,20 @@ const Wallet: React.FC = () => {
       if (bankDetails.name) setBankDetails(prev => ({ ...prev, name: '' }));
     }
   }, [bankDetails.account, bankDetails.bankCode]);
-  const resolveAccount = async () => {
+
+  const resolveAccount = async (accNum?: string, bCode?: string) => {
+    const targetAccount = accNum || bankDetails.account;
+    const targetCode = bCode || bankDetails.bankCode;
+    if (!targetAccount || targetAccount.length !== 10 || !targetCode) return;
+
     setIsResolving(true);
     try {
-      const result = await resolveBankAccount(bankDetails.account, bankDetails.bankCode);
+      const result = await resolveBankAccount(targetAccount, targetCode);
       if (result.status && result.data?.account_name) {
         setBankDetails(prev => ({ ...prev, name: result.data.account_name }));
         showSuccess("Account verified successfully!");
       } else {
-        showError("Could not verify account. Please check number and bank.");
+        showError(result.message || "Could not verify account. Please check number and bank.");
         setBankDetails(prev => ({ ...prev, name: '' }));
       }
     } catch (err) {
@@ -260,24 +262,38 @@ const Wallet: React.FC = () => {
     }
   };
 
-  const getSuggestedBankNames = () => {
-    if (bankDetails.account.length >= 3) {
-      const prefix3 = bankDetails.account.substring(0, 3);
-      const prefix5 = bankDetails.account.substring(0, 5);
-      const prefix6 = bankDetails.account.substring(0, 6);
-      return BANK_PREFIXES[prefix6] || BANK_PREFIXES[prefix5] || BANK_PREFIXES[prefix3] || [];
-    }
-    return [];
-  };
+  const handleSelectBank = async (bank: Bank) => {
+    setBankDetails(prev => ({ ...prev, bankName: bank.name, bankCode: bank.code, name: '' }));
+    setBankQuery(bank.name);
+    setShowBankDropdown(false);
 
-  const suggestedBanks = getSuggestedBankNames();
+    if (bankDetails.account.length === 10) {
+      setIsResolving(true);
+      try {
+        const result = await resolveBankAccount(bankDetails.account, bank.code);
+        if (result.status && result.data?.account_name) {
+          setBankDetails(prev => ({
+            ...prev,
+            bankName: bank.name,
+            bankCode: bank.code,
+            name: result.data.account_name
+          }));
+          showSuccess("Account verified successfully!");
+        } else {
+          showError(result.message || "Could not verify account. Please check number and bank.");
+          setBankDetails(prev => ({ ...prev, name: '' }));
+        }
+      } catch (err) {
+        showError("Verification failed.");
+        setBankDetails(prev => ({ ...prev, name: '' }));
+      } finally {
+        setIsResolving(false);
+      }
+    }
+  };
 
   const filteredBanks = availableBanks.filter(b => {
     if (bankSearch) return b.name.toLowerCase().includes(bankSearch.toLowerCase());
-    // Auto-filter by account number if no explicit search
-    if (suggestedBanks.length > 0 && bankDetails.account.length >= 3 && !bankDetails.bankCode) {
-      return suggestedBanks.some(name => b.name.toLowerCase().includes(name.toLowerCase()));
-    }
     return true;
   });
 
@@ -417,7 +433,7 @@ const Wallet: React.FC = () => {
       return;
     }
 
-    if (!bankDetails.name || !bankDetails.account || !bankDetails.bankCode) {
+    if (!bankDetails.name || !bankDetails.account || !bankDetails.bankCode || !bankDetails.bankName || bankDetails.account.length !== 10) {
       showError('Please verify and save your bank details first.');
       return;
     }
@@ -884,26 +900,11 @@ const Wallet: React.FC = () => {
                                       value={bankDetails.account} 
                                       onChange={e => {
                                         const val = e.target.value.replace(/[^0-9]/g, '').slice(0, 10);
-                                        setBankDetails({...bankDetails, account: val});
-                                        
-                                        // Clear name immediately if not 10 digits
-                                        if (val.length !== 10 && bankDetails.name) {
-                                          setBankDetails(prev => ({ ...prev, name: '' }));
-                                        }
-
-                                        // Prefix Auto-Detection (OPay Style)
-                                        if (val.length === 10 && !bankDetails.bankCode && !bankSearch) {
-                                          const prefix3 = val.substring(0, 3);
-                                          const prefix5 = val.substring(0, 5);
-                                          const match = BANK_PREFIXES[prefix5] || BANK_PREFIXES[prefix3];
-                                          if (match) {
-                                            const bank = availableBanks.find(b => b.name.toLowerCase().includes(match[0].toLowerCase()));
-                                            if (bank) {
-                                              setBankDetails(prev => ({ ...prev, bankName: bank.name, bankCode: bank.code }));
-                                              setBankQuery(bank.name);
-                                            }
-                                          }
-                                        }
+                                        setBankDetails(prev => ({ 
+                                          ...prev, 
+                                          account: val,
+                                          name: val.length !== 10 || val !== prev.account ? '' : prev.name
+                                        }));
                                       }} 
                                       placeholder="0123456789" 
                                       type="text"
@@ -930,7 +931,7 @@ const Wallet: React.FC = () => {
                                       onFocus={() => setShowBankDropdown(true)}
                                       onChange={e => {
                                         setBankQuery(e.target.value);
-                                        setBankDetails({...bankDetails, bankName: e.target.value, bankCode: ''});
+                                        setBankDetails({...bankDetails, bankName: e.target.value, bankCode: '', name: ''});
                                         if (!showBankDropdown) setShowBankDropdown(true);
                                       }} 
                                       placeholder="Search bank name..." 
@@ -975,11 +976,7 @@ const Wallet: React.FC = () => {
                                           <button
                                             key={`${bank.code || 'bank'}-${i}`}
                                             type="button"
-                                            onClick={() => {
-                                              setBankDetails({...bankDetails, bankName: bank.name, bankCode: bank.code});
-                                              setBankQuery(bank.name);
-                                              setShowBankDropdown(false);
-                                            }}
+                                            onClick={() => handleSelectBank(bank)}
                                             className="w-full text-left px-4 py-3.5 text-xs font-bold hover:bg-primary/10 transition-colors border-b border-white/5 last:border-0 flex items-center gap-3 group/item"
                                           >
                                             <div className="relative w-8 h-8 shrink-0">
@@ -1014,54 +1011,78 @@ const Wallet: React.FC = () => {
                                   </div>
                                </div>
                                
-                               <div className="flex gap-3 pt-2">
-                                 <Button 
-                                    variant="ghost" 
-                                    onClick={() => {
-                                      if (bankDetails.account.length === 10 && bankDetails.bankName && bankDetails.name) {
-                                        setHasBankSet(true);
-                                      } else {
-                                        setActiveTab('overview');
-                                      }
-                                    }} 
-                                    className="flex-1 h-12 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:bg-white/5 rounded-xl border border-white/10"
-                                 >
-                                    Cancel
-                                 </Button>
-                                 <Button 
-                                    disabled={!bankDetails.name || bankDetails.account.length !== 10 || isResolving}
-                                    onClick={async () => {
-                                      try {
-                                        const userRef = doc(db, 'users', user!.uid);
-                                        await updateDoc(userRef, { bankDetails });
-                                        setHasBankSet(true); 
-                                        showSuccess('Bank details saved for payouts!');
-                                      } catch (err) {
-                                        showError("Failed to save bank info.");
-                                      }
-                                    }} 
-                                    className="flex-[2] h-12 gradient-bg rounded-xl font-black uppercase tracking-widest text-[10px] disabled:opacity-50"
-                                 >
-                                    Save Bank Info
-                                 </Button>
-                               </div>
-                            </div>
-                         </div>
-                      ) : (
-                         <div className="space-y-6">
-                            <div className="p-5 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 flex items-center justify-between group">
-                               <div className="flex items-center gap-4">
-                                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                                     <Building className="w-6 h-6" />
-                                  </div>
-                                  <div>
-                                     <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500/60 leading-none mb-1">Verified Payout Account</p>
-                                     <p className="text-sm font-black text-white uppercase">{bankDetails.bankName}</p>
-                                     <p className="text-[10px] text-emerald-200 font-bold tracking-widest">{bankDetails.account} • {bankDetails.name}</p>
-                                  </div>
-                               </div>
-                               <Button variant="ghost" size="sm" onClick={() => setHasBankSet(false)} className="text-emerald-400 hover:bg-emerald-500/20 text-[10px] font-black uppercase tracking-widest px-4">Edit</Button>
-                            </div>
+                                <div className="flex gap-3 pt-2">
+                                  <Button 
+                                     variant="ghost" 
+                                     onClick={() => {
+                                       if (savedBankDetails.account && savedBankDetails.bankName && savedBankDetails.bankCode && savedBankDetails.name && savedBankDetails.account.length === 10) {
+                                         setBankDetails(savedBankDetails);
+                                         setBankQuery('');
+                                         setShowBankDropdown(false);
+                                         setHasBankSet(true);
+                                       } else {
+                                         setBankDetails({ name: '', account: '', bankName: '', bankCode: '', logo: '' });
+                                         setBankQuery('');
+                                         setShowBankDropdown(false);
+                                         setActiveTab('overview');
+                                       }
+                                     }} 
+                                     className="flex-1 h-12 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:bg-white/5 rounded-xl border border-white/10"
+                                  >
+                                     Cancel
+                                  </Button>
+                                  <Button 
+                                     disabled={!bankDetails.name || !bankDetails.bankName || !bankDetails.bankCode || bankDetails.account.length !== 10 || isResolving}
+                                     onClick={async () => {
+                                       if (!bankDetails.name || !bankDetails.bankName || !bankDetails.bankCode || bankDetails.account.length !== 10) {
+                                         showError("Please select a bank and verify your 10-digit account number first.");
+                                         return;
+                                       }
+                                       try {
+                                         const userRef = doc(db, 'users', user!.uid);
+                                         await updateDoc(userRef, { bankDetails });
+                                         setSavedBankDetails(bankDetails);
+                                         setBankQuery('');
+                                         setShowBankDropdown(false);
+                                         setHasBankSet(true); 
+                                         showSuccess('Bank details saved for payouts!');
+                                       } catch (err) {
+                                         showError("Failed to save bank info.");
+                                       }
+                                     }} 
+                                     className="flex-[2] h-12 gradient-bg rounded-xl font-black uppercase tracking-widest text-[10px] disabled:opacity-50"
+                                  >
+                                     Save Bank Info
+                                  </Button>
+                                </div>
+                             </div>
+                          </div>
+                       ) : (
+                          <div className="space-y-6">
+                             <div className="p-5 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 flex items-center justify-between group">
+                                <div className="flex items-center gap-4">
+                                   <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                                      <Building className="w-6 h-6" />
+                                   </div>
+                                   <div>
+                                      <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500/60 leading-none mb-1">Verified Payout Account</p>
+                                      <p className="text-sm font-black text-white uppercase">{savedBankDetails.bankName || bankDetails.bankName}</p>
+                                      <p className="text-[10px] text-emerald-200 font-bold tracking-widest">{(savedBankDetails.account || bankDetails.account)} • {(savedBankDetails.name || bankDetails.name)}</p>
+                                   </div>
+                                </div>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  onClick={() => {
+                                    setBankDetails(savedBankDetails);
+                                    setBankQuery(savedBankDetails.bankName || '');
+                                    setHasBankSet(false);
+                                  }} 
+                                  className="text-emerald-400 hover:bg-emerald-500/20 text-[10px] font-black uppercase tracking-widest px-4"
+                                >
+                                  Edit
+                                </Button>
+                             </div>
 
                             <div className="space-y-4">
                                <div className="space-y-2">

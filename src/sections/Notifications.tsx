@@ -16,7 +16,14 @@ import {
   Download,
   Users,
   Film,
-  Tv
+  Tv,
+  ShoppingBag,
+  Truck,
+  PackageCheck,
+  XCircle,
+  Star,
+  Loader2,
+  ChefHat
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { 
@@ -26,8 +33,10 @@ import {
   clearNotification, 
   clearAllUserNotifications,
   updatePreOrderStatus,
+  rateVendorOrder,
   type AppNotification 
 } from '../lib/firebase';
+import { toast } from 'sonner';
 
 import { LoginRequired } from '../components/LoginRequired';
 
@@ -47,6 +56,7 @@ const Notifications: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [selectedNotifForOptions, setSelectedNotifForOptions] = useState<AppNotification | null>(null);
+  const [ratingStates, setRatingStates] = useState<Record<string, { rating: number; hoverRating: number; review: string; isSubmitting: boolean }>>({});
 
   const loadNotifications = () => {
     if (!user?.uid) return () => {};
@@ -99,6 +109,75 @@ const Notifications: React.FC = () => {
     setIsConfirmOpen(false);
   };
 
+  const handleStarClick = (notifId: string, star: number) => {
+    setRatingStates(prev => ({
+      ...prev,
+      [notifId]: {
+        rating: star,
+        hoverRating: star,
+        review: prev[notifId]?.review || '',
+        isSubmitting: false
+      }
+    }));
+  };
+
+  const handleStarHover = (notifId: string, star: number) => {
+    setRatingStates(prev => ({
+      ...prev,
+      [notifId]: {
+        rating: prev[notifId]?.rating || 0,
+        hoverRating: star,
+        review: prev[notifId]?.review || '',
+        isSubmitting: false
+      }
+    }));
+  };
+
+  const handleSubmitRating = async (notif: AppNotification) => {
+    const currentRatingState = ratingStates[notif.id];
+    const score = currentRatingState?.rating || 5;
+    const review = currentRatingState?.review || '';
+    
+    if (!notif.vendorId && !notif.orderId) {
+      toast.error('Missing vendor information to rate.');
+      return;
+    }
+
+    setRatingStates(prev => ({
+      ...prev,
+      [notif.id]: {
+        ...prev[notif.id],
+        rating: score,
+        hoverRating: score,
+        review,
+        isSubmitting: true
+      }
+    }));
+
+    try {
+      await rateVendorOrder(
+        notif.orderId || '',
+        notif.vendorId || '',
+        score,
+        review,
+        notif.id,
+        user?.uid
+      );
+      toast.success(`Thank you for rating ${notif.vendorName || 'the vendor'}!`);
+      setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, rated: true, rating: score } : n));
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to submit rating');
+    } finally {
+      setRatingStates(prev => ({
+        ...prev,
+        [notif.id]: {
+          ...prev[notif.id],
+          isSubmitting: false
+        }
+      }));
+    }
+  };
+
   const getIcon = (notif: AppNotification) => {
     const type = notif.type;
     const title = notif.title || '';
@@ -108,6 +187,16 @@ const Notifications: React.FC = () => {
     }
 
     switch (type) {
+      case 'order_placed':
+        return <ShoppingBag className="w-5 h-5 text-amber-400" />;
+      case 'order_accepted':
+        return <ChefHat className="w-5 h-5 text-blue-400" />;
+      case 'order_shipped':
+        return <Truck className="w-5 h-5 text-indigo-400" />;
+      case 'order_delivered':
+        return <PackageCheck className="w-5 h-5 text-emerald-400" />;
+      case 'order_cancelled':
+        return <XCircle className="w-5 h-5 text-rose-500" />;
       case 'preorder_delivered': 
         return notif.mediaType === 'series' 
           ? <Tv className="w-5 h-5 text-cyan-400" /> 
@@ -380,17 +469,113 @@ const Notifications: React.FC = () => {
                   
                   <div className="flex-1 min-w-0 space-y-1">
                     <div className="flex items-center justify-between gap-2">
-                      <h3 className={`font-bold text-sm truncate ${notif.read ? 'text-muted-foreground' : 'text-foreground'}`}>
-                        {notif.title}
-                      </h3>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <h3 className={`font-bold text-sm truncate ${notif.read ? 'text-muted-foreground' : 'text-foreground'}`}>
+                          {notif.title}
+                        </h3>
+                        {notif.orderNumber && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-white/10 text-white font-mono text-[9px] font-black shrink-0 border border-white/10">
+                            #{notif.orderNumber}
+                          </span>
+                        )}
+                      </div>
                       <span className="text-[10px] text-muted-foreground flex items-center gap-1 flex-shrink-0">
                         <Clock className="w-3 h-3" />
                         {new Date(notif.timestamp).toLocaleDateString()}
                       </span>
                     </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
+
+                    <p className="text-xs text-muted-foreground leading-relaxed">
                       {notif.message}
                     </p>
+
+                    {/* Shipped ETA Badge */}
+                    {notif.estimatedDeliveryTime && notif.type === 'order_shipped' && (
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] font-black uppercase mt-1">
+                        <Truck className="w-3.5 h-3.5" />
+                        <span>Estimated Delivery: {notif.estimatedDeliveryTime}</span>
+                      </div>
+                    )}
+
+                    {/* Interactive Rating Component for Delivered Orders */}
+                    {(notif.type === 'order_delivered' || notif.ratingPrompt) && (
+                      notif.rated ? (
+                        <div className="mt-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center text-amber-400">
+                              {[1, 2, 3, 4, 5].map(s => (
+                                <Star key={s} className={`w-3.5 h-3.5 ${s <= (notif.rating || 5) ? 'fill-amber-400' : 'text-muted-foreground'}`} />
+                              ))}
+                            </div>
+                            <span className="text-xs font-black uppercase text-emerald-400">
+                              Rated {notif.rating || 5}/5 Stars
+                            </span>
+                          </div>
+                          <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">Rating Recorded</span>
+                        </div>
+                      ) : (
+                        <div className="mt-3 p-3.5 rounded-xl bg-white/5 border border-white/10 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                              <Star className="w-3.5 h-3.5 fill-current" /> Rate {notif.vendorName || 'Vendor'}
+                            </span>
+                            <span className="text-[9px] font-black text-muted-foreground uppercase">
+                              {(ratingStates[notif.id]?.rating || 5)} of 5 Stars
+                            </span>
+                          </div>
+
+                          {/* Star selectors */}
+                          <div className="flex items-center gap-1">
+                            {[1, 2, 3, 4, 5].map((star) => {
+                              const activeScore = ratingStates[notif.id]?.hoverRating || ratingStates[notif.id]?.rating || 5;
+                              const isFilled = star <= activeScore;
+                              return (
+                                <button
+                                  key={star}
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); handleStarClick(notif.id, star); }}
+                                  onMouseEnter={() => handleStarHover(notif.id, star)}
+                                  onMouseLeave={() => handleStarHover(notif.id, ratingStates[notif.id]?.rating || 5)}
+                                  className="p-1 hover:scale-125 transition-transform"
+                                >
+                                  <Star className={`w-5 h-5 ${isFilled ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'}`} />
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {/* Review Input */}
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              placeholder="Optional feedback about the snacks or delivery..."
+                              value={ratingStates[notif.id]?.review || ''}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setRatingStates(prev => ({
+                                  ...prev,
+                                  [notif.id]: {
+                                    rating: prev[notif.id]?.rating || 5,
+                                    hoverRating: prev[notif.id]?.hoverRating || 5,
+                                    review: val,
+                                    isSubmitting: false
+                                  }
+                                }));
+                              }}
+                              className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-amber-400 font-medium"
+                            />
+                            <button
+                              disabled={ratingStates[notif.id]?.isSubmitting}
+                              onClick={(e) => { e.stopPropagation(); handleSubmitRating(notif); }}
+                              className="w-full py-2 rounded-lg gradient-bg text-white text-[10px] font-black uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                            >
+                              {ratingStates[notif.id]?.isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Star className="w-3.5 h-3.5 fill-current" /> Submit Rating & Update Vendor</>}
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    )}
                     
                     <div className="flex items-center gap-3 pt-2">
                       {notif.type === 'preorder_delivered' && (

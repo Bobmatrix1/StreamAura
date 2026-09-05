@@ -17,8 +17,10 @@ import {
   CheckCircle2,
   Loader2,
   Banknote,
-  ArrowUpRight
-  } from 'lucide-react';
+  ArrowUpRight,
+  ChevronDown,
+  X
+} from 'lucide-react';
 
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -28,6 +30,7 @@ import { LoginRequired } from '../components/LoginRequired';
 import { Badge } from '../components/ui/badge';
 import { db, auth } from '../lib/firebase';
 import { collection, query, where, orderBy, limit, getDocs, doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { fetchBanks, resolveBankAccount } from '../api/paymentApi';
 
 /**
  * Referral Section with Integrated Withdrawal
@@ -60,6 +63,7 @@ const Referral: React.FC = () => {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [isSubmittingWithdrawal, setIsSubmittingWithdrawal] = useState(false);
   const [availableBanks, setAvailableBanks] = useState<any[]>([]);
+  const [savedBankDetails, setSavedBankDetails] = useState({ name: '', account: '', bankName: '', bankCode: '' });
   const [bankDetails, setBankDetails] = useState({ name: '', account: '', bankName: '', bankCode: '' });
   const [showBankDropdown, setShowBankDropdown] = useState(false);
   const [bankSearch, setBankSearch] = useState('');
@@ -67,6 +71,38 @@ const Referral: React.FC = () => {
   const [hasBankSet, setHasBankSet] = useState(false);
   
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const handleCancelBankEdit = () => {
+    if (savedBankDetails.account && savedBankDetails.name && savedBankDetails.bankName && savedBankDetails.bankCode && savedBankDetails.account.length === 10) {
+      setBankDetails(savedBankDetails);
+      setBankSearch(savedBankDetails.bankName);
+      setHasBankSet(true);
+    }
+    setShowBankDropdown(false);
+  };
+
+  const handleCloseWithdrawModal = () => {
+    setWithdrawAmount('');
+    if (savedBankDetails.account && savedBankDetails.name && savedBankDetails.bankName && savedBankDetails.bankCode && savedBankDetails.account.length === 10) {
+      setBankDetails(savedBankDetails);
+      setBankSearch(savedBankDetails.bankName);
+      setHasBankSet(true);
+    }
+    setShowBankDropdown(false);
+    setIsWithdrawModalOpen(false);
+  };
+
+  // When withdraw modal opens, ensure saved bank is active
+  useEffect(() => {
+    if (isWithdrawModalOpen) {
+      if (savedBankDetails.account && savedBankDetails.name && savedBankDetails.bankName && savedBankDetails.bankCode && savedBankDetails.account.length === 10) {
+        setBankDetails(savedBankDetails);
+        setBankSearch(savedBankDetails.bankName);
+        setHasBankSet(true);
+      }
+      setShowBankDropdown(false);
+    }
+  }, [isWithdrawModalOpen, savedBankDetails]);
 
   // Scroll Lock Effect
   useEffect(() => {
@@ -94,9 +130,10 @@ const Referral: React.FC = () => {
     // Load Banks
     const loadBanks = async () => {
       try {
-        const resp = await fetch(`${import.meta.env.VITE_API_URL}/api/cinema/banks`);
-        const result = await resp.json();
-        if (result.status) setAvailableBanks(result.data);
+        const result = await fetchBanks();
+        if (result.status && Array.isArray(result.data)) {
+          setAvailableBanks(result.data);
+        }
       } catch (err) {}
     };
     loadBanks();
@@ -109,8 +146,11 @@ const Referral: React.FC = () => {
        if (userSnap.exists()) {
           const data = userSnap.data();
           if (data.bankDetails) {
+             setSavedBankDetails(data.bankDetails);
              setBankDetails(data.bankDetails);
-             setHasBankSet(true);
+             if (data.bankDetails.name && data.bankDetails.bankName && data.bankDetails.bankCode && data.bankDetails.account?.length === 10) {
+                setHasBankSet(true);
+             }
           }
        }
     };
@@ -169,23 +209,73 @@ const Referral: React.FC = () => {
     };
   }, [user?.uid]);
 
+  // Click outside bank dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowBankDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   // Resolve account when 10 digits + bank code are present
   useEffect(() => {
-    if (bankDetails.account.length === 10 && bankDetails.bankCode && !hasBankSet) {
+    if (bankDetails.account.length === 10 && bankDetails.bankCode && !hasBankSet && !bankDetails.name) {
       const resolve = async () => {
         setIsResolving(true);
         try {
-          const resp = await fetch(`${import.meta.env.VITE_API_URL}/api/cinema/resolve-account?account_number=${bankDetails.account}&bank_code=${bankDetails.bankCode}`);
-          const result = await resp.json();
-          if (result.status) {
+          const result = await resolveBankAccount(bankDetails.account, bankDetails.bankCode);
+          if (result.status && result.data?.account_name) {
             setBankDetails(prev => ({ ...prev, name: result.data.account_name }));
             showSuccess("Account Verified!");
+          } else {
+            showError(result.message || "Could not verify account.");
+            setBankDetails(prev => ({ ...prev, name: '' }));
           }
-        } catch (err) {} finally { setIsResolving(false); }
+        } catch (err) {
+          showError("Verification failed.");
+          setBankDetails(prev => ({ ...prev, name: '' }));
+        } finally {
+          setIsResolving(false);
+        }
       };
       resolve();
+    } else if (bankDetails.account.length < 10 && bankDetails.name && !hasBankSet) {
+      setBankDetails(prev => ({ ...prev, name: '' }));
     }
   }, [bankDetails.account, bankDetails.bankCode, hasBankSet]);
+
+  const handleSelectBank = async (bank: any) => {
+    setBankDetails(prev => ({ ...prev, bankName: bank.name, bankCode: bank.code, name: '' }));
+    setBankSearch(bank.name);
+    setShowBankDropdown(false);
+
+    if (bankDetails.account.length === 10) {
+      setIsResolving(true);
+      try {
+        const result = await resolveBankAccount(bankDetails.account, bank.code);
+        if (result.status && result.data?.account_name) {
+          setBankDetails(prev => ({
+            ...prev,
+            bankName: bank.name,
+            bankCode: bank.code,
+            name: result.data.account_name
+          }));
+          showSuccess("Account Verified!");
+        } else {
+          showError(result.message || "Could not verify account. Please check number and bank.");
+          setBankDetails(prev => ({ ...prev, name: '' }));
+        }
+      } catch (err) {
+        showError("Verification failed.");
+        setBankDetails(prev => ({ ...prev, name: '' }));
+      } finally {
+        setIsResolving(false);
+      }
+    }
+  };
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(referralLink);
@@ -216,8 +306,8 @@ const Referral: React.FC = () => {
   };
 
   const handleConfirmWithdrawal = async () => {
-    if (!bankDetails.name || !bankDetails.account || !bankDetails.bankCode) {
-      showError("Please provide valid bank details.");
+    if (!bankDetails.name || !bankDetails.account || !bankDetails.bankCode || !bankDetails.bankName || bankDetails.account.length !== 10) {
+      showError("Please select a bank and verify your 10-digit account details first.");
       return;
     }
 
@@ -247,6 +337,7 @@ const Referral: React.FC = () => {
         // Save bank details for next time
         const userRef = doc(db, 'users', user!.uid);
         await updateDoc(userRef, { bankDetails });
+        setSavedBankDetails(bankDetails);
         setHasBankSet(true);
       } else {
         showError(result.detail || "Withdrawal failed.");
@@ -297,7 +388,7 @@ const Referral: React.FC = () => {
       <AnimatePresence>
         {isWithdrawModalOpen && (
           <div className="fixed inset-0 z-[5000] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsWithdrawModalOpen(false)} className="absolute inset-0 bg-black/90 backdrop-blur-md" />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={handleCloseWithdrawModal} className="absolute inset-0 bg-black/90 backdrop-blur-md" />
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-md glass-card p-8 border-slate-200 dark:border-white/10 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto custom-scrollbar">
                <div className="text-center space-y-2">
                   <h3 className="text-2xl font-black uppercase text-slate-900 dark:text-white">Withdraw Earnings</h3>
@@ -333,6 +424,18 @@ const Referral: React.FC = () => {
 
                {!hasBankSet ? (
                   <div className="space-y-4">
+                     <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Payout Destination</span>
+                        {savedBankDetails.name && savedBankDetails.bankName && savedBankDetails.bankCode && (
+                          <button 
+                            type="button"
+                            onClick={handleCancelBankEdit}
+                            className="text-[10px] font-black uppercase tracking-widest text-primary hover:underline"
+                          >
+                            Cancel Edit
+                          </button>
+                        )}
+                     </div>
                      <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 flex items-start gap-3">
                         <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                         <p className="text-[9px] text-amber-700 dark:text-amber-200/70 font-bold uppercase leading-relaxed">Please provide your bank details. We'll save them for future payouts.</p>
@@ -341,21 +444,74 @@ const Referral: React.FC = () => {
                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Account Number</label>
                        <div className="relative">
                          <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-muted-foreground" />
-                         <input value={bankDetails.account} onChange={e => setBankDetails({...bankDetails, account: e.target.value.replace(/[^0-9]/g, '').slice(0, 10)})} placeholder="0123456789" className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3 pl-11 pr-4 text-sm outline-none focus:border-primary/50 text-slate-900 dark:text-white font-bold" />
+                         <input 
+                           value={bankDetails.account} 
+                           onChange={e => {
+                             const val = e.target.value.replace(/[^0-9]/g, '').slice(0, 10);
+                             setBankDetails(prev => ({ 
+                               ...prev, 
+                               account: val,
+                               name: val.length !== 10 || val !== prev.account ? '' : prev.name
+                             }));
+                           }} 
+                           placeholder="0123456789" 
+                           className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3 pl-11 pr-11 text-sm outline-none focus:border-primary/50 text-slate-900 dark:text-white font-bold" 
+                         />
+                         {isResolving && (
+                           <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                             <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                           </div>
+                         )}
                        </div>
                      </div>
                      <div className="space-y-2 relative" ref={dropdownRef}>
                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select Bank</label>
                        <div className="relative">
                          <Building className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-muted-foreground" />
-                         <input value={bankSearch || bankDetails.bankName} onFocus={() => setShowBankDropdown(true)} onChange={e => setBankSearch(e.target.value)} placeholder="Search bank..." className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3 pl-11 pr-12 text-sm outline-none focus:border-primary/50 text-slate-900 dark:text-white font-bold" />
+                         <input 
+                           value={bankSearch || bankDetails.bankName} 
+                           onFocus={() => setShowBankDropdown(true)} 
+                           onChange={e => {
+                             setBankSearch(e.target.value);
+                             setBankDetails(prev => ({ ...prev, bankName: e.target.value, bankCode: '', name: '' }));
+                             setShowBankDropdown(true);
+                           }} 
+                           placeholder="Search bank..." 
+                           className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3 pl-11 pr-14 text-sm outline-none focus:border-primary/50 text-slate-900 dark:text-white font-bold" 
+                         />
+                         <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                           {(bankSearch || bankDetails.bankName) && (
+                             <button 
+                               type="button"
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 setBankSearch('');
+                                 setBankDetails(prev => ({ ...prev, bankName: '', bankCode: '', name: '' }));
+                               }}
+                               className="p-1 hover:bg-slate-200 dark:hover:bg-white/10 rounded-full text-slate-400 dark:text-white/40 hover:text-slate-700 dark:hover:text-white transition-colors"
+                             >
+                               <X className="w-3.5 h-3.5" />
+                             </button>
+                           )}
+                           <button 
+                             type="button"
+                             onClick={(e) => {
+                               e.stopPropagation();
+                               setShowBankDropdown(!showBankDropdown);
+                             }}
+                             className="p-1 hover:bg-slate-200 dark:hover:bg-white/10 rounded-full text-slate-400 dark:text-white/40 hover:text-slate-700 dark:hover:text-white transition-colors"
+                           >
+                             <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showBankDropdown ? 'rotate-180' : ''}`} />
+                           </button>
+                         </div>
                        </div>
                        <AnimatePresence>
                          {showBankDropdown && (
                            <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute z-10 left-0 right-0 top-full mt-2 max-h-48 overflow-y-auto bg-card border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl no-scrollbar animate-in fade-in-50 slide-in-from-top-2">
                              {filteredBanks.map(bank => (
-                               <button key={bank.code} onClick={() => { setBankDetails({...bankDetails, bankName: bank.name, bankCode: bank.code}); setBankSearch(bank.name); setShowBankDropdown(false); }} className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 dark:text-white/80 hover:bg-primary/10 hover:text-primary dark:hover:text-white transition-colors border-b border-slate-100 dark:border-white/5 last:border-0">{bank.name}</button>
+                               <button key={bank.code} onClick={() => handleSelectBank(bank)} className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 dark:text-white/80 hover:bg-primary/10 hover:text-primary dark:hover:text-white transition-colors border-b border-slate-100 dark:border-white/5 last:border-0">{bank.name}</button>
                              ))}
+                             {filteredBanks.length === 0 && <div className="p-4 text-center text-[10px] font-black text-slate-500 dark:text-white/20 uppercase tracking-widest">No banks found</div>}
                            </motion.div>
                          )}
                        </AnimatePresence>
@@ -369,7 +525,7 @@ const Referral: React.FC = () => {
                        </div>
                      </div>
                   </div>
-                ) : (
+               ) : (
                   <div className="p-5 rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 flex items-center justify-between group">
                      <div className="flex items-center gap-4">
                         <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
@@ -377,24 +533,35 @@ const Referral: React.FC = () => {
                         </div>
                         <div>
                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-white/40 leading-none mb-1">Target Account</p>
-                           <p className="text-sm font-black text-slate-900 dark:text-white uppercase">{bankDetails.bankName}</p>
-                           <p className="text-[10px] text-muted-foreground font-bold tracking-widest">{bankDetails.account} • {bankDetails.name}</p>
+                           <p className="text-sm font-black text-slate-900 dark:text-white uppercase">{savedBankDetails.bankName || bankDetails.bankName}</p>
+                           <p className="text-[10px] text-muted-foreground font-bold tracking-widest">{(savedBankDetails.account || bankDetails.account)} • {(savedBankDetails.name || bankDetails.name)}</p>
                         </div>
                      </div>
-                     <Button variant="ghost" size="sm" onClick={() => setHasBankSet(false)} className="text-primary hover:bg-primary/10 text-[10px] font-black uppercase tracking-widest px-4">Edit</Button>
+                     <Button 
+                       variant="ghost" 
+                       size="sm" 
+                       onClick={() => {
+                         setBankDetails(savedBankDetails);
+                         setBankSearch(savedBankDetails.bankName || '');
+                         setHasBankSet(false);
+                       }} 
+                       className="text-primary hover:bg-primary/10 text-[10px] font-black uppercase tracking-widest px-4"
+                     >
+                       Edit
+                     </Button>
                   </div>
-                )}
+               )}
 
-                <div className="flex flex-col gap-3 pt-2">
-                   <Button 
-                     onClick={handleConfirmWithdrawal} 
-                     disabled={isSubmittingWithdrawal || (!hasBankSet && !bankDetails.name) || !withdrawAmount || parseFloat(withdrawAmount) <= 0 || parseFloat(withdrawAmount) > stats.balance} 
-                     className="w-full h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20"
-                   >
-                      {isSubmittingWithdrawal ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Withdrawal'}
-                   </Button>
-                   <Button variant="ghost" onClick={() => setIsWithdrawModalOpen(false)} className="text-[10px] font-black uppercase text-slate-500 hover:text-slate-900 dark:text-white/40 dark:hover:text-white">Cancel Request</Button>
-                </div>
+               <div className="flex flex-col gap-3 pt-2">
+                  <Button 
+                    onClick={handleConfirmWithdrawal} 
+                    disabled={isSubmittingWithdrawal || !bankDetails.name || !bankDetails.bankName || !bankDetails.bankCode || bankDetails.account.length !== 10 || isResolving || !withdrawAmount || parseFloat(withdrawAmount) <= 0 || parseFloat(withdrawAmount) > stats.balance} 
+                    className="w-full h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 disabled:opacity-50"
+                  >
+                     {isSubmittingWithdrawal ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Withdrawal'}
+                  </Button>
+                  <Button variant="ghost" onClick={handleCloseWithdrawModal} className="text-[10px] font-black uppercase text-slate-500 hover:text-slate-900 dark:text-white/40 dark:hover:text-white">Cancel Request</Button>
+               </div>
             </motion.div>
           </div>
         )}

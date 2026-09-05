@@ -93,8 +93,17 @@ export interface AppNotification {
   message: string;
   timestamp: number;
   read: boolean;
-  type: 'update' | 'alert' | 'general' | 'preorder_delivered' | 'success' | 'withdrawal_approved' | string;
+  type: 'update' | 'alert' | 'general' | 'preorder_delivered' | 'success' | 'withdrawal_approved' | 'order_update' | 'order_accepted' | 'order_shipped' | 'order_delivered' | 'order_cancelled' | string;
   link?: string;
+  orderId?: string;
+  orderNumber?: string;
+  vendorId?: string;
+  vendorName?: string;
+  orderStatus?: string;
+  estimatedDeliveryTime?: string;
+  ratingPrompt?: boolean;
+  rated?: boolean;
+  rating?: number;
   preorderId?: string;
   movieId?: string;
   movieTitle?: string;
@@ -305,6 +314,7 @@ export const getUserData = async (uid: string, createIfMissing = false): Promise
 };
 
 export const toggleAdminStatus = async (uid: string, isAdmin: boolean): Promise<void> => { await updateDoc(doc(db, 'users', uid), { isAdmin }); };
+export const toggleVendorStatus = async (uid: string, isVendor: boolean): Promise<void> => { await updateDoc(doc(db, 'users', uid), { isVendor }); };
 export const deleteUserAccount = async (uid: string): Promise<void> => { await deleteDoc(doc(db, 'users', uid)); };
 
 export interface UserFinancials {
@@ -587,24 +597,105 @@ export const getStatsSummary = async (): Promise<SystemStats> => {
     const statsDoc = await getDoc(doc(db, 'system_analytics', 'global_counters'));
     const data = statsDoc.exists() ? statsDoc.data() : {};
     
-    // Live counts that still need direct queries (small collections)
+    // Live collections references
     const usersRef = collection(db, 'users');
     const roomsRef = collection(db, 'cinema_rooms');
     const moviesRef = collection(db, 'movies');
+    const visitsRef = collection(db, 'visits');
+    const searchesRef = collection(db, 'searches');
+    const featureRef = collection(db, 'feature_usage');
+    const interactionsRef = collection(db, 'interactions');
+    const inviteEventsRef = collection(db, 'invite_events');
+    const downloadsRef = collection(db, 'downloads');
     
     // Time windows for activity
     const tenMinutesAgo = Timestamp.fromMillis(Date.now() - 10 * 60 * 1000);
     const twentyFourHoursAgo = Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
     
-    const [usersCount, liveRoomsSnap, moviesCount, onlineCount, dailyCount] = await Promise.all([
+    const [
+      usersCount, 
+      liveRoomsSnap, 
+      moviesCount, 
+      onlineCount, 
+      dailyCount,
+      visitsSnap,
+      searchesSnap,
+      featuresSnap,
+      interactionsSnap,
+      inviteSnap,
+      downloadsCount,
+      usersSnap
+    ] = await Promise.all([
       getCountFromServer(usersRef),
       getDocs(query(roomsRef, where('status', '==', 'live'))),
       getCountFromServer(moviesRef),
       getCountFromServer(query(usersRef, where('lastActive', '>=', tenMinutesAgo))),
-      getCountFromServer(query(usersRef, where('lastActive', '>=', twentyFourHoursAgo)))
+      getCountFromServer(query(usersRef, where('lastActive', '>=', twentyFourHoursAgo))),
+      getDocs(visitsRef),
+      getDocs(searchesRef),
+      getDocs(featureRef),
+      getDocs(interactionsRef),
+      getDocs(inviteEventsRef),
+      getCountFromServer(downloadsRef),
+      getDocs(query(usersRef, limit(10)))
     ]);
 
-    // Format Page Stats
+    const usersCountVal = usersCount.data().count;
+    const onlineNowVal = onlineCount.data().count;
+    const dailyActiveUsersVal = dailyCount.data().count;
+
+    // 1. Process visits collection for geo / device / peak statistics
+    const visitsData = visitsSnap.docs.map(doc => doc.data());
+    const totalVisits = visitsData.length;
+
+    const countryCounts: Record<string, number> = {};
+    const stateCounts: Record<string, number> = {};
+    const deviceCounts: Record<string, number> = {};
+    const hourCounts: Record<number, number> = {};
+
+    visitsData.forEach(v => {
+      if (v.country) countryCounts[v.country] = (countryCounts[v.country] || 0) + 1;
+      if (v.state) stateCounts[v.state] = (stateCounts[v.state] || 0) + 1;
+      if (v.device) deviceCounts[v.device] = (deviceCounts[v.device] || 0) + 1;
+      if (v.timestamp) {
+        let date: Date | null = null;
+        if (typeof v.timestamp.toDate === 'function') date = v.timestamp.toDate();
+        else if (v.timestamp.seconds) date = new Date(v.timestamp.seconds * 1000);
+        else date = new Date(v.timestamp);
+        
+        if (date && !isNaN(date.getTime())) {
+          const hr = date.getHours();
+          hourCounts[hr] = (hourCounts[hr] || 0) + 1;
+        }
+      }
+    });
+
+    const topCountries = Object.entries(countryCounts)
+      .map(([country, count]) => ({ country, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    const topStates = Object.entries(stateCounts)
+      .map(([state, count]) => ({ state, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    const topDevices = Object.entries(deviceCounts)
+      .map(([device, count]) => ({ device, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    const peakHours = Object.entries(hourCounts)
+      .map(([hrStr, count]) => {
+        const hr = parseInt(hrStr, 10);
+        const ampm = hr >= 12 ? 'PM' : 'AM';
+        const displayHr = hr % 12 === 0 ? 12 : hr % 12;
+        return { hour: hr, display: `${displayHr}:00 ${ampm}`, count };
+      })
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 4);
+
+    // 2. Process page visits from global_counters
     const pages = data.pages || {};
     const pageVisitsRanked = Object.entries(pages).map(([page, s]: any) => ({
       page,
@@ -612,58 +703,142 @@ export const getStatsSummary = async (): Promise<SystemStats> => {
       avgTimeSpent: s.count > 0 ? Math.round(s.totalTime / s.count / 1000) : 0
     })).sort((a, b) => b.count - a.count);
 
-    // Format Geo Stats
-    const countries = data.countries || {};
-    const states = data.states || {};
-    const devices = data.devices || {};
+    // 3. Process Searches
+    const searchCounts: Record<string, number> = {};
+    searchesSnap.docs.forEach(doc => {
+      const q = doc.data().query;
+      if (q) searchCounts[q] = (searchCounts[q] || 0) + 1;
+    });
+    const topSearches = Object.entries(searchCounts)
+      .map(([query, count]) => ({ query, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
 
-    const topCountries = Object.entries(countries).map(([country, count]: any) => ({ country, count })).sort((a, b) => b.count - a.count).slice(0, 5);
-    const topStates = Object.entries(states).map(([state, count]: any) => ({ state, count })).sort((a, b) => b.count - a.count).slice(0, 5);
-    const topDevices = Object.entries(devices).map(([device, count]: any) => ({ device, count })).sort((a, b) => b.count - a.count).slice(0, 5);
+    // 4. Process Feature Usage
+    const featureCounts: Record<string, number> = {};
+    featuresSnap.docs.forEach(doc => {
+      const f = doc.data().feature;
+      if (f) featureCounts[f] = (featureCounts[f] || 0) + 1;
+    });
+    const featureUsage = Object.entries(featureCounts)
+      .map(([feature, count]) => ({ feature, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    // 5. Process Interactions (Top Movies)
+    const movieWatches: Record<string, number> = {};
+    const movieDownloads: Record<string, number> = {};
+    interactionsSnap.docs.forEach(doc => {
+      const d = doc.data();
+      if (d.title) {
+        if (d.action === 'watch') movieWatches[d.title] = (movieWatches[d.title] || 0) + 1;
+        if (d.action === 'download') movieDownloads[d.title] = (movieDownloads[d.title] || 0) + 1;
+      }
+    });
+    const allMovieTitles = Array.from(new Set([...Object.keys(movieWatches), ...Object.keys(movieDownloads)]));
+    const topMovies = allMovieTitles.map(title => ({
+      title,
+      watches: movieWatches[title] || 0,
+      downloads: movieDownloads[title] || 0
+    }))
+    .sort((a, b) => (b.watches + b.downloads) - (a.watches + a.downloads))
+    .slice(0, 5);
+
+    // 6. Process Invite Stats
+    let invitesSent = 0;
+    let invitesAccepted = 0;
+    inviteSnap.docs.forEach(doc => {
+      const act = doc.data().action;
+      if (act === 'sent') invitesSent++;
+      if (act === 'accepted') invitesAccepted++;
+    });
+    const inviteStats = {
+      sent: invitesSent,
+      accepted: invitesAccepted,
+      rate: invitesSent > 0 ? Math.round((invitesAccepted / invitesSent) * 100) : 0
+    };
+
+    // 7. Process Users List
+    const topUsers = usersSnap.docs.map(doc => {
+      const u = doc.data();
+      return {
+        email: u.email || 'No email',
+        name: u.displayName || u.userName || 'Anonymous',
+        visits: u.visitCount || 0,
+        timeSpent: u.timeSpent || 0,
+        recentActivity: []
+      };
+    }).sort((a, b) => b.visits - a.visits);
+
+    // 8. User Behavior click/tap counts
+    const clicks = data.actions?.click || 0;
+    const taps = data.actions?.tap || 0;
+    const abandonedActions = data.actions?.room_creation_abandoned || 0;
+
+    // 9. Watch history downloads count
+    const watchHistoryCount = downloadsCount.data().count;
+
+    // 10. Room Creations
+    const roomCreationStats = { 
+      total: data.actions?.create_room || 0, 
+      frequency: "Live" 
+    };
+
+    // 11. Payments & Purchases
+    const paymentsCount = data.payments?.success?.count || 0;
+    const paymentsAmount = data.payments?.success?.totalAmount || 0;
+
+    const snackPurchases = { 
+      total: paymentsCount, 
+      amount: paymentsAmount 
+    };
+
+    const paymentStats = { 
+      successful: data.payments?.success?.count || 0, 
+      failed: data.payments?.failed?.count || 0, 
+      rate: ( (data.payments?.success?.count || 0) + (data.payments?.failed?.count || 0) ) > 0 
+        ? Math.round((data.payments.success.count / (data.payments.success.count + data.payments.failed.count)) * 100) 
+        : 0 
+    };
+
+    // Derived top platforms from interactions
+    const platformCounts: Record<string, number> = {};
+    interactionsSnap.docs.forEach(doc => {
+      const p = doc.data().platform;
+      if (p) platformCounts[p] = (platformCounts[p] || 0) + 1;
+    });
+    const topPlatforms = Object.entries(platformCounts)
+      .map(([platform, count]) => ({ platform, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
 
     return {
-      totalUsers: usersCount.data().count,
-      totalVisits: data.totalVisits || 0,
-      onlineNow: onlineCount.data().count,
-      dailyActiveUsers: dailyCount.data().count,
+      totalUsers: usersCountVal,
+      totalVisits,
+      onlineNow: onlineNowVal,
+      dailyActiveUsers: dailyActiveUsersVal,
       topCountries,
       topStates,
-      topUsers: [], // Simplified to save costs
-      featureUsage: [],
-      topSearches: [],
-      topMovies: [],
-      peakHours: [],
-      topPlatforms: [],
+      topUsers,
+      featureUsage,
+      topSearches,
+      topMovies,
+      peakHours,
+      topPlatforms,
       topDevices,
       
       // High-Fidelity
       pageVisitsRanked,
       userBehavior: {
-        clicks: data.actions?.click || 0,
-        taps: data.actions?.tap || 0,
-        abandonedActions: data.actions?.room_creation_abandoned || 0
+        clicks,
+        taps,
+        abandonedActions
       },
-      watchHistoryCount: data.actions?.watch || 0,
-      roomCreationStats: { 
-        total: data.actions?.create_room || 0, 
-        frequency: "Live" 
-      },
-      inviteStats: { 
-        sent: data.invites?.sent || 0, 
-        accepted: data.invites?.accepted || 0, 
-        rate: data.invites?.sent > 0 ? Math.round((data.invites.accepted / data.invites.sent) * 100) : 0 
-      },
-      snackPurchases: { 
-        total: data.payments?.success?.count || 0, 
-        amount: data.payments?.success?.totalAmount || 0 
-      },
-      paymentStats: { 
-        successful: data.payments?.success?.count || 0, 
-        failed: data.payments?.failed?.count || 0, 
-        rate: ( (data.payments?.success?.count || 0) + (data.payments?.failed?.count || 0) ) > 0 
-          ? Math.round((data.payments.success.count / (data.payments.success.count + data.payments.failed.count)) * 100) 
-          : 0 
-      },
+      watchHistoryCount,
+      roomCreationStats,
+      inviteStats,
+      snackPurchases,
+      paymentStats,
       liveSystem: { 
         activeRooms: liveRoomsSnap.size, 
         totalMoviesR2: moviesCount.data().count 
@@ -881,8 +1056,71 @@ export const updateProduct = async (id: string, product: Partial<Product>): Prom
   await updateDoc(doc(db, 'products', id), product);
 };
 
-export const deleteProduct = async (id: string): Promise<void> => {
-  await deleteDoc(doc(db, 'products', id));
+export const deleteCloudflareAsset = async (url: string): Promise<boolean> => {
+  if (!url) return false;
+  try {
+    const token = await auth.currentUser?.getIdToken();
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const res = await fetch(`${API_URL}/api/cinema/delete-asset`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ url })
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('Failed to delete asset from Cloudflare:', err);
+    return false;
+  }
+};
+
+export const deleteProduct = async (id: string, imageUrl?: string): Promise<void> => {
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  let backendSuccess = false;
+
+  // 1. Attempt backend atomic deletion (handles database + Cloudflare R2 securely)
+  if (auth.currentUser) {
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const res = await fetch(`${API_URL}/api/cinema/products/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        backendSuccess = true;
+      } else {
+        const err = await res.json().catch(() => ({}));
+        console.warn('Backend product delete returned status', res.status, err);
+      }
+    } catch (e) {
+      console.warn('Backend product delete request failed, falling back to direct client deletion:', e);
+    }
+  }
+
+  // 2. Direct client fallback if backend was unavailable
+  if (!backendSuccess) {
+    let assetUrl = imageUrl;
+    if (!assetUrl) {
+      try {
+        const prodSnap = await getDoc(doc(db, 'products', id));
+        if (prodSnap.exists()) {
+          assetUrl = prodSnap.data()?.image;
+        }
+      } catch (err) {
+        console.warn('Could not read product doc for asset cleanup:', err);
+      }
+    }
+
+    if (assetUrl) {
+      await deleteCloudflareAsset(assetUrl).catch(e => console.warn('Cloudflare deletion error:', e));
+    }
+
+    await deleteDoc(doc(db, 'products', id));
+  }
 };
 
 export const getPartners = async (): Promise<Partner[]> => {
@@ -894,13 +1132,167 @@ export const addPartner = async (partner: Omit<Partner, 'id'>): Promise<void> =>
   await addDoc(collection(db, 'partners'), partner);
 };
 
-export const deletePartner = async (id: string): Promise<void> => {
+export const deletePartner = async (id: string, logoUrl?: string): Promise<void> => {
+  let assetUrl = logoUrl;
+  if (!assetUrl) {
+    try {
+      const snap = await getDoc(doc(db, 'partners', id));
+      if (snap.exists()) {
+        assetUrl = snap.data()?.logo;
+      }
+    } catch (e) {}
+  }
+  if (assetUrl) {
+    await deleteCloudflareAsset(assetUrl).catch(() => {});
+  }
   await deleteDoc(doc(db, 'partners', id));
 };
 
-export const placeOrder = async (order: Omit<Order, 'id' | 'createdAt' | 'status'>): Promise<string> => {
-  const docRef = await addDoc(collection(db, 'orders'), { ...order, status: 'pending', createdAt: Date.now() });
-  return docRef.id;
+export const generateOrderNumber = (): string => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let randomCode = '';
+  for (let i = 0; i < 6; i++) {
+    randomCode += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return `ORD-${randomCode}`;
+};
+
+export const placeOrder = async (order: Omit<Order, 'id' | 'createdAt' | 'status'> & { orderNumber?: string }): Promise<{ id: string; orderNumber: string }> => {
+  const orderNumber = order.orderNumber || generateOrderNumber();
+  const docRef = await addDoc(collection(db, 'orders'), { 
+    ...order, 
+    orderNumber,
+    status: 'pending', 
+    createdAt: Date.now() 
+  });
+  return { id: docRef.id, orderNumber };
+};
+
+export const updateOrderStatus = async (
+  orderId: string, 
+  status: 'accepted' | 'shipped' | 'delivered' | 'cancelled',
+  estimatedDeliveryTime?: string,
+  extra?: { vendorId?: string; userId?: string; orderNumber?: string; vendorName?: string }
+): Promise<void> => {
+  const orderRef = doc(db, 'orders', orderId);
+  const nowMs = Date.now();
+  const updateData: any = {
+    status,
+    [`${status}At`]: nowMs
+  };
+  if (estimatedDeliveryTime) {
+    updateData.estimatedDeliveryTime = estimatedDeliveryTime;
+  }
+  await updateDoc(orderRef, updateData);
+
+  // Sync to Backend to update Telegram and notify customer
+  try {
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    await fetch(`${API_URL}/api/store/order/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orderId,
+        status,
+        estimatedDeliveryTime,
+        vendorId: extra?.vendorId,
+        userId: extra?.userId
+      })
+    });
+  } catch (err) {
+    console.warn('Backend order status sync warning:', err);
+  }
+};
+
+export const rateVendorOrder = async (
+  orderId: string,
+  vendorId: string,
+  rating: number,
+  review?: string,
+  notifId?: string,
+  userId?: string
+): Promise<void> => {
+  const uid = userId || auth.currentUser?.uid;
+  let backendSuccess = false;
+
+  // 1. Try Backend API
+  try {
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const res = await fetch(`${API_URL}/api/store/rate-vendor`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orderId,
+        vendorId,
+        userId: uid,
+        rating,
+        review: review || '',
+        notificationId: notifId
+      })
+    });
+    if (res.ok) backendSuccess = true;
+  } catch (e) {
+    console.warn('Backend rate API skipped or failed:', e);
+  }
+
+  // 2. Direct Firestore fallback
+  if (!backendSuccess) {
+    try {
+      if (orderId) {
+        await updateDoc(doc(db, 'orders', orderId), {
+          rated: true,
+          rating,
+          review: review || '',
+          ratedAt: Date.now()
+        });
+      }
+
+      if (uid && notifId) {
+        await updateDoc(doc(db, 'users', uid, 'notifications', notifId), {
+          rated: true,
+          rating
+        });
+      }
+
+      if (vendorId) {
+        const vRef = doc(db, 'vendors', vendorId);
+        const vSnap = await getDoc(vRef);
+        if (vSnap.exists()) {
+          const vData = vSnap.data();
+          const curCount = Number(vData.ratingCount || 0);
+          const curPoints = Number(vData.totalRatingPoints || (vData.rating ? vData.rating * curCount : 0));
+          const newCount = curCount + 1;
+          const newPoints = curPoints + rating;
+          const avg = Math.round((newPoints / newCount) * 10) / 10;
+          await updateDoc(vRef, {
+            rating: avg,
+            ratingCount: newCount,
+            totalRatingPoints: newPoints
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Direct Firestore rate error:', err);
+      throw err;
+    }
+  }
+};
+
+export const addUserNotification = async (
+  userId: string,
+  notification: Omit<AppNotification, 'id' | 'timestamp' | 'read'>
+): Promise<void> => {
+  try {
+    const notifRef = collection(db, 'users', userId, 'notifications');
+    await addDoc(notifRef, {
+      ...notification,
+      timestamp: Date.now(),
+      read: false
+    });
+    await updateDoc(doc(db, 'users', userId), { unreadCount: increment(1) });
+  } catch (error) {
+    console.warn('Failed to add user notification:', error);
+  }
 };
 
 export const uploadFile = async (

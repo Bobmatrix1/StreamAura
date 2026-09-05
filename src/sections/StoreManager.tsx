@@ -31,7 +31,7 @@ import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 
 export const StoreManager: React.FC = () => {
   const [activeSubTab, setActiveSubTab] = useState<'vendors' | 'products' | 'partners'>('vendors');
@@ -39,6 +39,22 @@ export const StoreManager: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+
+  // In-app Delete Confirmation Modal State
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    type: 'vendor' | 'product' | 'partner';
+    id: string;
+    name: string;
+    image?: string;
+  }>({
+    isOpen: false,
+    type: 'product',
+    id: '',
+    name: '',
+    image: ''
+  });
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Form States
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
@@ -139,13 +155,39 @@ export const StoreManager: React.FC = () => {
     }
   };
 
-  const handleDeleteVendor = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this vendor? All products under this vendor will remain but won\'t route correctly.')) return;
+  const handleConfirmDelete = async () => {
+    if (!deleteModal.id) return;
+    setIsDeleting(true);
+    const toastId = toast.loading(`Deleting ${deleteModal.type}...`);
     try {
-      await deleteVendor(id);
-      toast.success('Vendor deleted');
+      if (deleteModal.type === 'vendor') {
+        await deleteVendor(deleteModal.id);
+        toast.success(`Vendor "${deleteModal.name}" deleted`, { id: toastId });
+      } else if (deleteModal.type === 'product') {
+        await deleteProduct(deleteModal.id, deleteModal.image);
+        toast.success(`Product "${deleteModal.name}" deleted from database and Cloudflare`, { id: toastId });
+      } else if (deleteModal.type === 'partner') {
+        await deletePartner(deleteModal.id, deleteModal.image);
+        toast.success(`Partner "${deleteModal.name}" removed`, { id: toastId });
+      }
+      setDeleteModal({ isOpen: false, type: 'product', id: '', name: '', image: '' });
       fetchData();
-    } catch (error) { toast.error('Delete failed'); }
+    } catch (err: any) {
+      console.error('Delete error:', err);
+      toast.error(err?.message || 'Delete failed', { id: toastId });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleDeleteVendor = (id: string) => {
+    const v = vendors.find(item => item.id === id);
+    setDeleteModal({
+      isOpen: true,
+      type: 'vendor',
+      id,
+      name: v?.name || 'this vendor'
+    });
   };
 
   // Product Handlers
@@ -155,19 +197,27 @@ export const StoreManager: React.FC = () => {
       return;
     }
     try {
-      await addProduct(newProduct as Omit<Product, 'id'>);
+      await addProduct({
+        ...newProduct,
+        inStock: true,
+        available: true,
+        stockStatus: 'in_stock'
+      } as Omit<Product, 'id'>);
       toast.success('Product added');
       setNewProduct({ name: '', description: '', price: 0, slashPrice: 0, image: '', vendorId: '', inStock: true, quantity: 10, category: 'Snacks' });
       fetchData();
     } catch (error) { toast.error('Add failed'); }
   };
 
-  const handleDeleteProduct = async (id: string) => {
-    try {
-      await deleteProduct(id);
-      toast.success('Product deleted');
-      fetchData();
-    } catch (error) { toast.error('Delete failed'); }
+  const handleDeleteProduct = (id: string) => {
+    const prod = products.find(p => p.id === id);
+    setDeleteModal({
+      isOpen: true,
+      type: 'product',
+      id,
+      name: prod?.name || 'this product',
+      image: prod?.image
+    });
   };
 
   // Partner Handlers
@@ -184,12 +234,15 @@ export const StoreManager: React.FC = () => {
     } catch (error) { toast.error('Add failed'); }
   };
 
-  const handleDeletePartner = async (id: string) => {
-    try {
-      await deletePartner(id);
-      toast.success('Partner removed');
-      fetchData();
-    } catch (error) { toast.error('Delete failed'); }
+  const handleDeletePartner = (id: string) => {
+    const pt = partners.find(p => p.id === id);
+    setDeleteModal({
+      isOpen: true,
+      type: 'partner',
+      id,
+      name: pt?.name || 'this partner',
+      image: pt?.logo
+    });
   };
 
   return (
@@ -442,6 +495,59 @@ export const StoreManager: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* In-App Delete Confirmation Modal */}
+      <AnimatePresence>
+        {deleteModal.isOpen && (
+          <div 
+            className="fixed inset-0 bg-black/80 backdrop-blur-md z-[1000] flex items-center justify-center p-4"
+            onClick={() => !isDeleting && setDeleteModal(prev => ({ ...prev, isOpen: false }))}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-sm glass-card border-white/15 p-5 sm:p-6 space-y-5 text-center shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto text-red-400">
+                <Trash2 className="w-6 h-6" />
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-base sm:text-lg font-black uppercase text-white tracking-wide">
+                  Delete {deleteModal.type.toUpperCase()}
+                </h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Are you sure you want to permanently delete <span className="font-bold text-white">"{deleteModal.name}"</span>?
+                  {deleteModal.type === 'product' && ' This will remove it from the Cinema Snack Store and Cloudflare storage.'}
+                  {deleteModal.type === 'vendor' && ' Products under this vendor will remain but won\'t route correctly.'}
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  disabled={isDeleting}
+                  className="flex-1 h-10 sm:h-11 rounded-xl text-[10px] sm:text-xs font-black uppercase"
+                  onClick={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  type="button" 
+                  disabled={isDeleting}
+                  onClick={handleConfirmDelete}
+                  className="flex-1 h-10 sm:h-11 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider bg-red-600 hover:bg-red-700 text-white font-black"
+                >
+                  {isDeleting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Delete'}
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

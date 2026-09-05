@@ -1,7 +1,7 @@
 from firebase_admin import firestore
 import time
 
-def calculate_payout_split(host_uid: str, amount: float, db):
+def calculate_payout_split(host_uid: str, amount: float, db, transaction=None):
     """
     Calculates the distribution of a payment (ticket or entry fee).
     Revenue Split:
@@ -25,7 +25,11 @@ def calculate_payout_split(host_uid: str, amount: float, db):
     
     try:
         # Check if host was referred
-        host_doc = db.collection("users").document(host_uid).get()
+        host_ref = db.collection("users").document(host_uid)
+        if transaction is not None:
+            host_doc = host_ref.get(transaction=transaction)
+        else:
+            host_doc = host_ref.get()
         if host_doc.exists:
             host_data = host_doc.to_dict()
             referred_by = host_data.get("referredBy")

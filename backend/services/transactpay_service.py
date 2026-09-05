@@ -170,27 +170,92 @@ async def verify_transaction(reference: str):
         }
     }
 
+FALLBACK_NIGERIAN_BANKS = [
+    {"name": "Access Bank", "code": "000014", "bankCode": "000014", "slug": "access-bank", "isPopular": True},
+    {"name": "Citibank Nigeria", "code": "000009", "bankCode": "000009", "slug": "citibank-nigeria", "isPopular": False},
+    {"name": "Ecobank Nigeria", "code": "000010", "bankCode": "000010", "slug": "ecobank-nigeria", "isPopular": False},
+    {"name": "Fidelity Bank", "code": "000007", "bankCode": "000007", "slug": "fidelity-bank", "isPopular": True},
+    {"name": "First Bank of Nigeria", "code": "000016", "bankCode": "000016", "slug": "first-bank-of-nigeria", "isPopular": True},
+    {"name": "First City Monument Bank (FCMB)", "code": "000003", "bankCode": "000003", "slug": "first-city-monument-bank", "isPopular": True},
+    {"name": "Guaranty Trust Bank (GTBank)", "code": "000013", "bankCode": "000013", "slug": "guaranty-trust-bank", "isPopular": True},
+    {"name": "Heritage Bank", "code": "000020", "bankCode": "000020", "slug": "heritage-bank", "isPopular": False},
+    {"name": "Jaiz Bank", "code": "000006", "bankCode": "000006", "slug": "jaiz-bank", "isPopular": False},
+    {"name": "Keystone Bank", "code": "000002", "bankCode": "000002", "slug": "keystone-bank", "isPopular": False},
+    {"name": "Kuda Bank", "code": "090267", "bankCode": "090267", "slug": "kuda-bank", "isPopular": True},
+    {"name": "Moniepoint MFB", "code": "090405", "bankCode": "090405", "slug": "moniepoint-mfb", "isPopular": True},
+    {"name": "OPay", "code": "100004", "bankCode": "100004", "slug": "opay", "isPopular": True},
+    {"name": "PalmPay", "code": "100033", "bankCode": "100033", "slug": "palmpay", "isPopular": True},
+    {"name": "Polaris Bank", "code": "000008", "bankCode": "000008", "slug": "polaris-bank", "isPopular": False},
+    {"name": "Providus Bank", "code": "000023", "bankCode": "000023", "slug": "providus-bank", "isPopular": False},
+    {"name": "Stanbic IBTC Bank", "code": "000012", "bankCode": "000012", "slug": "stanbic-ibtc-bank", "isPopular": True},
+    {"name": "Standard Chartered Bank", "code": "000021", "bankCode": "000021", "slug": "standard-chartered-bank", "isPopular": False},
+    {"name": "Sterling Bank", "code": "000001", "bankCode": "000001", "slug": "sterling-bank", "isPopular": True},
+    {"name": "Suntrust Bank", "code": "000022", "bankCode": "000022", "slug": "suntrust-bank", "isPopular": False},
+    {"name": "TAJ Bank", "code": "000026", "bankCode": "000026", "slug": "taj-bank", "isPopular": False},
+    {"name": "Titan Trust Bank", "code": "000025", "bankCode": "000025", "slug": "titan-trust-bank", "isPopular": False},
+    {"name": "Union Bank of Nigeria", "code": "000018", "bankCode": "000018", "slug": "union-bank-of-nigeria", "isPopular": True},
+    {"name": "United Bank for Africa (UBA)", "code": "000004", "bankCode": "000004", "slug": "united-bank-for-africa", "isPopular": True},
+    {"name": "Unity Bank", "code": "000011", "bankCode": "000011", "slug": "unity-bank", "isPopular": False},
+    {"name": "Wema Bank", "code": "000017", "bankCode": "000017", "slug": "wema-bank", "isPopular": True},
+    {"name": "Zenith Bank", "code": "000015", "bankCode": "000015", "slug": "zenith-bank", "isPopular": True},
+]
+
 async def get_banks():
     """
-    Fetch all supported banks for transfers.
+    Fetch all supported banks for transfers. Returns sorted Nigerian banks with popular banks first.
     """
     url = f"{TRANSACTPAY_URL}/payment/banks"
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=get_headers())
-        res_data = response.json()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(url, headers=get_headers())
+            res_data = response.json()
+            
+            raw_banks = res_data.get("data") if isinstance(res_data, dict) else None
+            if raw_banks and isinstance(raw_banks, list):
+                formatted_banks = []
+                seen_codes = set()
+                
+                POPULAR_KEYWORDS = [
+                    "OPAY", "PALMPAY", "MONIEPOINT", "KUDA", "ACCESS BANK",
+                    "GUARANTY TRUST", "GTBANK", "ZENITH", "UNITED BANK FOR AFRICA",
+                    "UBA", "FIRST BANK", "FIDELITY", "FIRST CITY MONUMENT", "FCMB",
+                    "STANBIC", "STERLING", "UNION BANK", "WEMA"
+                ]
+
+                for b in raw_banks:
+                    code = str(b.get("code") or b.get("bankCode") or "").strip()
+                    if not code or code in seen_codes:
+                        continue
+                    # Exclude non-Nigerian telecom/MOMO foreign operators
+                    if any(code.endswith(s) for s in ['_UG', '_CI', '_SN', '_BF', '_BJ', '_ML', '_CD', '_TOGO']):
+                        continue
+                    if b.get("countryId") not in [1, None]:
+                        continue
+                        
+                    name = str(b.get("name") or b.get("bankName") or "").strip()
+                    if not name:
+                        continue
+                        
+                    seen_codes.add(code)
+                    slug = name.lower().replace(" ", "-").replace("(", "").replace(")", "").replace(".", "")
+                    is_popular = any(kw in name.upper() for kw in POPULAR_KEYWORDS)
+
+                    formatted_banks.append({
+                        "name": name,
+                        "code": code,
+                        "bankCode": code,
+                        "slug": slug,
+                        "isPopular": is_popular
+                    })
+                
+                if formatted_banks:
+                    # Sort: Popular banks first, then alphabetically by name
+                    formatted_banks.sort(key=lambda x: (not x.get("isPopular", False), x["name"].upper()))
+                    return {"status": True, "data": formatted_banks}
+    except Exception as e:
+        print(f"Error fetching banks from TransactPay API: {e}")
         
-        # TransactPay returns banks directly. Format: {"status": true, "data": [...]}
-        # Frontend expects Paystack's format, which is: {"status": true, "data": [{"name": "Bank Name", "code": "Bank Code"}]}
-        # We ensure it matches this exactly.
-        if res_data.get("status") is True and "data" in res_data:
-            formatted_banks = []
-            for b in res_data["data"]:
-                formatted_banks.append({
-                    "name": b.get("name", b.get("bankName", "")),
-                    "code": b.get("code", b.get("bankCode", ""))
-                })
-            return {"status": True, "data": formatted_banks}
-        return res_data
+    return {"status": True, "data": FALLBACK_NIGERIAN_BANKS}
 
 async def resolve_account_number(account_number: str, bank_code: str):
     """

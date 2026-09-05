@@ -39,6 +39,7 @@ import { useToast } from '../contexts/ToastContext';
 import { 
   getAllUsers, 
   toggleAdminStatus, 
+  toggleVendorStatus,
   deleteUserAccount,
   getGlobalHistory,
   getStatsSummary,
@@ -260,6 +261,30 @@ const AdminDashboard: React.FC = () => {
         try {
           await toggleAdminStatus(uid, !isAdmin);
           showSuccess(`${name} role updated.`);
+          loadUsers();
+          closeConfirmModal();
+        } catch (err: any) {
+          showError(err.message);
+        }
+      }
+    });
+  };
+
+  const handleToggleVendorAction = (uid: string, name: string, isVendor: boolean) => {
+    if (uid === currentUser?.uid) {
+      showError("Self-modification is restricted.");
+      return;
+    }
+
+    setConfirmModal({
+      isOpen: true,
+      title: isVendor ? "Revoke Vendor Status" : "Grant Vendor Status",
+      message: `Are you sure you want to change ${name}'s vendor permissions?`,
+      type: 'warning',
+      onConfirm: async () => {
+        try {
+          await toggleVendorStatus(uid, !isVendor);
+          showSuccess(`${name}'s vendor status updated.`);
           loadUsers();
           closeConfirmModal();
         } catch (err: any) {
@@ -847,8 +872,22 @@ const AdminDashboard: React.FC = () => {
                               className={`p-2.5 rounded-xl transition-all shadow-lg active:scale-95 active:brightness-125 disabled:opacity-20 ${
                                 user.isAdmin ? 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/40' : 'bg-green-500/20 text-green-400 hover:bg-green-500/40'
                               }`}
+                              title={user.isAdmin ? "Revoke Admin" : "Make Admin"}
                             >
                               {user.isAdmin ? <ShieldOff className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault(); e.stopPropagation();
+                                handleToggleVendorAction(user.uid, user.displayName || 'User', !!(user as any).isVendor);
+                              }}
+                              disabled={user.uid === currentUser?.uid}
+                              className={`p-2.5 rounded-xl transition-all shadow-lg active:scale-95 active:brightness-125 disabled:opacity-20 ${
+                                (user as any).isVendor ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/40' : 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/40'
+                              }`}
+                              title={(user as any).isVendor ? "Revoke Vendor Status" : "Grant Vendor Status"}
+                            >
+                              <Store className="w-4 h-4" />
                             </button>
                             <button
                               onClick={(e) => {

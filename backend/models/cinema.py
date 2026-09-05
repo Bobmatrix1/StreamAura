@@ -43,7 +43,9 @@ class WithdrawalRequest(BaseModel):
     bank_code: str
     account_number: str
     account_name: str
-    balance_type: str = "host" # "funded" or "host" or "referral"
+    balance_type: str = "host" # "funded" or "host" or "referral" or "vendor"
+    bank_name: Optional[str] = None
+    userId: Optional[str] = None
 
 class AgoraTokenRequest(BaseModel):
     room_id: str
