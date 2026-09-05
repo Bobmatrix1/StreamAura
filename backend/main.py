@@ -1265,6 +1265,20 @@ async def execute_order_status_change(
         try:
             doc_ref = db_admin.collection('orders').document(order_id)
             doc_snap = doc_ref.get()
+            if not doc_snap.exists:
+                # Try finding by orderNumber or id field
+                q_snaps = db_admin.collection('orders').where('orderNumber', '==', order_id).limit(1).get()
+                if q_snaps:
+                    doc_snap = q_snaps[0]
+                    doc_ref = doc_snap.reference
+                    order_id = doc_snap.id
+                else:
+                    q_snaps_id = db_admin.collection('orders').where('id', '==', order_id).limit(1).get()
+                    if q_snaps_id:
+                        doc_snap = q_snaps_id[0]
+                        doc_ref = doc_snap.reference
+                        order_id = doc_snap.id
+
             if doc_snap.exists:
                 order_dict = doc_snap.to_dict() or {}
                 order_dict["id"] = order_id
@@ -1277,7 +1291,7 @@ async def execute_order_status_change(
                 }
                 if eta:
                     update_data["estimatedDeliveryTime"] = eta
-                doc_ref.update(update_data)
+                doc_ref.set(update_data, merge=True)
                 order_dict.update(update_data)
                 
                 # Notify User in-app
@@ -1534,17 +1548,31 @@ async def process_store_order(order: OrderRequest):
             print(f"Telegram Send Error: {response_data}")
             return JSONResponse(status_code=500, content={"success": False, "error": "Failed to send Telegram message", "details": response_data})
             
-        # Save message ID and chat ID to Firestore order document for subsequent editing
-        msg_id = response_data.get("result", {}).get("message_id")
-        chat_id = response_data.get("result", {}).get("chat", {}).get("id")
-        if db_admin and msg_id and chat_id:
+        # Save complete order document to Firestore
+        if db_admin:
             try:
-                db_admin.collection('orders').document(order.orderId).update({
+                db_admin.collection('orders').document(order.orderId).set({
+                    "id": order.orderId,
+                    "orderNumber": order_num,
+                    "userName": order.customerName,
+                    "customerName": order.customerName,
+                    "userPhone": order.customerPhone,
+                    "customerPhone": order.customerPhone,
+                    "deliveryAddress": order.customerAddress,
+                    "customerAddress": order.customerAddress,
+                    "vendorId": order.vendorId,
+                    "vendorName": order.vendorName,
+                    "totalAmount": order.total,
+                    "total": order.total,
+                    "userId": order.userId,
+                    "items": [{"productId": i.productId, "name": i.name, "quantity": i.quantity, "price": i.price} for i in order.items],
+                    "status": "pending",
                     "telegramMessageId": msg_id,
-                    "telegramChatId": str(chat_id)
-                })
+                    "telegramChatId": str(chat_id),
+                    "createdAt": int(time.time() * 1000)
+                }, merge=True)
             except Exception as e:
-                print(f"Failed to record TG message ID on order: {e}")
+                print(f"Failed to record order on Firestore: {e}")
                 
         return {
             "success": True, 
@@ -1596,46 +1624,104 @@ async def rate_vendor_endpoint(req: RateVendorRequest):
     if not db_admin:
         return JSONResponse(status_code=500, content={"success": False, "error": "Database offline"})
     try:
-        # 1. Update order document
-        try:
-            db_admin.collection('orders').document(req.orderId).update({
-                "rated": True,
-                "rating": req.rating,
-                "review": req.review or "",
-                "ratedAt": int(time.time() * 1000)
-            })
-        except Exception as oe:
-            print(f"Order rating update failed: {oe}")
+        now_ms = int(time.time() * 1000)
+        user_name = "Valued Customer"
+        order_items = []
+        
+        # 1. Fetch order details & update order document
+        if req.orderId:
+            try:
+                ord_ref = db_admin.collection('orders').document(req.orderId)
+                ord_snap = ord_ref.get()
+                if ord_snap.exists:
+                    ord_data = ord_snap.to_dict() or {}
+                    user_name = ord_data.get("userName") or ord_data.get("customerName") or user_name
+                    order_items = ord_data.get("items", [])
+                ord_ref.set({
+                    "rated": True,
+                    "rating": float(req.rating),
+                    "review": req.review or "",
+                    "ratedAt": now_ms
+                }, merge=True)
+            except Exception as oe:
+                print(f"Order rating update failed: {oe}")
         
         # 2. Update notification if provided
         if req.notificationId and req.userId:
             try:
-                db_admin.collection('users').document(req.userId).collection('notifications').document(req.notificationId).update({
+                db_admin.collection('users').document(req.userId).collection('notifications').document(req.notificationId).set({
                     "rated": True,
-                    "rating": req.rating
-                })
+                    "rating": float(req.rating)
+                }, merge=True)
             except Exception as ne:
                 print(f"Notification rating update failed: {ne}")
                 
-        # 3. Update vendor rating stats
-        v_ref = db_admin.collection('vendors').document(req.vendorId)
-        v_snap = v_ref.get()
-        if v_snap.exists:
-            v_data = v_snap.to_dict() or {}
-            cur_count = int(v_data.get("ratingCount", 0))
-            cur_points = float(v_data.get("totalRatingPoints", (v_data.get("rating", 5.0) * cur_count) if cur_count > 0 else 0))
-            new_count = cur_count + 1
-            new_points = cur_points + float(req.rating)
-            avg = round(new_points / new_count, 1)
-            v_ref.update({
-                "rating": avg,
-                "ratingCount": new_count,
-                "totalRatingPoints": new_points
-            })
+        # 3. Create Review Document & Save to root 'reviews' and subcollections
+        review_doc = {
+            "orderId": req.orderId,
+            "vendorId": req.vendorId,
+            "userId": req.userId,
+            "userName": user_name,
+            "rating": float(req.rating),
+            "review": req.review or "",
+            "createdAt": now_ms
+        }
+        
+        try:
+            db_admin.collection('reviews').add(review_doc)
+        except Exception as re:
+            print(f"Failed to add root review: {re}")
             
-        return {"success": True, "message": "Rating submitted successfully"}
+        # 4. Save review on each product in the order & update product average rating
+        for item in order_items:
+            p_id = item.get("productId") if isinstance(item, dict) else getattr(item, "productId", None)
+            if p_id:
+                try:
+                    p_ref = db_admin.collection('products').document(p_id)
+                    p_ref.collection('reviews').add(review_doc)
+                    
+                    p_snap = p_ref.get()
+                    if p_snap.exists:
+                        p_data = p_snap.to_dict() or {}
+                        p_count = int(p_data.get("reviewCount", p_data.get("ratingCount", 0)))
+                        p_points = float(p_data.get("totalRatingPoints", (float(p_data.get("rating", 5.0)) * p_count) if p_count > 0 else 0))
+                        new_p_count = p_count + 1
+                        new_p_points = p_points + float(req.rating)
+                        new_p_avg = round(new_p_points / new_p_count, 1)
+                        p_ref.set({
+                            "rating": new_p_avg,
+                            "reviewCount": new_p_count,
+                            "ratingCount": new_p_count,
+                            "totalRatingPoints": new_p_points,
+                            "updatedAt": now_ms
+                        }, merge=True)
+                except Exception as pe:
+                    print(f"Failed to update product review {p_id}: {pe}")
+
+        # 5. Update vendor rating stats safely
+        if req.vendorId:
+            try:
+                v_ref = db_admin.collection('vendors').document(req.vendorId)
+                v_snap = v_ref.get()
+                v_data = v_snap.to_dict() or {} if v_snap.exists else {}
+                cur_count = int(v_data.get("ratingCount", v_data.get("reviewCount", 0)))
+                cur_points = float(v_data.get("totalRatingPoints", (float(v_data.get("rating", 5.0)) * cur_count) if cur_count > 0 else 0))
+                new_count = cur_count + 1
+                new_points = cur_points + float(req.rating)
+                avg = round(new_points / new_count, 1)
+                v_ref.set({
+                    "rating": avg,
+                    "ratingCount": new_count,
+                    "reviewCount": new_count,
+                    "totalRatingPoints": new_points
+                }, merge=True)
+            except Exception as ve:
+                print(f"Failed to update vendor stats: {ve}")
+            
+        return {"success": True, "message": "Rating and review submitted successfully"}
     except Exception as e:
         print(f"Rate vendor error: {e}")
+        traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.post("/api/store/telegram-webhook")

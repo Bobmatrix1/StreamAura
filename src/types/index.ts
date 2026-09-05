@@ -231,6 +231,19 @@ export interface Product {
   quantity: number;
   category: string;
   available?: boolean;
+  rating?: number;
+  reviewCount?: number;
+}
+
+export interface ProductReview {
+  id: string;
+  orderId?: string;
+  vendorId?: string;
+  userId?: string;
+  userName?: string;
+  rating: number;
+  review?: string;
+  createdAt: number;
 }
 
 export interface Partner {

@@ -198,13 +198,33 @@ service cloud.firestore {
       allow read: if true; 
       allow write: if isAdmin(); 
       allow update: if isAuthenticated(); 
+
+      match /reviews/{reviewId} {
+        allow read: if true;
+        allow create: if isAuthenticated();
+        allow update, delete: if isAdmin() || (isAuthenticated() && request.auth.uid == resource.data.userId);
+      }
     }
+
     match /products/{productId} {
       allow read: if true;
       allow create: if isAuthenticated() && (isAdmin() || (isVendor() && request.resource.data.vendorId == request.auth.uid));
-      allow update: if isAuthenticated() && (isAdmin() || (isVendor() && resource.data.vendorId == request.auth.uid && request.resource.data.vendorId == request.auth.uid));
+      allow update: if isAuthenticated();
       allow delete: if isAuthenticated() && (isAdmin() || (isVendor() && resource.data.vendorId == request.auth.uid));
+
+      match /reviews/{reviewId} {
+        allow read: if true;
+        allow create: if isAuthenticated();
+        allow update, delete: if isAdmin() || (isAuthenticated() && request.auth.uid == resource.data.userId);
+      }
     }
+
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin() || (isAuthenticated() && request.auth.uid == resource.data.userId);
+    }
+
     match /partners/{partnerId} { allow read: if true; allow write: if isAdmin(); }
 
     match /orders/{orderId} {

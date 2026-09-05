@@ -39,9 +39,9 @@ import {
   persistentMultipleTabManager
 } from 'firebase/firestore';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
-import type { User, GlobalHistoryItem, HistoryItem, Vendor, Product, Partner, Order } from '../types';
+import type { User, GlobalHistoryItem, HistoryItem, Vendor, Product, Partner, Order, ProductReview } from '../types';
 
-export type { User, GlobalHistoryItem, HistoryItem, Vendor, Product, Partner, Order };
+export type { User, GlobalHistoryItem, HistoryItem, Vendor, Product, Partner, Order, ProductReview };
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -1271,6 +1271,16 @@ export const updateOrderStatus = async (
   }
 };
 
+export const listenToProductReviews = (productId: string, callback: (reviews: ProductReview[]) => void) => {
+  if (!productId) return () => {};
+  const q = query(collection(db, 'products', productId, 'reviews'), limit(50));
+  return onSnapshot(q, (snap) => {
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as ProductReview));
+    list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    callback(list);
+  }, (err) => console.warn('Product reviews listener warning:', err));
+};
+
 export const rateVendorOrder = async (
   orderId: string,
   vendorId: string,
@@ -1280,68 +1290,121 @@ export const rateVendorOrder = async (
   userId?: string
 ): Promise<void> => {
   const uid = userId || auth.currentUser?.uid;
-  let backendSuccess = false;
+  const nowMs = Date.now();
+  let userName = auth.currentUser?.displayName || 'Customer';
+  let orderItems: any[] = [];
+  let resolvedVendorId = vendorId;
 
-  // 1. Try Backend API
+  // 1. Direct Firestore updates (Immediate, reliable, and offline-resilient)
   try {
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-    const res = await fetch(`${API_URL}/api/store/rate-vendor`, {
+    if (orderId) {
+      const orderRef = doc(db, 'orders', orderId);
+      const snap = await getDoc(orderRef);
+      if (snap.exists()) {
+        const oData = snap.data();
+        userName = oData.userName || oData.customerName || userName;
+        orderItems = oData.items || [];
+        resolvedVendorId = oData.vendorId || resolvedVendorId;
+      }
+      await setDoc(orderRef, {
+        rated: true,
+        rating,
+        review: review || '',
+        ratedAt: nowMs
+      }, { merge: true });
+    }
+
+    if (uid && notifId) {
+      await setDoc(doc(db, 'users', uid, 'notifications', notifId), {
+        rated: true,
+        rating
+      }, { merge: true });
+    }
+
+    // Save review document to root reviews
+    const reviewData: any = {
+      orderId,
+      vendorId: resolvedVendorId,
+      userId: uid || '',
+      userName,
+      rating,
+      review: review || '',
+      createdAt: nowMs
+    };
+
+    await addDoc(collection(db, 'reviews'), reviewData).catch(() => {});
+
+    // Save review to each product & update product average rating
+    for (const item of orderItems) {
+      const pId = item.productId || item.id;
+      if (pId) {
+        try {
+          const pRef = doc(db, 'products', pId);
+          await addDoc(collection(pRef, 'reviews'), reviewData);
+          const pSnap = await getDoc(pRef);
+          if (pSnap.exists()) {
+            const pData = pSnap.data();
+            const curCount = Number(pData.reviewCount || pData.ratingCount || 0);
+            const curPoints = Number(pData.totalRatingPoints || (pData.rating ? pData.rating * curCount : 0));
+            const newCount = curCount + 1;
+            const newPoints = curPoints + rating;
+            const avg = Math.round((newPoints / newCount) * 10) / 10;
+            await setDoc(pRef, {
+              rating: avg,
+              reviewCount: newCount,
+              ratingCount: newCount,
+              totalRatingPoints: newPoints,
+              updatedAt: nowMs
+            }, { merge: true });
+          }
+        } catch (pe) {
+          console.warn('Failed to record review on product:', pe);
+        }
+      }
+    }
+
+    // Update vendor rating
+    if (resolvedVendorId) {
+      try {
+        const vRef = doc(db, 'vendors', resolvedVendorId);
+        const vSnap = await getDoc(vRef);
+        const vData = vSnap.exists() ? vSnap.data() : {};
+        const curCount = Number(vData.ratingCount || vData.reviewCount || 0);
+        const curPoints = Number(vData.totalRatingPoints || (vData.rating ? vData.rating * curCount : 0));
+        const newCount = curCount + 1;
+        const newPoints = curPoints + rating;
+        const avg = Math.round((newPoints / newCount) * 10) / 10;
+        await setDoc(vRef, {
+          rating: avg,
+          ratingCount: newCount,
+          reviewCount: newCount,
+          totalRatingPoints: newPoints
+        }, { merge: true });
+      } catch (ve) {
+        console.warn('Failed to update vendor rating in Firestore:', ve);
+      }
+    }
+  } catch (directErr) {
+    console.warn('Direct Firestore rate error:', directErr);
+  }
+
+  // 2. Call backend API (without throwing if backend returns non-fatal error)
+  try {
+    const API_URL = import.meta.env.VITE_API_URL || '';
+    await fetch(`${API_URL}/api/store/rate-vendor`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         orderId,
-        vendorId,
+        vendorId: resolvedVendorId,
         userId: uid,
         rating,
         review: review || '',
         notificationId: notifId
       })
     });
-    if (res.ok) backendSuccess = true;
   } catch (e) {
-    console.warn('Backend rate API skipped or failed:', e);
-  }
-
-  // 2. Direct Firestore fallback
-  if (!backendSuccess) {
-    try {
-      if (orderId) {
-        await updateDoc(doc(db, 'orders', orderId), {
-          rated: true,
-          rating,
-          review: review || '',
-          ratedAt: Date.now()
-        });
-      }
-
-      if (uid && notifId) {
-        await updateDoc(doc(db, 'users', uid, 'notifications', notifId), {
-          rated: true,
-          rating
-        });
-      }
-
-      if (vendorId) {
-        const vRef = doc(db, 'vendors', vendorId);
-        const vSnap = await getDoc(vRef);
-        if (vSnap.exists()) {
-          const vData = vSnap.data();
-          const curCount = Number(vData.ratingCount || 0);
-          const curPoints = Number(vData.totalRatingPoints || (vData.rating ? vData.rating * curCount : 0));
-          const newCount = curCount + 1;
-          const newPoints = curPoints + rating;
-          const avg = Math.round((newPoints / newCount) * 10) / 10;
-          await updateDoc(vRef, {
-            rating: avg,
-            ratingCount: newCount,
-            totalRatingPoints: newPoints
-          });
-        }
-      }
-    } catch (err) {
-      console.error('Direct Firestore rate error:', err);
-      throw err;
-    }
+    console.warn('Backend rate API sync skipped:', e);
   }
 };
 
