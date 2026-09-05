@@ -1526,32 +1526,44 @@ async def process_store_order(order: OrderRequest):
             "deliveryAddress": order.customerAddress,
             "vendorName": order.vendorName,
             "totalAmount": order.total,
-            "items": [{"name": i.name, "quantity": i.quantity, "price": i.price} for i in order.items]
+            "items": [{"productId": i.productId, "name": i.name, "quantity": i.quantity, "price": i.price} for i in order.items]
         }
         
-        message = format_order_telegram_message(order_dict, status="pending")
-        keyboard = format_order_telegram_keyboard(order.orderId, status="pending")
-        
-        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-        payload = {
-            "chat_id": order.telegramGroupId,
-            "text": message,
-            "parse_mode": "Markdown",
-            "reply_markup": keyboard
-        }
-        
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.post(url, json=payload)
-            response_data = response.json()
-            
-        if not response_data.get("ok"):
-            print(f"Telegram Send Error: {response_data}")
-            return JSONResponse(status_code=500, content={"success": False, "error": "Failed to send Telegram message", "details": response_data})
+        msg_id = None
+        chat_id = order.telegramGroupId
+
+        # Send Telegram message if telegramGroupId is provided
+        if order.telegramGroupId:
+            try:
+                message = format_order_telegram_message(order_dict, status="pending")
+                keyboard = format_order_telegram_keyboard(order.orderId, status="pending")
+                
+                url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                payload = {
+                    "chat_id": order.telegramGroupId,
+                    "text": message,
+                    "parse_mode": "Markdown",
+                    "reply_markup": keyboard
+                }
+                
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    response = await client.post(url, json=payload)
+                    response_data = response.json()
+                    
+                if response_data.get("ok"):
+                    msg_id = response_data.get("result", {}).get("message_id")
+                    chat_id = response_data.get("result", {}).get("chat", {}).get("id") or order.telegramGroupId
+                else:
+                    print(f"Telegram Send Warning: {response_data}")
+            except Exception as te:
+                print(f"Failed to send Telegram message: {te}")
+        else:
+            print(f"No telegramGroupId provided for vendor {order.vendorId}, skipping Telegram dispatch.")
             
         # Save complete order document to Firestore
         if db_admin:
             try:
-                db_admin.collection('orders').document(order.orderId).set({
+                order_payload = {
                     "id": order.orderId,
                     "orderNumber": order_num,
                     "userName": order.customerName,
@@ -1567,17 +1579,22 @@ async def process_store_order(order: OrderRequest):
                     "userId": order.userId,
                     "items": [{"productId": i.productId, "name": i.name, "quantity": i.quantity, "price": i.price} for i in order.items],
                     "status": "pending",
-                    "telegramMessageId": msg_id,
-                    "telegramChatId": str(chat_id),
                     "createdAt": int(time.time() * 1000)
-                }, merge=True)
+                }
+                if msg_id is not None:
+                    order_payload["telegramMessageId"] = msg_id
+                if chat_id is not None:
+                    order_payload["telegramChatId"] = str(chat_id)
+
+                db_admin.collection('orders').document(order.orderId).set(order_payload, merge=True)
             except Exception as e:
                 print(f"Failed to record order on Firestore: {e}")
                 
         return {
             "success": True, 
-            "message": "Order processed and notification sent to Telegram",
-            "telegramMessageId": msg_id
+            "message": "Order processed successfully",
+            "telegramMessageId": msg_id,
+            "orderNumber": order_num
         }
         
     except Exception as e:
