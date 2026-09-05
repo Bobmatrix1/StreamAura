@@ -358,13 +358,6 @@ export default function Games() {
       setNumberOfRounds('2');
       setIsManualPairing(false);
       
-      // Update local balance state
-      if (paymentWallet === 'referral') {
-        setReferralBalance(prev => prev - totalCost);
-      } else {
-        setGameWalletBalance(prev => prev - totalCost);
-      }
-      
     } catch (err: any) {
       showError(err.message || 'Failed to create game room.');
     } finally {

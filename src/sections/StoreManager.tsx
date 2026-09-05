@@ -117,6 +117,20 @@ export const StoreManager: React.FC = () => {
     }
   };
 
+  const handleRemoveProductImage = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setNewProduct(prev => ({ ...prev, image: '' }));
+    if (productFileRef.current) productFileRef.current.value = '';
+    toast.info('Product image removed');
+  };
+
+  const handleRemovePartnerLogo = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setNewPartner(prev => ({ ...prev, logo: '' }));
+    if (partnerFileRef.current) partnerFileRef.current.value = '';
+    toast.info('Partner logo removed');
+  };
+
   // Vendor Handlers
   const handleCreateVendor = async () => {
     if (!newVendor.name.trim() || !newVendor.telegramGroupId.trim()) {
@@ -383,7 +397,18 @@ export const StoreManager: React.FC = () => {
 
               {/* Product Image Upload */}
               <div className="space-y-4">
-                <label className="text-[9px] font-black uppercase text-muted-foreground ml-1 block text-center">Product Image</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Product Image</label>
+                  {newProduct.image && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveProductImage}
+                      className="text-[9px] font-black uppercase text-rose-400 hover:text-rose-300 flex items-center gap-1 transition-colors px-2 py-0.5 rounded-md hover:bg-rose-500/10"
+                    >
+                      <Trash2 className="w-3 h-3" /> Remove
+                    </button>
+                  )}
+                </div>
                 <div 
                   onClick={() => productFileRef.current?.click()}
                   className="aspect-square rounded-2xl border-2 border-dashed border-white/10 bg-black/40 flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-all overflow-hidden group relative"
@@ -391,10 +416,25 @@ export const StoreManager: React.FC = () => {
                   {newProduct.image ? (
                     <>
                       <img src={newProduct.image} className="w-full h-full object-cover" alt="Preview" />
-                      <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
-                        <Camera className="w-8 h-8 text-white mb-2" />
+                      <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-all gap-2">
+                        <Camera className="w-6 h-6 text-white" />
                         <span className="text-[8px] font-black uppercase text-white">Change Image</span>
+                        <button
+                          type="button"
+                          onClick={handleRemoveProductImage}
+                          className="px-2.5 py-1 rounded-lg bg-rose-600/90 hover:bg-rose-600 text-white text-[8px] font-black uppercase tracking-wider transition-all"
+                        >
+                          Remove Image
+                        </button>
                       </div>
+                      <button
+                        type="button"
+                        onClick={handleRemoveProductImage}
+                        className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/70 hover:bg-rose-600 text-white transition-all shadow-md z-10"
+                        title="Remove image"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
                     </>
                   ) : (
                     <>
@@ -455,7 +495,18 @@ export const StoreManager: React.FC = () => {
               </div>
 
               <div className="space-y-2">
-                 <label className="text-[9px] font-black uppercase text-muted-foreground block text-center">Partner Logo</label>
+                 <div className="flex items-center justify-between">
+                   <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Partner Logo</label>
+                   {newPartner.logo && (
+                     <button
+                       type="button"
+                       onClick={handleRemovePartnerLogo}
+                       className="text-[9px] font-black uppercase text-rose-400 hover:text-rose-300 flex items-center gap-1 transition-colors px-2 py-0.5 rounded-md hover:bg-rose-500/10"
+                     >
+                       <Trash2 className="w-3 h-3" /> Remove
+                     </button>
+                   )}
+                 </div>
                  <div 
                   onClick={() => partnerFileRef.current?.click()}
                   className="w-full aspect-video rounded-2xl border-2 border-dashed border-white/10 bg-black/40 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500/50 transition-all overflow-hidden group relative"
@@ -463,10 +514,25 @@ export const StoreManager: React.FC = () => {
                   {newPartner.logo ? (
                     <>
                       <img src={newPartner.logo} className="w-full h-full object-contain p-4" alt="Preview" />
-                      <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
-                        <Camera className="w-6 h-6 text-white mb-2" />
+                      <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-all gap-2">
+                        <Camera className="w-6 h-6 text-white" />
                         <span className="text-[8px] font-black uppercase text-white">Change Logo</span>
+                        <button
+                          type="button"
+                          onClick={handleRemovePartnerLogo}
+                          className="px-2.5 py-1 rounded-lg bg-rose-600/90 hover:bg-rose-600 text-white text-[8px] font-black uppercase tracking-wider transition-all"
+                        >
+                          Remove Logo
+                        </button>
                       </div>
+                      <button
+                        type="button"
+                        onClick={handleRemovePartnerLogo}
+                        className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/70 hover:bg-rose-600 text-white transition-all shadow-md z-10"
+                        title="Remove logo"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
                     </>
                   ) : (
                     <>

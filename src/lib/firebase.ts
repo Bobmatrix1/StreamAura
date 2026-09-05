@@ -165,7 +165,7 @@ export const listenToNotifications = (userId: string, callback: (notifs: AppNoti
 
   return onSnapshot(q, {
     next: (snapshot) => {
-      const notifs = snapshot.docs.map(doc => {
+      const rawNotifs = snapshot.docs.map(doc => {
         const data = doc.data();
         let ts = Date.now();
         if (data.timestamp?.toMillis) ts = data.timestamp.toMillis();
@@ -175,7 +175,19 @@ export const listenToNotifications = (userId: string, callback: (notifs: AppNoti
         return { id: doc.id, ...data, timestamp: ts };
       }) as AppNotification[];
       
-      notifs.sort((a, b) => b.timestamp - a.timestamp);
+      rawNotifs.sort((a, b) => b.timestamp - a.timestamp);
+
+      // Deduplicate notifications by (orderId + type) or (id)
+      const seen = new Set<string>();
+      const notifs: AppNotification[] = [];
+      for (const n of rawNotifs) {
+        const key = n.orderId && n.type ? `${n.orderId}_${n.type}` : n.id;
+        if (!seen.has(key)) {
+          seen.add(key);
+          notifs.push(n);
+        }
+      }
+
       callback(notifs);
       updateAppBadge(notifs.filter(n => !n.read).length);
     },
@@ -1207,7 +1219,7 @@ export const updateOrderStatus = async (
     }
   }
 
-  // 1. Instant Direct In-App Notification creation for customer
+  // 1. Instant Direct In-App Notification creation for customer using deterministic doc ID
   if (targetUserId) {
     try {
       let notifTitle = '';
@@ -1231,7 +1243,8 @@ export const updateOrderStatus = async (
         notifMsg = `Your order #${targetOrderNum} has been cancelled by ${targetVendorName}.`;
       }
 
-      await addDoc(collection(db, 'users', targetUserId, 'notifications'), {
+      const notifDocId = `order_${orderId}_${status}`;
+      await setDoc(doc(db, 'users', targetUserId, 'notifications', notifDocId), {
         title: notifTitle,
         message: notifMsg,
         timestamp: nowMs,
@@ -1245,7 +1258,7 @@ export const updateOrderStatus = async (
         estimatedDeliveryTime: estimatedDeliveryTime || '',
         ratingPrompt,
         rated: false
-      });
+      }, { merge: true });
       await updateDoc(doc(db, 'users', targetUserId), { unreadCount: increment(1) }).catch(() => {});
     } catch (notifErr) {
       console.warn('Direct order notification write error:', notifErr);
@@ -1275,8 +1288,19 @@ export const listenToProductReviews = (productId: string, callback: (reviews: Pr
   if (!productId) return () => {};
   const q = query(collection(db, 'products', productId, 'reviews'), limit(50));
   return onSnapshot(q, (snap) => {
-    const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as ProductReview));
-    list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const rawList = snap.docs.map(d => ({ id: d.id, ...d.data() } as ProductReview));
+    rawList.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    
+    // Deduplicate reviews by unique (orderId + userId) or id
+    const seen = new Set<string>();
+    const list: ProductReview[] = [];
+    for (const r of rawList) {
+      const key = r.orderId && r.userId ? `${r.orderId}_${r.userId}` : r.id;
+      if (!seen.has(key)) {
+        seen.add(key);
+        list.push(r);
+      }
+    }
     callback(list);
   }, (err) => console.warn('Product reviews listener warning:', err));
 };
@@ -1295,13 +1319,17 @@ export const rateVendorOrder = async (
   let orderItems: any[] = [];
   let resolvedVendorId = vendorId;
 
+  const revDocId = `review_${orderId}_${uid || 'anon'}`;
+
   // 1. Direct Firestore updates (Immediate, reliable, and offline-resilient)
   try {
+    let wasAlreadyRated = false;
     if (orderId) {
       const orderRef = doc(db, 'orders', orderId);
       const snap = await getDoc(orderRef);
       if (snap.exists()) {
         const oData = snap.data();
+        wasAlreadyRated = !!oData.rated;
         userName = oData.userName || oData.customerName || userName;
         orderItems = oData.items || [];
         resolvedVendorId = oData.vendorId || resolvedVendorId;
@@ -1321,8 +1349,9 @@ export const rateVendorOrder = async (
       }, { merge: true });
     }
 
-    // Save review document to root reviews
+    // Save review document to root reviews using deterministic ID
     const reviewData: any = {
+      id: revDocId,
       orderId,
       vendorId: resolvedVendorId,
       userId: uid || '',
@@ -1332,7 +1361,7 @@ export const rateVendorOrder = async (
       createdAt: nowMs
     };
 
-    await addDoc(collection(db, 'reviews'), reviewData).catch(() => {});
+    await setDoc(doc(db, 'reviews', revDocId), reviewData, { merge: true }).catch(() => {});
 
     // Save review to each product & update product average rating
     for (const item of orderItems) {
@@ -1340,22 +1369,25 @@ export const rateVendorOrder = async (
       if (pId) {
         try {
           const pRef = doc(db, 'products', pId);
-          await addDoc(collection(pRef, 'reviews'), reviewData);
-          const pSnap = await getDoc(pRef);
-          if (pSnap.exists()) {
-            const pData = pSnap.data();
-            const curCount = Number(pData.reviewCount || pData.ratingCount || 0);
-            const curPoints = Number(pData.totalRatingPoints || (pData.rating ? pData.rating * curCount : 0));
-            const newCount = curCount + 1;
-            const newPoints = curPoints + rating;
-            const avg = Math.round((newPoints / newCount) * 10) / 10;
-            await setDoc(pRef, {
-              rating: avg,
-              reviewCount: newCount,
-              ratingCount: newCount,
-              totalRatingPoints: newPoints,
-              updatedAt: nowMs
-            }, { merge: true });
+          await setDoc(doc(pRef, 'reviews', revDocId), reviewData, { merge: true });
+          
+          if (!wasAlreadyRated) {
+            const pSnap = await getDoc(pRef);
+            if (pSnap.exists()) {
+              const pData = pSnap.data();
+              const curCount = Number(pData.reviewCount || pData.ratingCount || 0);
+              const curPoints = Number(pData.totalRatingPoints || (pData.rating ? pData.rating * curCount : 0));
+              const newCount = curCount + 1;
+              const newPoints = curPoints + rating;
+              const avg = Math.round((newPoints / newCount) * 10) / 10;
+              await setDoc(pRef, {
+                rating: avg,
+                reviewCount: newCount,
+                ratingCount: newCount,
+                totalRatingPoints: newPoints,
+                updatedAt: nowMs
+              }, { merge: true });
+            }
           }
         } catch (pe) {
           console.warn('Failed to record review on product:', pe);
@@ -1364,7 +1396,7 @@ export const rateVendorOrder = async (
     }
 
     // Update vendor rating
-    if (resolvedVendorId) {
+    if (resolvedVendorId && !wasAlreadyRated) {
       try {
         const vRef = doc(db, 'vendors', resolvedVendorId);
         const vSnap = await getDoc(vRef);
@@ -1388,7 +1420,7 @@ export const rateVendorOrder = async (
     console.warn('Direct Firestore rate error:', directErr);
   }
 
-  // 2. Call backend API (without throwing if backend returns non-fatal error)
+  // 2. Call backend API for synchronization
   try {
     const API_URL = import.meta.env.VITE_API_URL || '';
     await fetch(`${API_URL}/api/store/rate-vendor`, {

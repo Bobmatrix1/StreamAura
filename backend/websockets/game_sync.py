@@ -59,41 +59,46 @@ async def run_game_loop(game_id: str):
         
         while state["timer"] > 0:
             await asyncio.sleep(1)
+            if game_id not in manager.game_states: return
             state["timer"] -= 1
             await manager.broadcast({"type": "game_update", "state": {"timer": state["timer"]}}, game_id)
         
-        # 2. Choosing Phase (Waiting for Humans)
-        print(f"Game {game_id}: Entering choosing phase")
-        state["status"] = "choosing"
-        state["timer"] = 0 
+        # 2. Sudden Death Choosing Phase (10s - Choose or Forfeit)
+        print(f"Game {game_id}: Entering sudden death choosing phase (10s)")
+        state["status"] = "sudden_death"
+        state["timer"] = 10
         state["choices"] = {}
-        room_ref.update({"status": "choosing", "timer": 0, "choices": {}})
+        room_ref.update({"status": "sudden_death", "timer": 10, "choices": {}})
         await manager.broadcast({"type": "game_update", "state": state}, game_id)
 
-        # Wait until all human contestants have made at least one choice
-        while True:
+        bot_picked = False
+
+        while state["timer"] > 0:
             await asyncio.sleep(1)
             if game_id not in manager.game_states: return
 
-            # Treat missing isBot as False (Human)
-            human_uids = [p["uid"] for p in [state.get("playerA"), state.get("playerB")] if p and not p.get("isBot", False)]
-            
-            # If no humans, break immediately (two bots)
-            if not human_uids: break
-            
-            # Check if all human players have made a choice
-            if all(uid in state.get("choices", {}) for uid in human_uids):
-                print(f"Game {game_id}: All human contestants chosen.")
-                break
+            # Simulate bot making a choice naturally after 2 seconds (at timer <= 8)
+            if not bot_picked and state["timer"] <= 8:
+                for p_key in ["playerA", "playerB"]:
+                    p = state.get(p_key)
+                    if p and p.get("isBot") and p["uid"] not in state.get("choices", {}):
+                        state["choices"][p["uid"]] = random.choice(["split", "steal"])
+                bot_picked = True
+                room_ref.update({"choices": state["choices"]})
+                obscured_choices = {k: True for k, v in state.get("choices", {}).items() if v}
+                await manager.broadcast({"type": "game_update", "state": {"choices": obscured_choices}}, game_id)
 
-        # Auto-pick for any bots before entering reveal
-        if state.get("playerA") and state["playerA"].get("isBot") and state["playerA"]["uid"] not in state["choices"]:
-            state["choices"][state["playerA"]["uid"]] = random.choice(["split", "steal"])
-        if state.get("playerB") and state["playerB"].get("isBot") and state["playerB"]["uid"] not in state["choices"]:
-            state["choices"][state["playerB"]["uid"]] = random.choice(["split", "steal"])
+            state["timer"] -= 1
+            await manager.broadcast({"type": "game_update", "state": {"timer": state["timer"]}}, game_id)
 
-        # 3. Reveal Phase (10s suspense - choices CAN be changed here)
-        print(f"Game {game_id}: Entering revealing phase (10s to change mind)")
+        # Auto-pick for any remaining bots before entering reveal (HUMANS ARE NOT AUTO-PICKED)
+        for p_key in ["playerA", "playerB"]:
+            p = state.get(p_key)
+            if p and p.get("isBot") and p["uid"] not in state.get("choices", {}):
+                state["choices"][p["uid"]] = random.choice(["split", "steal"])
+
+        # 3. Reveal Phase (10s suspense - human choices can still be altered in first 5s if they made one)
+        print(f"Game {game_id}: Entering revealing phase (10s)")
         state["status"] = "revealing"
         state["timer"] = 10
         room_ref.update({"status": "revealing", "timer": 10})
@@ -101,48 +106,121 @@ async def run_game_loop(game_id: str):
 
         while state["timer"] > 0:
             await asyncio.sleep(1)
+            if game_id not in manager.game_states: return
             state["timer"] -= 1
-            # IMPORTANT: We broadcast a partial state. 
-            # We must NOT overwrite state["choices"] in memory with booleans!
-            obscured_choices = {k: True for k in state["choices"].keys()}
+            # IMPORTANT: Broadcast obscured choices so clients know who chose without revealing choices yet
+            obscured_choices = {k: True for k, v in state.get("choices", {}).items() if v}
             await manager.broadcast({"type": "game_update", "state": {"timer": state["timer"], "choices": obscured_choices}}, game_id)
 
-        # Final Result Calculation
+        # 5. Final Result Calculation & Payout Distribution
         print(f"Game {game_id}: Calculating final results")
 
-        choice_a = state.get("choices", {}).get(state["playerA"]["uid"], "steal")
-        choice_b = state.get("choices", {}).get(state["playerB"]["uid"], "steal")
+        uid_a = state["playerA"]["uid"] if state.get("playerA") else None
+        uid_b = state["playerB"]["uid"] if state.get("playerB") else None
+
+        choice_a = state.get("choices", {}).get(uid_a) if uid_a else None # "split", "steal", or None
+        choice_b = state.get("choices", {}).get(uid_b) if uid_b else None # "split", "steal", or None
         
         result = "none"
-        prize_amount = state.get("prizeAmount", 0)
+        prize_amount = float(state.get("prizeAmount", 0))
         host_uid = state.get("hostUid")
+        room_name = state.get("roomName", "Game")
+        host_name = state.get("hostName", "Host")
         
+        # Scenario 1: Both Split -> 50% to Player A, 50% to Player B
         if choice_a == "split" and choice_b == "split":
             result = "share"
             half_prize = prize_amount / 2
-            for p in [state["playerA"], state["playerB"]]:
-                if not p.get("isBot"):
+            for p in [state.get("playerA"), state.get("playerB")]:
+                if p and not p.get("isBot"):
                     db.collection("game_wallets").document(p["uid"]).set({"balance": firestore.Increment(half_prize)}, merge=True)
                     db.collection("game_wallets").document(p["uid"]).collection("activity").add({
-                        "type": "game_win", "amount": half_prize, "desc": f"Won Split or Steal (Shared)", "timestamp": firestore.SERVER_TIMESTAMP
+                        "type": "game_win", "amount": half_prize, "desc": "Won Split or Steal (Shared)", "timestamp": firestore.SERVER_TIMESTAMP
                     })
-        elif choice_a == "split" and choice_b == "steal":
-            result = "one_steal"
-            if not state["playerB"].get("isBot"):
-                db.collection("game_wallets").document(state["playerB"]["uid"]).set({"balance": firestore.Increment(prize_amount)}, merge=True)
-                db.collection("game_wallets").document(state["playerB"]["uid"]).collection("activity").add({
-                    "type": "game_win", "amount": prize_amount, "desc": f"Won Split or Steal (Stolen)", "timestamp": firestore.SERVER_TIMESTAMP
+
+        # Scenario 2: Player A Split & Player B AFK -> 50% to Player A, 50% burned to Host
+        elif choice_a == "split" and not choice_b:
+            result = "afk_split_a"
+            half_prize = prize_amount / 2
+            if state.get("playerA") and not state["playerA"].get("isBot"):
+                db.collection("game_wallets").document(state["playerA"]["uid"]).set({"balance": firestore.Increment(half_prize)}, merge=True)
+                db.collection("game_wallets").document(state["playerA"]["uid"]).collection("activity").add({
+                    "type": "game_win", "amount": half_prize, "desc": "Split prize won (Opponent AFK / Forfeited)", "timestamp": firestore.SERVER_TIMESTAMP
                 })
-        elif choice_a == "steal" and choice_b == "split":
+            if host_uid and half_prize > 0:
+                platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, half_prize, db)
+                db.collection("game_wallets").document(host_uid).set({"balance": firestore.Increment(host_final)}, merge=True)
+                db.collection("game_wallets").document(host_uid).collection("activity").add({
+                    "type": "host_reclaim", 
+                    "amount": host_final, 
+                    "desc": f"Half burned prize from {room_name} (Opponent AFK). Platform kept fee.", 
+                    "timestamp": firestore.SERVER_TIMESTAMP
+                })
+                if referrer_uid and referrer_cut > 0:
+                    ref_user_ref = db.collection("users").document(referrer_uid)
+                    ref_user_ref.update({"referralBalance": firestore.Increment(referrer_cut)})
+                    db.collection("game_wallets").document(referrer_uid).collection("activity").add({
+                        "type": "referral_earning",
+                        "amount": referrer_cut,
+                        "desc": f"10% commission from {host_name}'s partial burned game prize",
+                        "room": room_name,
+                        "timestamp": firestore.SERVER_TIMESTAMP
+                    })
+
+        # Scenario 3: Player B Split & Player A AFK -> 50% to Player B, 50% burned to Host
+        elif not choice_a and choice_b == "split":
+            result = "afk_split_b"
+            half_prize = prize_amount / 2
+            if state.get("playerB") and not state["playerB"].get("isBot"):
+                db.collection("game_wallets").document(state["playerB"]["uid"]).set({"balance": firestore.Increment(half_prize)}, merge=True)
+                db.collection("game_wallets").document(state["playerB"]["uid"]).collection("activity").add({
+                    "type": "game_win", "amount": half_prize, "desc": "Split prize won (Opponent AFK / Forfeited)", "timestamp": firestore.SERVER_TIMESTAMP
+                })
+            if host_uid and half_prize > 0:
+                platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, half_prize, db)
+                db.collection("game_wallets").document(host_uid).set({"balance": firestore.Increment(host_final)}, merge=True)
+                db.collection("game_wallets").document(host_uid).collection("activity").add({
+                    "type": "host_reclaim", 
+                    "amount": host_final, 
+                    "desc": f"Half burned prize from {room_name} (Opponent AFK). Platform kept fee.", 
+                    "timestamp": firestore.SERVER_TIMESTAMP
+                })
+                if referrer_uid and referrer_cut > 0:
+                    ref_user_ref = db.collection("users").document(referrer_uid)
+                    ref_user_ref.update({"referralBalance": firestore.Increment(referrer_cut)})
+                    db.collection("game_wallets").document(referrer_uid).collection("activity").add({
+                        "type": "referral_earning",
+                        "amount": referrer_cut,
+                        "desc": f"10% commission from {host_name}'s partial burned game prize",
+                        "room": room_name,
+                        "timestamp": firestore.SERVER_TIMESTAMP
+                    })
+
+        # Scenario 4: Player A Steals (against Split or AFK opponent) -> 100% to Player A
+        elif choice_a == "steal" and (choice_b == "split" or not choice_b):
             result = "one_steal"
-            if not state["playerA"].get("isBot"):
+            desc_note = "Won Split or Steal (Stolen)" if choice_b == "split" else "Won Split or Steal (Opponent AFK / Forfeited)"
+            if state.get("playerA") and not state["playerA"].get("isBot"):
                 db.collection("game_wallets").document(state["playerA"]["uid"]).set({"balance": firestore.Increment(prize_amount)}, merge=True)
                 db.collection("game_wallets").document(state["playerA"]["uid"]).collection("activity").add({
-                    "type": "game_win", "amount": prize_amount, "desc": f"Won Split or Steal (Stolen)", "timestamp": firestore.SERVER_TIMESTAMP
+                    "type": "game_win", "amount": prize_amount, "desc": desc_note, "timestamp": firestore.SERVER_TIMESTAMP
                 })
+
+        # Scenario 5: Player B Steals (against Split or AFK opponent) -> 100% to Player B
+        elif choice_b == "steal" and (choice_a == "split" or not choice_a):
+            result = "one_steal"
+            desc_note = "Won Split or Steal (Stolen)" if choice_a == "split" else "Won Split or Steal (Opponent AFK / Forfeited)"
+            if state.get("playerB") and not state["playerB"].get("isBot"):
+                db.collection("game_wallets").document(state["playerB"]["uid"]).set({"balance": firestore.Increment(prize_amount)}, merge=True)
+                db.collection("game_wallets").document(state["playerB"]["uid"]).collection("activity").add({
+                    "type": "game_win", "amount": prize_amount, "desc": desc_note, "timestamp": firestore.SERVER_TIMESTAMP
+                })
+
+        # Scenario 6: Both Steal OR Both AFK -> 100% burned & returned to Host
         else:
             result = "none"
-            if host_uid:
+            desc_note = "Both Steal" if (choice_a == "steal" and choice_b == "steal") else "Both AFK / Forfeit"
+            if host_uid and prize_amount > 0:
                 # TREAT BURNED MONEY AS REVENUE (30/7/63 split applies)
                 platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, prize_amount, db)
                 
@@ -151,7 +229,7 @@ async def run_game_loop(game_id: str):
                 db.collection("game_wallets").document(host_uid).collection("activity").add({
                     "type": "host_reclaim", 
                     "amount": host_final, 
-                    "desc": f"Burned money from {state.get('roomName', 'Game')}. Platform kept fee.", 
+                    "desc": f"Burned prize from {room_name} ({desc_note}). Platform kept fee.", 
                     "timestamp": firestore.SERVER_TIMESTAMP
                 })
 
@@ -159,12 +237,11 @@ async def run_game_loop(game_id: str):
                 if referrer_uid and referrer_cut > 0:
                     ref_user_ref = db.collection("users").document(referrer_uid)
                     ref_user_ref.update({"referralBalance": firestore.Increment(referrer_cut)})
-                    # Log activity for referrer (They see who and where)
                     db.collection("game_wallets").document(referrer_uid).collection("activity").add({
                         "type": "referral_earning",
                         "amount": referrer_cut,
-                        "desc": f"10% commission from {state.get('hostName', 'Host')}'s burned game prize",
-                        "room": state.get('roomName'),
+                        "desc": f"10% commission from {host_name}'s burned game prize",
+                        "room": room_name,
                         "timestamp": firestore.SERVER_TIMESTAMP
                     })
 
@@ -287,32 +364,29 @@ async def start_periodic_cleanup():
 
 @router.websocket("/{game_id}/ws")
 async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str = None):
-    print(f"WS CONNECTION REQUEST: game_id={game_id}")
+    print(f"WS CONNECTION REQUEST: game_id={game_id}, token={'present' if token else 'none'}")
     from firebase_admin import auth
     
-    if not token:
-        await websocket.accept()
-        await websocket.send_json({"type": "error", "message": "Authentication token missing"})
-        await websocket.close(code=4001)
-        return
-        
-    try:
-        decoded_token = auth.verify_id_token(token)
-        uid = decoded_token.get("uid")
-        is_admin = decoded_token.get("admin") or decoded_token.get("isAdmin", False)
-        if not is_admin:
-            db = firestore.client()
-            user_doc = db.collection("users").document(uid).get()
-            is_admin = user_doc.exists and user_doc.to_dict().get("isAdmin", False)
-    except Exception as e:
-        await websocket.accept()
-        await websocket.send_json({"type": "error", "message": f"Authentication failed: {str(e)}"})
-        await websocket.close(code=4002)
-        return
-        
+    uid = None
+    is_admin = False
+    
+    if token:
+        try:
+            decoded_token = auth.verify_id_token(token)
+            uid = decoded_token.get("uid")
+            is_admin = bool(decoded_token.get("admin") or decoded_token.get("isAdmin", False))
+            if not is_admin and uid:
+                db = firestore.client()
+                user_doc = db.collection("users").document(uid).get()
+                if user_doc.exists:
+                    u_data = user_doc.to_dict() or {}
+                    is_admin = bool(u_data.get("isAdmin", False) or u_data.get("role") == "admin" or u_data.get("is_admin", False))
+        except Exception as e:
+            print(f"WS Auth Token Verification Note: {str(e)}")
+            
     try:
         await manager.connect(websocket, game_id)
-        print(f"WS ACCEPTED: {game_id}")
+        print(f"WS ACCEPTED: {game_id} (uid={uid}, is_admin={is_admin})")
         
         db = firestore.client()
         room_ref = db.collection("game_rooms").document(game_id)
@@ -367,14 +441,25 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
             try:
                 data = await websocket.receive_text()
                 msg = json.loads(data)
-                # uid is bound to connection session, do not overwrite with client-supplied value
                 action = msg.get("type")
                 state = manager.game_states[game_id]
+                
+                # Check user identity & admin status dynamically from msg if needed
+                client_uid = msg.get("uid") or uid
+                if client_uid and not uid:
+                    uid = client_uid
+                    
+                if not is_admin and client_uid:
+                    db = firestore.client()
+                    user_doc = db.collection("users").document(client_uid).get()
+                    if user_doc.exists:
+                        u_data = user_doc.to_dict() or {}
+                        is_admin = bool(u_data.get("isAdmin", False) or u_data.get("role") == "admin" or u_data.get("is_admin", False))
 
                 if action == "join":
-                    user_info = {"uid": uid, "displayName": msg.get("name", "User"), "photoURL": msg.get("photo"), "isBot": False}
+                    user_info = {"uid": uid or f"anon_{uuid.uuid4().hex[:6]}", "displayName": msg.get("name", "User"), "photoURL": msg.get("photo"), "isBot": False}
                     if "viewers" not in state: state["viewers"] = []
-                    if not any(v["uid"] == uid for v in state["viewers"]):
+                    if not any(v["uid"] == user_info["uid"] for v in state["viewers"]):
                         state["viewers"].append(user_info)
                     await manager.broadcast({"type": "game_update", "state": {"viewers": state["viewers"]}}, game_id)
 
@@ -382,7 +467,7 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                     channel = msg.get("channel", "viewer")
                     message = {
                         "id": f"msg_{uuid.uuid4().hex[:8]}",
-                        "uid": uid,
+                        "uid": uid or client_uid,
                         "userName": msg.get("name", "User"),
                         "text": msg.get("text"),
                         "timestamp": time.time(),
@@ -411,14 +496,15 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                             bots_to_add = min(2, slots_left)
                             new_bots = []
                             for _ in range(bots_to_add):
+                                bot_uid = f"bot_{uuid.uuid4().hex[:6]}"
                                 new_bots.append({
-                                    "uid": f"bot_{uuid.uuid4().hex[:6]}",
+                                    "uid": bot_uid,
                                     "displayName": f"Bot {random.randint(100, 999)}",
-                                    "photoURL": f"https://api.dicebear.com/7.x/bottts/svg?seed={random.random()}",
+                                    "photoURL": f"https://api.dicebear.com/7.x/bottts/svg?seed={bot_uid}",
                                     "isBot": True
                                 })
                             state["participants"].extend(new_bots)
-                            room_ref.update({"participants": firestore.ArrayUnion(new_bots)})
+                            room_ref.update({"participants": state["participants"]})
                             await manager.broadcast({"type": "game_update", "state": {"participants": state["participants"]}}, game_id)
 
                 elif action == "chat_reaction":
@@ -426,11 +512,11 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                         "type": "chat_reaction",
                         "messageId": msg.get("messageId"),
                         "emoji": msg.get("emoji"),
-                        "uid": uid
+                        "uid": uid or client_uid
                     }, game_id)
 
                 elif action == "pick_random_players":
-                    is_admin_action = is_admin
+                    is_admin_action = is_admin or (uid and uid == state.get("hostUid")) or (client_uid and client_uid == state.get("hostUid")) or msg.get("isAdmin")
                     state["status"] = "selecting"
                     state["choices"] = {}
                     state["revealResult"] = None
@@ -445,39 +531,22 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                         participants = state.get("participants", [])
                         viewers = state.get("viewers", [])
                         
-                        if is_admin_action:
-                            # Admin can pick ANYONE in the room (participants + viewers)
-                            # Filter unique humans first
-                            all_humans = [p for p in participants if not p.get("isBot")]
-                            all_humans.extend([v for v in viewers if v["uid"] not in [p["uid"] for p in all_humans]])
-                            
-                            # ADMIN BYPASS: In test/admin mode, we ignore 'played' list for the admin themselves
-                            eligible_humans = [p for p in all_humans if p["uid"] not in played or p["uid"] == uid]
-                            eligible_bots = [p for p in participants if p.get("isBot")]
-                            
-                            eligible = eligible_humans + eligible_bots
-                        else:
-                            # Normal host only picks from paid human participants who haven't played
-                            eligible = [p for p in participants if p["uid"] not in played and not p.get("isBot")]
+                        # All participants who haven't played yet in this multi-round session
+                        eligible = [p for p in participants if p["uid"] not in played]
+                        
+                        # If admin is picking and no paid participants, allow viewers too
+                        if is_admin_action and len(eligible) < 2:
+                            for v in viewers:
+                                if v["uid"] not in [p["uid"] for p in eligible]:
+                                    eligible.append(v)
+                        
+                        # If still not enough, allow all participants
+                        if len(eligible) < 2 and len(participants) >= 2:
+                            eligible = list(participants)
                         
                         if len(eligible) >= 2:
-                            # If admin is picking, ensure the admin themselves is picked if they are in the room
-                            admin_user = next((p for p in all_humans if p["uid"] == uid), None) if is_admin_action else None
-                            
-                            if is_admin_action and admin_user:
-                                # Start with the admin
-                                picked = [admin_user]
-                                # Pick one more from everyone else
-                                others = [p for p in eligible if p["uid"] != uid]
-                                if others:
-                                    picked.append(random.choice(others))
-                                    random.shuffle(picked)
-                                else:
-                                    # Fallback if somehow no others
-                                    picked = random.sample(eligible, 2)
-                            else:
-                                picked = random.sample(eligible, 2)
-                                
+                            # Pick 2 contestants
+                            picked = random.sample(eligible, 2)
                             state["playerA"] = picked[0]
                             state["playerB"] = picked[1]
                             state["status"] = "selecting"
@@ -503,7 +572,7 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                 elif action == "make_choice":
                     player_uids = [p["uid"] for p in [state.get("playerA"), state.get("playerB")] if p]
                     if uid in player_uids:
-                        if state["status"] in ["choosing", "revealing"]:
+                        if state["status"] in ["choosing", "sudden_death", "revealing"]:
                             if state["status"] == "revealing" and state.get("timer", 0) <= 5:
                                 # Locked in, cannot change choice
                                 pass
@@ -512,7 +581,7 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                                 room_ref.update({"choices": state["choices"]})
                                 await manager.broadcast({
                                     "type": "game_update", 
-                                    "state": {"choices": {k: True for k in state["choices"].keys()}}
+                                    "state": {"choices": {k: True for k, v in state["choices"].items() if v}}
                                 }, game_id)
 
                 elif action == "emoji":

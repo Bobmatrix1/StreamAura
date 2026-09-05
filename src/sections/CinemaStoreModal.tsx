@@ -16,10 +16,12 @@ import {
   Star,
   CheckCircle2,
   ArrowLeft,
-  MessageSquare,
+  MessageSquareQuote,
+  Quote,
+  BadgeCheck,
   ShieldCheck,
-  Sparkles,
-  Zap,
+  Truck,
+  Flame,
   Clock,
   Check
 } from 'lucide-react';
@@ -256,8 +258,8 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
 
         // Send In-App Notification to Customer with unique order number and details
         try {
-          const notifRef = collection(db, 'users', user.uid, 'notifications');
-          await addDoc(notifRef, {
+          const notifDocId = `order_${orderId}_placed`;
+          await setDoc(doc(db, 'users', user.uid, 'notifications', notifDocId), {
             title: `🛒 Order Placed - #${orderNumber}`,
             message: `Your order for ${orderData.items.map(i => `${i.quantity}x ${i.name}`).join(', ')} totaling ₦${orderTotal.toLocaleString()} has been placed and sent to ${vendor?.name || 'the vendor'}. Delivery to: ${deliveryInfo.address}`,
             timestamp: Date.now(),
@@ -269,21 +271,20 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
             vendorName: vendor?.name || 'Vendor',
             orderStatus: 'pending',
             estimatedDeliveryTime: ''
-          });
-          await updateDoc(doc(db, 'users', user.uid), { unreadCount: increment(1) });
+          }, { merge: true });
+          await updateDoc(doc(db, 'users', user.uid), { unreadCount: increment(1) }).catch(() => {});
         } catch (ne) {
           console.warn('Failed to add in-app purchase notification:', ne);
         }
 
-        // Credit Vendor Wallet (70% Share) & Log Earnings Stats
+        // Credit Vendor Dedicated Store Wallet (70% Share) & Log Earnings Stats
         const vendorShare = orderTotal * 0.70;
         const platformShare = orderTotal * 0.30;
         const itemsCount = items.reduce((sum, item) => sum + item.quantity, 0);
 
         const vendorWalletRef = doc(db, 'room_wallets', vendorId);
         await setDoc(vendorWalletRef, {
-          funded_balance: increment(vendorShare),
-          balance: increment(vendorShare),
+          vendor_balance: increment(vendorShare),
           vendor_earnings: increment(vendorShare),
           vendor_revenue: increment(orderTotal),
           vendor_sales_count: increment(itemsCount),
@@ -293,9 +294,20 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
         // Save Vendor Transaction Log
         await addDoc(txCol, {
           user_uid: vendorId,
+          vendorId: vendorId,
+          vendorName: vendor?.name || 'Snack Vendor',
+          orderId: orderId,
+          orderNumber: orderNumber,
           type: 'vendor_earning',
           amount: vendorShare,
-          title: `Earning from order #${orderNumber} (${orderData.items.map(i => `${i.quantity}x ${i.name}`).join(', ')})`,
+          grossAmount: orderTotal,
+          platformFee: platformShare,
+          itemsCount: itemsCount,
+          customerName: deliveryInfo.name,
+          customerPhone: deliveryInfo.phone,
+          customerAddress: deliveryInfo.address,
+          items: orderData.items,
+          title: `Sales Earning (70%) - Order #${orderNumber} (${orderData.items.map(i => `${i.quantity}x ${i.name}`).join(', ')})`,
           status: 'completed',
           timestamp: serverTimestamp()
         });
@@ -539,8 +551,8 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
 
                               <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-[11px] font-black uppercase text-white/90 bg-black/60 backdrop-blur-md p-3 rounded-2xl border border-white/10">
                                 <div className="flex items-center gap-2">
-                                  <Zap className="w-4 h-4 text-amber-400" />
-                                  <span>Instant Seat Delivery</span>
+                                  <Truck className="w-4 h-4 text-amber-400" />
+                                  <span>Instant Delivery</span>
                                 </div>
                                 <div className="flex items-center gap-1.5 text-emerald-400">
                                   <ShieldCheck className="w-4 h-4" />
@@ -552,7 +564,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                             {/* Service Badges */}
                             <div className="grid grid-cols-3 gap-3">
                               <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center space-y-1">
-                                <Sparkles className="w-4 h-4 text-primary mx-auto" />
+                                <Flame className="w-4 h-4 text-orange-400 mx-auto" />
                                 <p className="text-[9px] font-black uppercase tracking-wider">Fresh & Hot</p>
                                 <p className="text-[8px] text-muted-foreground">Made on order</p>
                               </div>
@@ -713,7 +725,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                           <div className="flex items-center justify-between">
                             <div>
                               <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-2">
-                                <MessageSquare className="w-5 h-5 text-primary" /> Customer Reviews & Ratings
+                                <MessageSquareQuote className="w-5 h-5 text-primary" /> Customer Reviews & Ratings
                               </h3>
                               <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">
                                 Verified feedback from moviegoers who ordered this snack
@@ -790,7 +802,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                                     key={rev.id}
                                     className="p-5 rounded-2xl bg-white/5 border border-white/10 space-y-3 flex flex-col justify-between"
                                   >
-                                    <div className="space-y-2">
+                                    <div className="space-y-3">
                                       <div className="flex items-start justify-between">
                                         <div className="flex items-center gap-3">
                                           <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-primary to-purple-600 flex items-center justify-center text-white font-black text-xs shadow-md">
@@ -801,7 +813,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                                               {rev.userName || 'Verified Customer'}
                                             </p>
                                             <div className="flex items-center gap-1 text-[9px] text-emerald-400 font-bold uppercase">
-                                              <ShieldCheck className="w-3 h-3" /> Verified Order
+                                              <BadgeCheck className="w-3.5 h-3.5" /> Verified Purchase
                                             </div>
                                           </div>
                                         </div>
@@ -816,13 +828,18 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                                         </div>
                                       </div>
 
-                                      <p className="text-xs text-white/90 leading-relaxed italic bg-black/20 p-3 rounded-xl border border-white/5">
-                                        "{rev.review || 'Great snack! Arrived on time and freshly prepared.'}"
-                                      </p>
+                                      <div className="relative bg-black/25 p-3.5 rounded-xl border border-white/5">
+                                        <Quote className="w-3.5 h-3.5 text-primary/40 absolute top-2.5 right-2.5 rotate-180" />
+                                        <p className="text-xs text-white/90 leading-relaxed italic pr-4">
+                                          "{rev.review || 'Great snack! Arrived on time and freshly prepared.'}"
+                                        </p>
+                                      </div>
                                     </div>
 
-                                    <div className="text-[10px] text-muted-foreground font-bold pt-2 border-t border-white/5 flex items-center justify-between">
-                                      <span>Order #{rev.orderId?.slice(0, 8) || 'STORE'}</span>
+                                    <div className="text-[10px] text-muted-foreground font-bold pt-2.5 border-t border-white/5 flex items-center justify-between">
+                                      <div className="flex items-center gap-1 text-white/60 font-mono">
+                                        <span>Order #{rev.orderId?.slice(0, 8).toUpperCase() || 'CINEMA'}</span>
+                                      </div>
                                       <span>{formatReviewDate(rev.createdAt)}</span>
                                     </div>
                                   </div>
@@ -871,99 +888,150 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                           </div>
                         )}
 
-                        {/* Products Grid */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {/* Products Grid - Mobile-Optimized 2-Column Ecommerce Layout */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4">
                           {filteredProducts.map(product => {
                             const isOutOfStock = product.stockStatus === 'out_of_stock' || product.inStock === false || product.available === false;
                             const isRestocking = product.stockStatus === 'restocking';
                             const isUnavailable = isOutOfStock || isRestocking;
+                            const cartItem = cart.find(i => i.product.id === product.id);
 
                             return (
                               <Card 
                                 key={product.id} 
                                 onClick={() => setSelectedProduct(product)}
-                                className={`overflow-hidden glass-card border-white/10 group flex flex-col transition-all duration-300 cursor-pointer hover:border-primary/50 hover:shadow-2xl hover:shadow-primary/10 ${isUnavailable ? 'opacity-60 bg-black/20' : ''}`}
+                                className={`group relative overflow-hidden rounded-2xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/10 hover:border-primary/40 transition-all duration-300 flex flex-col cursor-pointer shadow-lg hover:shadow-2xl hover:shadow-primary/10 ${isUnavailable ? 'opacity-60 bg-black/20' : ''}`}
                               >
-                                <div className="relative aspect-square overflow-hidden bg-black/40">
+                                {/* Product Image Container */}
+                                <div className="relative aspect-square w-full overflow-hidden bg-black/40">
                                   <img 
                                     src={product.image} 
-                                    className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${isUnavailable ? 'grayscale' : ''}`}
+                                    className={`w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-105 ${isUnavailable ? 'grayscale' : ''}`}
                                     alt={product.name} 
                                   />
-                                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-primary bg-black/80 px-2.5 py-1 rounded-lg border border-primary/30 backdrop-blur-md">
-                                      View Product Details →
-                                    </span>
+                                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
+                                  
+                                  {/* Badges Overlay */}
+                                  <div className="absolute top-2 left-2 flex flex-col gap-1 z-10">
+                                    {product.slashPrice && product.slashPrice > product.price && !isUnavailable && (
+                                      <span className="bg-rose-600 text-white font-black text-[9px] sm:text-[10px] px-1.5 sm:px-2 py-0.5 rounded-md uppercase tracking-wider shadow-md">
+                                        -{Math.round(((product.slashPrice - product.price) / product.slashPrice) * 100)}%
+                                      </span>
+                                    )}
+                                    {isOutOfStock && (
+                                      <span className="bg-red-600/95 text-white font-black text-[9px] sm:text-[10px] px-1.5 sm:px-2 py-0.5 rounded-md uppercase tracking-wider shadow-md">
+                                        Sold Out
+                                      </span>
+                                    )}
+                                    {isRestocking && (
+                                      <span className="bg-amber-600/95 text-white font-black text-[9px] sm:text-[10px] px-1.5 sm:px-2 py-0.5 rounded-md uppercase tracking-wider shadow-md">
+                                        Restocking
+                                      </span>
+                                    )}
                                   </div>
-                                  {product.slashPrice && !isUnavailable && (
-                                    <Badge className="absolute top-2 left-2 bg-rose-600 text-[9px] font-black uppercase tracking-wider">
-                                      Sale
-                                    </Badge>
-                                  )}
-                                  {isOutOfStock && (
-                                    <Badge className="absolute top-2 left-2 bg-red-600 text-[9px] font-black uppercase">
-                                      Out of Stock
-                                    </Badge>
-                                  )}
-                                  {isRestocking && (
-                                    <Badge className="absolute top-2 left-2 bg-amber-600 text-[9px] font-black uppercase">
-                                      Restocking
-                                    </Badge>
-                                  )}
+
+                                  {/* Floating Star Rating */}
+                                  {(() => {
+                                    const vendorObj = vendors.find(v => v.id === product.vendorId);
+                                    const ratingVal = product.rating ? Number(product.rating).toFixed(1) : (vendorObj?.rating ? Number(vendorObj.rating).toFixed(1) : '5.0');
+                                    const reviewCount = product.reviewCount || vendorObj?.ratingCount || 0;
+                                    return (
+                                      <div className="absolute bottom-2 left-2 flex items-center gap-1 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded-lg border border-white/10 text-amber-400 text-[10px] font-bold">
+                                        <Star className="w-3 h-3 fill-current" />
+                                        <span>{ratingVal}</span>
+                                        {reviewCount > 0 && (
+                                          <span className="text-white/60 text-[8px] font-medium hidden sm:inline">({reviewCount})</span>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
-                                <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
-                                  <div className="space-y-1">
+
+                                {/* Content Details */}
+                                <div className="p-2.5 sm:p-3.5 flex-1 flex flex-col justify-between gap-2.5">
+                                  <div className="space-y-0.5">
                                     {(() => {
                                       const vendorObj = vendors.find(v => v.id === product.vendorId);
-                                      const ratingVal = product.rating ? Number(product.rating).toFixed(1) : (vendorObj?.rating ? Number(vendorObj.rating).toFixed(1) : '5.0');
-                                      const reviewCount = product.reviewCount || vendorObj?.ratingCount || 0;
                                       return (
-                                        <>
-                                          <div className="flex justify-between items-start">
-                                            <h4 className="font-black text-sm uppercase leading-tight line-clamp-1 group-hover:text-primary transition-colors">
-                                              {product.name}
-                                            </h4>
-                                            <div className="flex items-center text-amber-500 flex-shrink-0" title={reviewCount > 0 ? `${reviewCount} reviews` : '5.0 rating'}>
-                                              <Star className="w-3 h-3 fill-current" />
-                                              <span className="text-[10px] font-black ml-1">{ratingVal}</span>
-                                              {reviewCount > 0 && (
-                                                <span className="text-[8px] text-muted-foreground ml-0.5 font-bold">({reviewCount})</span>
-                                              )}
-                                            </div>
-                                          </div>
-                                          <p className="text-[10px] text-muted-foreground font-bold italic truncate">
-                                            by {vendorObj?.name || 'Cinema Kitchen'}
-                                          </p>
-                                        </>
+                                        <p className="text-[9px] sm:text-[10px] text-muted-foreground font-semibold uppercase tracking-wider truncate">
+                                          {vendorObj?.name || 'Cinema Kitchen'}
+                                        </p>
                                       );
                                     })()}
-                                    <p className="text-[10px] text-muted-foreground line-clamp-2 mt-2 leading-relaxed">
-                                      {product.description}
-                                    </p>
+                                    <h4 className="font-bold text-xs sm:text-sm text-white line-clamp-1 group-hover:text-primary transition-colors tracking-tight leading-snug">
+                                      {product.name}
+                                    </h4>
+                                    {product.description && (
+                                      <p className="hidden sm:line-clamp-1 text-[11px] text-muted-foreground leading-tight pt-0.5">
+                                        {product.description}
+                                      </p>
+                                    )}
                                   </div>
                                   
-                                  <div className="pt-2 flex items-center justify-between border-t border-white/5">
-                                    <div className="flex flex-col">
-                                      {product.slashPrice && (
-                                        <span className="text-[10px] text-muted-foreground line-through italic decoration-rose-500/50 font-bold">
+                                  {/* Price & Action Button Row */}
+                                  <div className="pt-2 flex items-center justify-between border-t border-white/5 gap-2">
+                                    <div className="flex flex-col min-w-0">
+                                      {product.slashPrice && product.slashPrice > product.price && (
+                                        <span className="text-[9px] sm:text-[10px] text-muted-foreground line-through italic decoration-rose-500/60 font-semibold leading-none mb-0.5">
                                           ₦{product.slashPrice.toLocaleString()}
                                         </span>
                                       )}
-                                      <span className="text-sm font-black text-emerald-400 tracking-tighter">
+                                      <span className="text-xs sm:text-sm font-black text-emerald-400 tracking-tight leading-none truncate">
                                         ₦{product.price.toLocaleString()}
                                       </span>
                                     </div>
-                                    <Button 
-                                      size="sm" 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        addToCart(product, 1);
-                                      }}
-                                      disabled={isUnavailable}
-                                      className={`h-9 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest ${isUnavailable ? 'bg-white/5 border border-white/10 text-muted-foreground cursor-not-allowed' : 'gradient-bg shadow-md'}`}
-                                    >
-                                      {isOutOfStock ? 'Sold Out' : isRestocking ? 'Restock' : <><Plus className="w-3.5 h-3.5 mr-1" /> Add</>}
-                                    </Button>
+
+                                    {cartItem ? (
+                                      <div 
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="flex items-center gap-1 sm:gap-1.5 bg-primary/20 border border-primary/40 rounded-xl p-0.5 sm:p-1"
+                                      >
+                                        <button 
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            updateQuantity(product.id, -1);
+                                          }}
+                                          className="w-5 h-5 sm:w-6 sm:h-6 rounded-lg bg-black/40 hover:bg-black/60 flex items-center justify-center text-white transition-colors"
+                                          title="Decrease"
+                                        >
+                                          <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                                        </button>
+                                        <span className="text-[11px] sm:text-xs font-black text-white w-3.5 sm:w-4 text-center">
+                                          {cartItem.quantity}
+                                        </span>
+                                        <button 
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            updateQuantity(product.id, 1);
+                                          }}
+                                          className="w-5 h-5 sm:w-6 sm:h-6 rounded-lg bg-primary hover:bg-primary/80 flex items-center justify-center text-white transition-colors"
+                                          title="Increase"
+                                        >
+                                          <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <Button 
+                                        size="sm" 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          addToCart(product, 1);
+                                        }}
+                                        disabled={isUnavailable}
+                                        className={`h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl font-black uppercase text-[9px] sm:text-[10px] tracking-wider transition-all active:scale-95 flex-shrink-0 ${
+                                          isUnavailable 
+                                            ? 'bg-white/5 border border-white/10 text-muted-foreground cursor-not-allowed' 
+                                            : 'gradient-bg shadow-md shadow-primary/20 hover:brightness-110'
+                                        }`}
+                                      >
+                                        {isOutOfStock ? 'Sold Out' : isRestocking ? 'Restock' : (
+                                          <span className="flex items-center gap-1">
+                                            <Plus className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                                            <span>Add</span>
+                                          </span>
+                                        )}
+                                      </Button>
+                                    )}
                                   </div>
                                 </div>
                               </Card>

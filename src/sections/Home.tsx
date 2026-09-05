@@ -214,6 +214,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
                  <div className="flex items-center gap-3"><img src="/icons/agora logo.png" className="h-6 w-auto" alt="Agora" /></div>
                  <div className="flex items-center gap-3"><img src="/icons/tmdb.svg" className="h-6 w-auto" alt="TMDB" /><span className="font-black text-xl text-white">TMDB</span></div>
                  <div className="flex items-center gap-3"><img src="/icons/transactpay logo 1.png" className="h-6 w-auto" alt="TransactPay" /><span className="font-black text-xl text-white">TransactPay</span></div>
+                 <div className="flex items-center gap-3"><img src="/icons/termly.png" className="h-6 w-auto object-contain" alt="Termly" /></div>
                </>
              )}
           </div>
@@ -413,7 +414,8 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
                   <li><button onClick={() => onNavigate('about')} className="hover:text-primary transition-colors text-left">About Us</button></li>
                   <li><button onClick={() => onNavigate('contact')} className="hover:text-primary transition-colors text-left">Contact Support</button></li>
                   <li><button onClick={() => onNavigate('privacy')} className="hover:text-primary transition-colors text-left">Privacy Policy</button></li>
-                  <li><button className="hover:text-primary transition-colors flex items-center gap-2 text-left">Terms of Service <ExternalLink className="w-3 h-3" /></button></li>
+                  <li><button onClick={() => onNavigate('cookies')} className="hover:text-primary transition-colors text-left">Cookie Policy</button></li>
+                  <li><button onClick={() => onNavigate('terms')} className="hover:text-primary transition-colors flex items-center gap-2 text-left">Terms of Use <ExternalLink className="w-3 h-3" /></button></li>
                </ul>
             </div>
 

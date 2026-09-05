@@ -22,7 +22,9 @@ import {
   Handshake,
   Ghost,
   Trash2,
-  Share2
+  Share2,
+  Clock,
+  Zap
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useAuth } from '../contexts/AuthContext';
@@ -162,7 +164,8 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
   };
 
   const handleChoice = (choice: 'split' | 'steal') => {
-    if (!isContestant || (gameState?.status !== 'choosing' && gameState?.status !== 'revealing')) return;
+    if (!isContestant || (gameState?.status !== 'choosing' && gameState?.status !== 'sudden_death' && gameState?.status !== 'revealing')) return;
+    if (gameState?.status === 'revealing' && (gameState?.timer || 0) <= 5) return;
     setMyChoice(choice);
     sendAction('make_choice', { choice });
   };
@@ -199,12 +202,23 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
   }, [messages, activeTab, isChatCollapsed]);
 
   const getChoiceRevealText = (pUid: string | undefined) => {
-    if (!pUid || !gameState?.choices) return null;
-    const isRevealingLate = gameState.status === 'revealing' && gameState.timer <= 0;
+    if (!pUid || !gameState) return null;
+    const isRevealingLate = gameState.status === 'revealing' && (gameState.timer || 0) <= 0;
     const isDone = gameState.status === 'finished' || gameState.status === 'round_finished';
     if (!isRevealingLate && !isDone) return null;
-    const choice = gameState.choices[pUid];
-    if (!choice) return null;
+    const choice = gameState.choices ? gameState.choices[pUid] : null;
+    if (!choice) {
+      return (
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.5 }} 
+          animate={{ opacity: 1, scale: 1 }} 
+          className="px-2.5 py-1 md:px-3 md:py-1.5 rounded-full font-black uppercase italic text-[9px] md:text-xs flex items-center gap-1.5 shadow-2xl border-2 z-30 bg-rose-950/80 border-rose-500/50 text-rose-300 shadow-rose-950/50"
+        >
+          <Clock className="w-3.5 h-3.5 md:w-4 md:h-4 text-rose-400" />
+          <span>AFK / FORFEIT</span>
+        </motion.div>
+      );
+    }
     return (
       <motion.div 
         initial={{ opacity: 0, scale: 0.5 }} 
@@ -217,38 +231,115 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
     );
   };
 
-  const getOutcomeLabel = (isA: boolean) => {
+  const getOutcomeVideo = (isA: boolean): string | null => {
     if (gameState?.status !== 'revealing' && gameState?.status !== 'finished' && gameState?.status !== 'round_finished') return null;
-    if (!gameState.revealResult || (gameState.status === 'revealing' && gameState.timer > 0)) return null;
+    if (!gameState.revealResult || (gameState.status === 'revealing' && (gameState.timer || 0) > 0)) return null;
+
+    const uidA = gameState.playerA?.uid;
+    const uidB = gameState.playerB?.uid;
+    const choiceA = uidA ? gameState.choices?.[uidA] : undefined;
+    const choiceB = uidB ? gameState.choices?.[uidB] : undefined;
+
+    const myChoice = isA ? choiceA : choiceB;
+
+    // 1. Both Split -> Both Win video
+    if (gameState.revealResult === 'share' || (choiceA === 'split' && choiceB === 'split')) {
+      return '/both%20win.mp4';
+    }
+    // 2. Both Steal OR Both AFK -> Both Steal video
+    if (gameState.revealResult === 'none' || (choiceA === 'steal' && choiceB === 'steal') || (!choiceA && !choiceB)) {
+      return '/both%20steal.mp4';
+    }
+    // 3. One Split, One AFK
+    if (gameState.revealResult === 'afk_split_a') {
+      return isA ? '/both%20win.mp4' : '/split%20cry.mp4';
+    }
+    if (gameState.revealResult === 'afk_split_b') {
+      return isA ? '/split%20cry.mp4' : '/both%20win.mp4';
+    }
+    // 4. One Steals, One Splits OR One Steals, One AFK
+    if (gameState.revealResult === 'one_steal') {
+      if (myChoice === 'steal') {
+        return '/steal%20win.mp4';
+      }
+      return '/split%20cry.mp4';
+    }
+
+    return null;
+  };
+
+  const getOutcomeLabel = (isA: boolean, hasVideo: boolean = false) => {
+    if (gameState?.status !== 'revealing' && gameState?.status !== 'finished' && gameState?.status !== 'round_finished') return null;
+    if (!gameState.revealResult || (gameState.status === 'revealing' && (gameState.timer || 0) > 0)) return null;
     
     const choiceA = gameState.choices?.[gameState.playerA?.uid];
     const choiceB = gameState.choices?.[gameState.playerB?.uid];
-    
+    const myChoice = isA ? choiceA : choiceB;
+
     let text = "";
     let style = "";
+    let badgeColor = "";
 
     if (gameState.revealResult === 'share') {
-        text = "Winner";
-        style = "bg-yellow-500/40 text-white";
+      text = "Split & Win";
+      style = "bg-yellow-500/40 text-white";
+      badgeColor = "bg-yellow-500 text-black border-yellow-300 shadow-yellow-500/30";
     } else if (gameState.revealResult === 'none') {
-        text = "Lost";
-        style = "bg-zinc-800/60 text-white/50";
+      text = (!choiceA && !choiceB) ? "Both AFK" : "Both Lost";
+      style = "bg-zinc-800/60 text-white/50";
+      badgeColor = "bg-rose-950/90 text-rose-300 border-rose-600/40 shadow-rose-950/40";
+    } else if (gameState.revealResult === 'afk_split_a') {
+      if (isA) {
+        text = "Split Win (50%)";
+        style = "bg-yellow-500/40 text-white";
+        badgeColor = "bg-yellow-500 text-black border-yellow-300 shadow-yellow-500/30";
+      } else {
+        text = "AFK Forfeit";
+        style = "bg-rose-950/60 text-rose-400";
+        badgeColor = "bg-rose-950/90 text-rose-300 border-rose-600/40 shadow-rose-950/40";
+      }
+    } else if (gameState.revealResult === 'afk_split_b') {
+      if (!isA) {
+        text = "Split Win (50%)";
+        style = "bg-yellow-500/40 text-white";
+        badgeColor = "bg-yellow-500 text-black border-yellow-300 shadow-yellow-500/30";
+      } else {
+        text = "AFK Forfeit";
+        style = "bg-rose-950/60 text-rose-400";
+        badgeColor = "bg-rose-950/90 text-rose-300 border-rose-600/40 shadow-rose-950/40";
+      }
     } else if (gameState.revealResult === 'one_steal') {
-        const myChoice = isA ? choiceA : choiceB;
-        const otherChoice = isA ? choiceB : choiceA;
-        if (myChoice === 'split' && otherChoice === 'steal') {
-            text = "Betrayed";
-            style = "bg-purple-900/60 text-purple-400";
-        } else if (myChoice === 'steal') {
-            text = "Winner";
-            style = "bg-yellow-500/20 text-white";
-        } else {
-            text = "Lost";
-            style = "bg-zinc-900/60 text-white/30";
-        }
+      if (myChoice === 'steal') {
+        text = "Steal Win";
+        style = "bg-yellow-500/20 text-white";
+        badgeColor = "bg-purple-600 text-white border-purple-400 shadow-purple-600/40";
+      } else if (myChoice === 'split') {
+        text = "Betrayed";
+        style = "bg-purple-900/60 text-purple-400";
+        badgeColor = "bg-purple-950/90 text-purple-300 border-purple-500/40 shadow-purple-950/40";
+      } else {
+        text = "AFK Forfeit";
+        style = "bg-rose-950/60 text-rose-400";
+        badgeColor = "bg-rose-950/90 text-rose-300 border-rose-600/40 shadow-rose-950/40";
+      }
     }
 
     if (!text) return null;
+
+    if (hasVideo) {
+      return (
+        <motion.div 
+          key={`outcome-video-${isA ? 'A' : 'B'}`}
+          initial={{ opacity: 0, y: 10 }} 
+          animate={{ opacity: 1, y: 0 }} 
+          className="absolute bottom-2 inset-x-2 z-30 flex justify-center pointer-events-none"
+        >
+          <span className={`px-2.5 py-0.5 md:px-3 md:py-1 rounded-full text-[8px] md:text-[10px] font-black uppercase tracking-wider italic shadow-xl border ${badgeColor} backdrop-blur-md`}>
+            {text}
+          </span>
+        </motion.div>
+      );
+    }
 
     return (
       <motion.div 
@@ -266,7 +357,7 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
 
   const getPrizeWonLabel = (isA: boolean) => {
     if (gameState?.status !== 'revealing' && gameState?.status !== 'finished' && gameState?.status !== 'round_finished') return null;
-    if (!gameState.revealResult || (gameState.status === 'revealing' && gameState.timer > 0)) return null;
+    if (!gameState.revealResult || (gameState.status === 'revealing' && (gameState.timer || 0) > 0)) return null;
 
     const totalPrize = gameState.prizeAmount || gameData.prizeAmount || 0;
     const choiceA = gameState.choices?.[gameState.playerA?.uid];
@@ -276,10 +367,13 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
     
     if (gameState.revealResult === 'share') {
       prizeWon = totalPrize / 2;
+    } else if (gameState.revealResult === 'afk_split_a') {
+      prizeWon = isA ? (totalPrize / 2) : 0;
+    } else if (gameState.revealResult === 'afk_split_b') {
+      prizeWon = isA ? 0 : (totalPrize / 2);
     } else if (gameState.revealResult === 'one_steal') {
       const myChoice = isA ? choiceA : choiceB;
-      const otherChoice = isA ? choiceB : choiceA;
-      if (myChoice === 'steal' && otherChoice === 'split') {
+      if (myChoice === 'steal') {
         prizeWon = totalPrize;
       } else {
         prizeWon = 0;
@@ -362,6 +456,76 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
       alert("Failed to delete room.");
       setIsDeleting(false);
     }
+  };
+
+  const renderPlayerBox = (isA: boolean) => {
+    const player = isA ? gameState?.playerA : gameState?.playerB;
+    const isMe = isA ? isPlayerA : isPlayerB;
+    const videoUrl = getOutcomeVideo(isA);
+
+    if (!player) {
+      return (
+        <div className="w-24 h-24 md:w-48 md:h-48 rounded-3xl md:rounded-[3rem] border border-white/10 bg-zinc-900 overflow-hidden flex items-center justify-center relative shadow-inner">
+          <User className="w-12 h-12 md:w-20 md:h-20 text-white/10" />
+        </div>
+      );
+    }
+
+    if (videoUrl) {
+      const isWin = videoUrl.includes('win');
+      const isCry = videoUrl.includes('cry');
+
+      const tvBorderClass = isWin 
+        ? 'border-yellow-500/70 shadow-[0_0_35px_rgba(234,179,8,0.4)] ring-2 ring-yellow-500/20' 
+        : isCry 
+          ? 'border-purple-500/70 shadow-[0_0_35px_rgba(168,85,247,0.4)] ring-2 ring-purple-500/20' 
+          : 'border-rose-500/60 shadow-[0_0_35px_rgba(244,63,94,0.3)] ring-2 ring-rose-500/20';
+
+      return (
+        <motion.div
+          key={`tv-${isA ? 'A' : 'B'}-${videoUrl}`}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.9 }}
+          transition={{ duration: 0.4 }}
+          className={`w-24 h-24 md:w-48 md:h-48 rounded-3xl md:rounded-[3rem] ${
+            isMe ? 'ring-4 ring-primary' : ''
+          } ${tvBorderClass} border-2 bg-black overflow-hidden flex items-center justify-center relative group`}
+        >
+          {/* TV Screen Scanline Overlay */}
+          <div className="absolute inset-0 z-20 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.35)_50%)] bg-[length:100%_4px] opacity-40 mix-blend-overlay" />
+          
+          {/* Video Element */}
+          <video
+            key={videoUrl}
+            src={videoUrl}
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="w-full h-full object-cover"
+          />
+        </motion.div>
+      );
+    }
+
+    // Normal Player Avatar Box
+    return (
+      <motion.div
+        key={`avatar-${isA ? 'A' : 'B'}-${player.uid}`}
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        transition={{ duration: 0.3 }}
+        className={`w-24 h-24 md:w-48 md:h-48 rounded-3xl md:rounded-[3rem] ${
+          isMe ? 'ring-4 ring-primary shadow-[0_0_40px_rgba(34,197,94,0.3)]' : 'border border-white/10'
+        } bg-zinc-900 overflow-hidden flex items-center justify-center relative`}
+      >
+        <img src={player.photoURL} className="w-full h-full object-cover" alt={isA ? 'A' : 'B'} />
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-60" />
+        {getOutcomeLabel(isA, false)}
+      </motion.div>
+    );
   };
 
   const isRevealDoneOrActive = (gameState?.status === 'revealing' || gameState?.status === 'round_finished' || gameState?.status === 'finished') && gameState?.revealResult;
@@ -502,9 +666,15 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
           </div>
         </div>
         {gameState?.timer !== undefined && gameState.status !== 'waiting' && gameState.status !== 'finished' && (
-          <div className="flex items-center gap-1.5 md:gap-3 px-2 md:px-4 py-1 md:py-2 rounded-lg md:rounded-xl bg-rose-500/20 border border-rose-500/30">
-             <Timer className={`w-3.5 h-3.5 md:w-5 md:h-5 text-rose-500 ${gameState.timer <= 10 ? 'animate-bounce' : ''}`} />
-             <span className="text-xs md:text-lg font-black text-white tabular-nums">{gameState.timer}s</span>
+          <div className={`flex items-center gap-1.5 md:gap-3 px-2 md:px-4 py-1 md:py-2 rounded-lg md:rounded-xl border ${
+            gameState.status === 'sudden_death' 
+              ? 'bg-rose-600/30 border-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.4)] animate-pulse' 
+              : 'bg-rose-500/20 border-rose-500/30'
+          }`}>
+             <Timer className={`w-3.5 h-3.5 md:w-5 md:h-5 ${gameState.status === 'sudden_death' ? 'text-rose-400 animate-spin' : 'text-rose-500'} ${gameState.timer <= 10 ? 'animate-bounce' : ''}`} />
+             <span className="text-xs md:text-lg font-black text-white tabular-nums">
+               {gameState.status === 'sudden_death' ? `SUDDEN DEATH: ${gameState.timer}s` : `${gameState.timer}s`}
+             </span>
           </div>
         )}
       </div>
@@ -525,15 +695,7 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
           <div className="flex flex-col md:flex-row items-center justify-center gap-8 md:gap-20 relative w-full max-w-7xl">
              <div className="flex items-center gap-6 md:gap-10 bg-white/5 border border-white/10 p-5 md:p-8 rounded-[2rem] md:rounded-[4rem] relative z-10 w-full md:w-auto min-w-[320px] md:min-w-[480px] backdrop-blur-xl">
                 <div className="relative shrink-0">
-                   <div className={`w-24 h-24 md:w-48 md:h-48 rounded-3xl md:rounded-[3rem] ${isPlayerA ? 'ring-4 ring-primary shadow-[0_0_40px_rgba(34,197,94,0.3)]' : 'border border-white/10'} bg-zinc-900 overflow-hidden flex items-center justify-center relative`}>
-                      {gameState?.playerA ? (
-                        <>
-                          <img src={gameState.playerA.photoURL} className="w-full h-full object-cover" alt="A" />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-60" />
-                          {getOutcomeLabel(true)}
-                        </>
-                      ) : <User className="w-12 h-12 md:w-20 md:h-20 text-white/5" />}
-                   </div>
+                   {renderPlayerBox(true)}
                    <Badge className="absolute -top-3 -left-3 bg-yellow-500 text-black font-black uppercase text-[8px] md:text-[10px] px-2 py-0.5 shadow-xl">CONTESTANT</Badge>
                 </div>
                 <div className="min-w-0 flex-1 space-y-2">
@@ -562,15 +724,7 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
 
              <div className="flex flex-row-reverse items-center gap-6 md:gap-10 bg-white/5 border border-white/10 p-5 md:p-8 rounded-[2rem] md:rounded-[4rem] relative z-10 w-full md:w-auto min-w-[320px] md:min-w-[480px] backdrop-blur-xl">
                 <div className="relative shrink-0">
-                   <div className={`w-24 h-24 md:w-48 md:h-48 rounded-3xl md:rounded-[3rem] ${isPlayerB ? 'ring-4 ring-primary shadow-[0_0_40px_rgba(34,197,94,0.3)]' : 'border border-white/10'} bg-zinc-900 overflow-hidden flex items-center justify-center relative`}>
-                      {gameState?.playerB ? (
-                        <>
-                          <img src={gameState.playerB.photoURL} className="w-full h-full object-cover" alt="B" />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-60" />
-                          {getOutcomeLabel(false)}
-                        </>
-                      ) : <User className="w-12 h-12 md:w-20 md:h-20 text-white/5" />}
-                   </div>
+                   {renderPlayerBox(false)}
                    <Badge className="absolute -top-3 -right-3 bg-yellow-500 text-black font-black uppercase text-[8px] md:text-[10px] px-2 py-0.5 shadow-xl">CONTESTANT</Badge>
                 </div>
                 <div className="min-w-0 flex-1 text-right space-y-2">
@@ -628,20 +782,38 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
                       <h4 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-white animate-pulse">Convince Each Other!</h4>
                       {canControl && <Button onClick={handleStartGame} variant="outline" className="border-white/10 text-[9px] font-black uppercase tracking-widest hover:bg-white/5 h-10 px-6">End Convincing</Button>}
                    </motion.div>
-                ) : (gameState?.status === 'choosing' || gameState?.status === 'revealing') ? (() => {
+                ) : (gameState?.status === 'choosing' || gameState?.status === 'sudden_death' || gameState?.status === 'revealing') ? (() => {
                    const isChoiceLocked = gameState?.status === 'revealing' && (gameState?.timer || 0) <= 5;
+                   const isSuddenDeath = gameState?.status === 'sudden_death';
                    return (
                      <motion.div key="decision-reveal-state" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="flex flex-col items-center gap-4 md:gap-8">
-                       <div className="text-center">
-                          <h4 className="text-2xl md:text-4xl font-black uppercase text-white italic">
-                            {gameState.status === 'revealing' ? 'THE REVEAL' : 'Decision Time'}
-                          </h4>
-                          <p className="text-[9px] md:text-[10px] text-muted-foreground font-black uppercase tracking-widest">
-                            {gameState.status === 'revealing' 
-                              ? (isChoiceLocked ? 'Choices are locked in!' : 'Changing choices permitted')
-                              : (isContestant ? 'Make your choice below' : 'Waiting for contestants...')
-                            }
-                          </p>
+                       <div className="text-center space-y-1">
+                          {isSuddenDeath ? (
+                            <div className="space-y-1.5 flex flex-col items-center">
+                              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/20 border border-rose-500/50 text-rose-400 text-[9px] md:text-[10px] font-black uppercase tracking-widest shadow-[0_0_20px_rgba(244,63,94,0.3)] animate-pulse">
+                                <Zap className="w-3.5 h-3.5 text-rose-400 animate-bounce" />
+                                <span>SUDDEN DEATH COUNTDOWN</span>
+                              </div>
+                              <h4 className="text-2xl md:text-4xl font-black uppercase text-rose-400 italic tracking-tight drop-shadow-[0_0_25px_rgba(244,63,94,0.5)]">
+                                CHOOSE OR FORFEIT IN {gameState.timer}s!
+                              </h4>
+                              <p className="text-[9px] md:text-[10px] text-rose-300/80 font-black uppercase tracking-widest">
+                                {isContestant ? (myChoice ? 'Choice received! Opponent must choose before timer ends!' : 'Make your choice immediately or you forfeit!') : 'Contestants who fail to choose will forfeit the round!'}
+                              </p>
+                            </div>
+                          ) : (
+                            <>
+                              <h4 className="text-2xl md:text-4xl font-black uppercase text-white italic">
+                                {gameState.status === 'revealing' ? 'THE REVEAL' : 'Decision Time'}
+                              </h4>
+                              <p className="text-[9px] md:text-[10px] text-muted-foreground font-black uppercase tracking-widest">
+                                {gameState.status === 'revealing' 
+                                  ? (isChoiceLocked ? 'Choices are locked in!' : 'Changing choices permitted')
+                                  : (isContestant ? 'Make your choice below' : 'Waiting for contestants...')
+                                }
+                              </p>
+                            </>
+                          )}
                        </div>
                        <div className="grid grid-cols-2 gap-4 md:gap-8 w-full">
                           <button 
@@ -664,6 +836,11 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
                        {gameState.status === 'revealing' && (
                           <p className="text-xl md:text-2xl font-black text-primary animate-pulse tabular-nums tracking-widest mt-4">
                             {isChoiceLocked ? `LOCKED IN: REVEALING IN ${gameState.timer}s` : `REVEALING IN ${gameState.timer}s`}
+                          </p>
+                       )}
+                       {isSuddenDeath && (
+                          <p className="text-xl md:text-2xl font-black text-rose-500 animate-pulse tabular-nums tracking-widest mt-2">
+                            {gameState.timer}s REMAINING
                           </p>
                        )}
                      </motion.div>

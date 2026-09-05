@@ -18,8 +18,11 @@ import { VendorDashboard } from '@/sections/VendorDashboard';
 import Notifications from '@/sections/Notifications';
 import About from '@/sections/About';
 import PrivacyPolicy from '@/sections/PrivacyPolicy';
+import TermsOfUse from '@/sections/TermsOfUse';
+import CookiePolicy from '@/sections/CookiePolicy';
 import ContactUs from '@/sections/ContactUs';
 import InstallPWA from '@/components/InstallPWA';
+import CookieBanner from '@/components/CookieBanner';
 import { logVisit, updateUserPresence, logFeatureUsage, requestNotificationPermission, listenToNotifications, logPageVisit, auth, logUserAction } from '@/lib/firebase';
 import { API_BASE_URL } from '@/api/mediaApi';
 import type { ViewType } from '@/types';
@@ -38,7 +41,7 @@ export const AppContent: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as ViewType;
-    const allowedTabs = ['home', 'video', 'music', 'movie', 'cinema', 'games', 'wallet', 'bulk', 'admin', 'notifications', 'history', 'referral', 'profile', 'about', 'privacy', 'contact', 'vendor'];
+    const allowedTabs = ['home', 'video', 'music', 'movie', 'cinema', 'games', 'wallet', 'bulk', 'admin', 'notifications', 'history', 'referral', 'profile', 'about', 'privacy', 'terms', 'cookies', 'contact', 'vendor'];
     
     // Handle Referral Code FIRST so it's captured even if routing changes
     const refCode = params.get('ref');
@@ -292,6 +295,8 @@ export const AppContent: React.FC = () => {
             {activeView === 'history' && <History />}
             {activeView === 'about' && <About />}
             {activeView === 'privacy' && <PrivacyPolicy />}
+            {activeView === 'terms' && <TermsOfUse />}
+            {activeView === 'cookies' && <CookiePolicy />}
             {activeView === 'contact' && <ContactUs />}
             {activeView === 'admin' && isAdmin && <AdminDashboard />}
             {activeView === 'admin' && !isAdmin && <VideoDownloader />}
@@ -301,6 +306,7 @@ export const AppContent: React.FC = () => {
         </AnimatePresence>
       </Layout>
       <InstallPWA />
+      <CookieBanner onNavigate={handleTabChange} />
     </>
   );
 };

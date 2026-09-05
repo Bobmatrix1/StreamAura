@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 
-export type GameStatus = 'waiting' | 'selecting' | 'convincing' | 'choosing' | 'revealing' | 'round_finished' | 'finished' | 'deleted';
+export type GameStatus = 'waiting' | 'selecting' | 'convincing' | 'choosing' | 'sudden_death' | 'revealing' | 'round_finished' | 'finished' | 'deleted';
 
 export interface GameState {
   status: GameStatus;
@@ -10,7 +10,7 @@ export interface GameState {
   playerB: any | null;
   timer: number;
   choices: { [uid: string]: 'split' | 'steal' | null };
-  revealResult: 'share' | 'one_steal' | 'none' | null;
+  revealResult: 'share' | 'one_steal' | 'none' | 'afk_split_a' | 'afk_split_b' | string | null;
   participants: any[];
   currentRound?: number;
   prizeAmount?: number;
@@ -46,67 +46,103 @@ export const useGameSync = (gameId: string | null, user: any) => {
       }
     });
 
-    // 2. WebSocket for Real-time Timer and Chat
+    // 2. WebSocket for Real-time Timer, Chat and Actions
     let socketBase = import.meta.env.VITE_SOCKET_URL;
     if (!socketBase) {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.hostname;
-      const isProduction = host.includes('streamaura.site') || host.includes('onrender.com');
-      const port = !isProduction ? ':8000' : '';
-      socketBase = `${protocol}//${host}${port}`;
+      if (import.meta.env.VITE_API_URL) {
+        const apiUrl = import.meta.env.VITE_API_URL;
+        const wsProto = apiUrl.startsWith('https:') ? 'wss:' : 'ws:';
+        socketBase = apiUrl.replace(/^https?:/, wsProto);
+      } else {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        socketBase = `${protocol}//${window.location.host}`;
+      }
     }
 
-    const socketUrl = `${socketBase}/api/ws/games/${gameId}/ws`;
-    ws.current = new WebSocket(socketUrl);
+    let isCancelled = false;
 
-    ws.current.onopen = () => {
-      if (ws.current?.readyState === WebSocket.OPEN) {
-        ws.current.send(JSON.stringify({ 
-          type: 'join',
-          uid: user?.uid,
-          name: user?.displayName || user?.name || 'Anonymous',
-          photo: user?.photoURL || user?.picture
-        }));
+    const initWebSocket = async () => {
+      let token = '';
+      try {
+        if (auth.currentUser) {
+          token = await auth.currentUser.getIdToken();
+        } else if (user?.getIdToken) {
+          token = await user.getIdToken();
+        }
+      } catch (e) {
+        console.warn('Could not get auth token for WS', e);
       }
-    };
 
-    ws.current.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      switch (data.type) {
-        case 'game_update':
-          setGameState(prev => ({ ...prev, ...data.state }));
-          if (data.state.messages) {
-            setMessages(data.state.messages);
+      if (isCancelled) return;
+
+      const socketUrl = token 
+        ? `${socketBase}/api/ws/games/${gameId}/ws?token=${encodeURIComponent(token)}`
+        : `${socketBase}/api/ws/games/${gameId}/ws`;
+
+      const socket = new WebSocket(socketUrl);
+      ws.current = socket;
+
+      socket.onopen = () => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ 
+            type: 'join',
+            uid: user?.uid,
+            name: user?.displayName || user?.name || 'Anonymous',
+            photo: user?.photoURL || user?.picture,
+            isAdmin: !!user?.isAdmin
+          }));
+        }
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          switch (data.type) {
+            case 'game_update':
+              setGameState(prev => ({ ...prev, ...data.state }));
+              if (data.state.messages) {
+                setMessages(data.state.messages);
+              }
+              break;
+            case 'chat':
+              setMessages(prev => [...prev, data.message].slice(-50));
+              break;
+            case 'chat_reaction':
+              setMessages(prev => prev.map(msg => 
+                msg.id === data.messageId 
+                  ? { 
+                      ...msg, 
+                      reactions: { 
+                        ...(msg.reactions || {}), 
+                        [data.emoji]: [...(msg.reactions?.[data.emoji] || []), data.uid].filter((v, i, a) => a.indexOf(v) === i) 
+                      } 
+                    } 
+                  : msg
+              ));
+              break;
+            case 'emoji':
+              // Use more unique ID to prevent duplicate keys
+              const emojiId = Date.now() + Math.random();
+              setFlyingEmojis(prev => [...prev, { id: emojiId, emoji: data.emoji, origin: data.origin }]);
+              setTimeout(() => {
+                setFlyingEmojis(prev => prev.filter(e => e.id !== emojiId));
+              }, 4000);
+              break;
           }
-          break;
-        case 'chat':
-          setMessages(prev => [...prev, data.message].slice(-50));
-          break;
-        case 'chat_reaction':
-          setMessages(prev => prev.map(msg => 
-            msg.id === data.messageId 
-              ? { 
-                  ...msg, 
-                  reactions: { 
-                    ...(msg.reactions || {}), 
-                    [data.emoji]: [...(msg.reactions?.[data.emoji] || []), data.uid].filter((v, i, a) => a.indexOf(v) === i) 
-                  } 
-                } 
-              : msg
-          ));
-          break;
-        case 'emoji':
-          // Use more unique ID to prevent duplicate keys
-          const emojiId = Date.now() + Math.random();
-          setFlyingEmojis(prev => [...prev, { id: emojiId, emoji: data.emoji, origin: data.origin }]);
-          setTimeout(() => {
-            setFlyingEmojis(prev => prev.filter(e => e.id !== emojiId));
-          }, 4000);
-          break;
-      }
+        } catch (e) {
+          console.error("Error parsing WS message:", e);
+        }
+      };
+
+      socket.onerror = (e) => {
+        console.warn("Game WebSocket error:", e);
+      };
     };
+
+    initWebSocket();
 
     return () => {
+      isCancelled = true;
       unsubscribe();
       ws.current?.close();
     };

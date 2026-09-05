@@ -18,6 +18,9 @@ import {
   CreditCard,
   CheckCircle2,
   ChevronDown,
+  ChevronUp,
+  Maximize2,
+  Minimize2,
   X,
   Truck,
   PackageCheck,
@@ -28,7 +31,12 @@ import {
   Star,
   Copy,
   Search,
-  ChefHat
+  ChefHat,
+  Receipt,
+  ArrowUpRight,
+  ArrowDownLeft,
+  Eye,
+  ShieldCheck
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -71,12 +79,207 @@ interface Product {
   quantity?: number;
 }
 
+interface VendorFilterDropdownProps {
+  selectedVendor: string;
+  onSelectVendor: (vendorId: string) => void;
+  vendors: Vendor[];
+  totalAllCount?: number;
+  countLabel?: string;
+  getItemCount?: (vendorId: string) => number;
+  currentUserId?: string;
+  className?: string;
+  variant?: 'gold' | 'default';
+  labelPrefix?: string;
+}
+
+const VendorFilterCustomDropdown: React.FC<VendorFilterDropdownProps> = ({
+  selectedVendor,
+  onSelectVendor,
+  vendors,
+  totalAllCount,
+  countLabel = '',
+  getItemCount,
+  currentUserId,
+  className = '',
+  variant = 'default',
+  labelPrefix = 'Vendor:'
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, []);
+
+  const selectedVendorObj = vendors.find(v => v.id === selectedVendor);
+  const selectedName = selectedVendor === 'all' 
+    ? 'All Vendors'
+    : (selectedVendor === currentUserId ? 'My Personal Store' : (selectedVendorObj?.name || selectedVendor));
+
+  const isGold = variant === 'gold';
+
+  return (
+    <div className={`relative ${className}`} ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={`w-full flex items-center justify-between gap-2.5 px-3 py-2 sm:py-1.5 rounded-xl text-xs font-bold transition-all ${
+          isGold
+            ? 'bg-black/70 hover:bg-black/90 border border-amber-500/40 text-amber-300 shadow-lg shadow-amber-500/5'
+            : 'bg-white/5 hover:bg-white/10 border border-white/15 text-white'
+        }`}
+      >
+        <div className="flex items-center gap-2 truncate">
+          <Store className={`w-3.5 h-3.5 shrink-0 ${isGold ? 'text-amber-400' : 'text-primary'}`} />
+          <span className="text-[9px] uppercase tracking-wider text-muted-foreground font-black hidden sm:inline">
+            {labelPrefix}
+          </span>
+          <span className="truncate font-black">{selectedName}</span>
+          {selectedVendor === 'all' && totalAllCount !== undefined && (
+            <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black shrink-0 ${isGold ? 'bg-amber-500/20 text-amber-300' : 'bg-white/10 text-white'}`}>
+              {totalAllCount}
+            </span>
+          )}
+          {selectedVendor !== 'all' && getItemCount && (
+            <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black shrink-0 ${isGold ? 'bg-amber-500/20 text-amber-300' : 'bg-white/10 text-white'}`}>
+              {getItemCount(selectedVendor)}
+            </span>
+          )}
+        </div>
+        <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''} ${isGold ? 'text-amber-400' : 'text-muted-foreground'}`} />
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 6, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.97 }}
+            transition={{ duration: 0.15 }}
+            className="absolute z-[120] left-0 sm:left-auto right-0 top-full mt-2 w-full sm:w-72 max-h-72 overflow-y-auto bg-[#0b0f19] border border-amber-500/30 rounded-2xl shadow-2xl p-1.5 divide-y divide-white/5 backdrop-blur-2xl ring-1 ring-black/80 custom-scrollbar"
+          >
+            {/* Option: All Vendors */}
+            <div className="pb-1">
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectVendor('all');
+                  setIsOpen(false);
+                }}
+                className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left text-xs font-bold transition-all ${
+                  selectedVendor === 'all'
+                    ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                    : 'text-white hover:bg-white/5 hover:text-amber-200'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-6 h-6 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+                    <Store className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <p className="font-bold">All Vendors</p>
+                    <p className="text-[9px] text-muted-foreground uppercase font-black">Aggregated Overview</p>
+                  </div>
+                </div>
+                {totalAllCount !== undefined && (
+                  <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-300 bg-amber-500/10 shrink-0">
+                    {totalAllCount} {countLabel}
+                  </Badge>
+                )}
+              </button>
+            </div>
+
+            {/* Individual Vendors List */}
+            <div className="py-1 space-y-1">
+              {vendors.map((v) => {
+                const count = getItemCount ? getItemCount(v.id) : undefined;
+                const isSelected = selectedVendor === v.id;
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => {
+                      onSelectVendor(v.id);
+                      setIsOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left text-xs font-bold transition-all ${
+                      isSelected
+                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                        : 'text-white/90 hover:bg-white/5 hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <div className="w-6 h-6 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-muted-foreground shrink-0 uppercase text-[10px] font-black">
+                        {(v.name || v.id).substring(0, 2)}
+                      </div>
+                      <div className="truncate">
+                        <p className="font-bold truncate text-white">{v.name || v.id}</p>
+                        <p className="text-[8px] text-muted-foreground font-mono truncate">{v.id}</p>
+                      </div>
+                    </div>
+                    {count !== undefined && (
+                      <Badge variant="outline" className="text-[8px] border-white/10 bg-black/40 text-muted-foreground shrink-0 ml-2">
+                        {count} {countLabel}
+                      </Badge>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Personal Store Account option if admin also has personal UID */}
+            {currentUserId && !vendors.some(v => v.id === currentUserId) && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectVendor(currentUserId);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left text-xs font-bold transition-all ${
+                    selectedVendor === currentUserId
+                      ? 'bg-primary/15 text-primary border border-primary/30'
+                      : 'text-white/90 hover:bg-white/5'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <UserCheck className="w-4 h-4 text-primary shrink-0" />
+                    <div>
+                      <p className="font-bold">My Personal Account</p>
+                      <p className="text-[8px] text-muted-foreground font-mono truncate">{currentUserId}</p>
+                    </div>
+                  </div>
+                  {getItemCount && (
+                    <Badge variant="outline" className="text-[8px] border-primary/20 text-primary shrink-0">
+                      {getItemCount(currentUserId)} {countLabel}
+                    </Badge>
+                  )}
+                </button>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 export const VendorDashboard: React.FC = () => {
   const { user, isAdmin } = useAuth();
   const isUserAdmin = Boolean(isAdmin || user?.isAdmin);
   
-  // Tab states: 'dashboard' | 'orders' | 'products' | 'payout'
-  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'orders' | 'products' | 'payout'>('dashboard');
+  // Tab states: 'dashboard' | 'orders' | 'products' | 'transactions' | 'payout'
+  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'orders' | 'products' | 'transactions' | 'payout'>('dashboard');
 
   // Vendor filter states for admin view
   const [selectedVendorFilter, setSelectedVendorFilter] = useState<string>('all');
@@ -84,6 +287,7 @@ export const VendorDashboard: React.FC = () => {
 
   // Stats states
   const [vendorWallet, setVendorWallet] = useState({
+    vendor_balance: 0,
     funded_balance: 0,
     vendor_earnings: 0,
     vendor_revenue: 0,
@@ -98,9 +302,34 @@ export const VendorDashboard: React.FC = () => {
   const [history, setHistory] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Orders filters
+  // Orders filters & collapsible state
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all');
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
+  const [expandedOrderIds, setExpandedOrderIds] = useState<Record<string, boolean>>({});
+
+  const toggleOrderExpand = (id: string) => {
+    setExpandedOrderIds(prev => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  };
+
+  const expandAllOrders = () => {
+    const nextState: Record<string, boolean> = {};
+    displayedOrders.forEach(o => {
+      nextState[o.id] = true;
+    });
+    setExpandedOrderIds(nextState);
+  };
+
+  const collapseAllOrders = () => {
+    setExpandedOrderIds({});
+  };
+
+  // Transactions filters & detail modal state
+  const [txTypeFilter, setTxTypeFilter] = useState<'all' | 'sale' | 'withdrawal'>('all');
+  const [txSearchQuery, setTxSearchQuery] = useState('');
+  const [selectedTxDetail, setSelectedTxDetail] = useState<any | null>(null);
 
   // Shipping ETA Modal state
   const [shippingModal, setShippingModal] = useState<{
@@ -148,6 +377,71 @@ export const VendorDashboard: React.FC = () => {
     return list;
   }, [allOrders, isUserAdmin, selectedVendorFilter, orderStatusFilter, orderSearchQuery]);
 
+  // Filter transactions by selected vendor, type, and search query
+  const displayedTransactions = React.useMemo(() => {
+    let list = history;
+    if (isUserAdmin && selectedVendorFilter !== 'all') {
+      list = list.filter(item => item.vendorId === selectedVendorFilter);
+    }
+    if (txTypeFilter !== 'all') {
+      list = list.filter(item => item.type === txTypeFilter);
+    }
+    if (txSearchQuery.trim()) {
+      const q = txSearchQuery.toLowerCase();
+      list = list.filter(item => 
+        (item.id && item.id.toLowerCase().includes(q)) ||
+        (item.orderNumber && item.orderNumber.toLowerCase().includes(q)) ||
+        (item.description && item.description.toLowerCase().includes(q)) ||
+        (item.customerName && item.customerName.toLowerCase().includes(q)) ||
+        (item.bankName && item.bankName.toLowerCase().includes(q)) ||
+        (item.accountNumber && item.accountNumber.includes(q))
+      );
+    }
+    return list;
+  }, [history, isUserAdmin, selectedVendorFilter, txTypeFilter, txSearchQuery]);
+
+  // Accurate & responsive financial calculations
+  const computedStats = React.useMemo(() => {
+    const relevantOrders = (isUserAdmin && selectedVendorFilter !== 'all')
+      ? allOrders.filter(o => o.vendorId === selectedVendorFilter && o.status !== 'cancelled')
+      : (isUserAdmin && selectedVendorFilter === 'all')
+        ? allOrders.filter(o => o.status !== 'cancelled')
+        : allOrders.filter(o => o.vendorId === user?.uid && o.status !== 'cancelled');
+
+    const ordersGrossRevenue = relevantOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+    const ordersNetEarnings = ordersGrossRevenue * 0.70;
+    const ordersPlatformFees = ordersGrossRevenue * 0.30;
+    const ordersItemsCount = relevantOrders.reduce((sum, o) => sum + (o.items?.reduce((s: number, i: any) => s + (i.quantity || 1), 0) || 0), 0);
+
+    const totalRevenue = Math.max(vendorWallet.vendor_revenue || 0, ordersGrossRevenue);
+    const totalEarnings = Math.max(vendorWallet.vendor_earnings || 0, ordersNetEarnings);
+    const totalFees = Math.max(vendorWallet.vendor_fees || 0, ordersPlatformFees);
+    const totalUnits = Math.max(vendorWallet.vendor_sales_count || 0, ordersItemsCount);
+    
+    // Total vendor withdrawals placed (excluding rejected)
+    const totalVendorWithdrawn = payouts
+      .filter(p => p.status !== 'rejected')
+      .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+    const pendingVendorWithdrawn = payouts
+      .filter(p => p.status === 'pending')
+      .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+    // Liquid available balance for withdrawals is strictly the net store earnings minus placed withdrawals
+    const availableBalance = Math.max(0, totalEarnings - totalVendorWithdrawn);
+
+    return {
+      totalRevenue,
+      totalEarnings,
+      totalFees,
+      totalUnits,
+      availableBalance,
+      totalVendorWithdrawn,
+      pendingVendorWithdrawn,
+      ordersCount: relevantOrders.length
+    };
+  }, [allOrders, vendorWallet, payouts, isUserAdmin, selectedVendorFilter, user?.uid]);
+
   // Bank Info state
   const [bankDetails, setBankDetails] = useState({
     bankName: '',
@@ -169,6 +463,7 @@ export const VendorDashboard: React.FC = () => {
   // Product modal states
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const productImageInputRef = useRef<HTMLInputElement>(null);
   const [productForm, setProductForm] = useState({
     name: '',
     description: '',
@@ -203,7 +498,7 @@ export const VendorDashboard: React.FC = () => {
 
   // Background scroll lock
   useEffect(() => {
-    if (isProductModalOpen || isWithdrawModalOpen || deleteModalState.isOpen || shippingModal.isOpen) {
+    if (isProductModalOpen || isWithdrawModalOpen || deleteModalState.isOpen || shippingModal.isOpen || selectedTxDetail) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = 'unset';
@@ -211,7 +506,7 @@ export const VendorDashboard: React.FC = () => {
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [isProductModalOpen, isWithdrawModalOpen, deleteModalState.isOpen, shippingModal.isOpen]);
+  }, [isProductModalOpen, isWithdrawModalOpen, deleteModalState.isOpen, shippingModal.isOpen, selectedTxDetail]);
 
   // Load vendors list if admin
   useEffect(() => {
@@ -229,19 +524,56 @@ export const VendorDashboard: React.FC = () => {
 
     setIsLoading(true);
 
+    const targetVendorId = isUserAdmin && selectedVendorFilter !== 'all' ? selectedVendorFilter : user.uid;
+
     // 1. Listen to Vendor Wallet details
-    const unsubWallet = onSnapshot(doc(db, 'room_wallets', user.uid), (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        setVendorWallet({
-          funded_balance: data.funded_balance || 0,
-          vendor_earnings: data.vendor_earnings || 0,
-          vendor_revenue: data.vendor_revenue || 0,
-          vendor_sales_count: data.vendor_sales_count || 0,
-          vendor_fees: data.vendor_fees || 0
-        });
-      }
-    });
+    let unsubWallet = () => {};
+    if (isUserAdmin && selectedVendorFilter === 'all') {
+      unsubWallet = onSnapshot(doc(db, 'room_wallets', user.uid), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          const vBal = data.vendor_balance !== undefined 
+            ? Number(data.vendor_balance || 0) 
+            : Number(data.vendor_earnings || 0);
+
+          setVendorWallet({
+            vendor_balance: vBal,
+            funded_balance: data.funded_balance || 0,
+            vendor_earnings: data.vendor_earnings || 0,
+            vendor_revenue: data.vendor_revenue || 0,
+            vendor_sales_count: data.vendor_sales_count || 0,
+            vendor_fees: data.vendor_fees || 0
+          });
+        }
+      });
+    } else if (targetVendorId) {
+      unsubWallet = onSnapshot(doc(db, 'room_wallets', targetVendorId), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          const vBal = data.vendor_balance !== undefined 
+            ? Number(data.vendor_balance || 0) 
+            : Number(data.vendor_earnings || 0);
+
+          setVendorWallet({
+            vendor_balance: vBal,
+            funded_balance: data.funded_balance || 0,
+            vendor_earnings: data.vendor_earnings || 0,
+            vendor_revenue: data.vendor_revenue || 0,
+            vendor_sales_count: data.vendor_sales_count || 0,
+            vendor_fees: data.vendor_fees || 0
+          });
+        } else {
+          setVendorWallet({
+            vendor_balance: 0,
+            funded_balance: 0,
+            vendor_earnings: 0,
+            vendor_revenue: 0,
+            vendor_sales_count: 0,
+            vendor_fees: 0
+          });
+        }
+      });
+    }
 
     // 2. Load vendor products (Admins subscribe to all products once; vendor owners see their own)
     const qProd = isUserAdmin
@@ -275,8 +607,16 @@ export const VendorDashboard: React.FC = () => {
     });
 
     // 3. Load vendor payouts & sales transactions
-    const qPay = query(collection(db, 'withdrawals'), where('user_uid', '==', user.uid), where('type', '==', 'vendor'));
-    const qSales = query(collection(db, 'transactions'), where('user_uid', '==', user.uid), where('type', '==', 'vendor_earning'));
+    let qPay;
+    let qSales;
+
+    if (isUserAdmin && selectedVendorFilter === 'all') {
+      qPay = query(collection(db, 'withdrawals'), where('type', '==', 'vendor'));
+      qSales = query(collection(db, 'transactions'), where('type', '==', 'vendor_earning'));
+    } else if (targetVendorId) {
+      qPay = query(collection(db, 'withdrawals'), where('user_uid', '==', targetVendorId), where('type', '==', 'vendor'));
+      qSales = query(collection(db, 'transactions'), where('user_uid', '==', targetVendorId), where('type', '==', 'vendor_earning'));
+    }
 
     let localPayouts: any[] = [];
     let localSales: any[] = [];
@@ -286,17 +626,36 @@ export const VendorDashboard: React.FC = () => {
         ...localPayouts.map(p => ({
           id: p.id,
           type: 'withdrawal',
-          amount: p.amount,
-          date: p.created_at?.toDate ? p.created_at.toDate() : new Date(),
-          description: `Withdrawal request to ${p.bank_name} (${p.account_number})`,
-          status: p.status
+          amount: p.amount || 0,
+          grossAmount: p.amount || 0,
+          feeAmount: p.fee_amount !== undefined ? p.fee_amount : (p.type === 'vendor' ? 0 : (p.amount ? p.amount * 0.05 : 0)),
+          payoutAmount: p.payout_amount !== undefined ? p.payout_amount : (p.type === 'vendor' ? (p.amount || 0) : (p.amount ? p.amount * 0.95 : 0)),
+          date: p.created_at?.toDate ? p.created_at.toDate() : (p.created_at ? new Date(p.created_at) : new Date()),
+          description: `Withdrawal settlement to ${p.bank_name || 'Bank'} (${p.account_number || ''})`,
+          bankName: p.bank_name,
+          accountNumber: p.account_number,
+          accountName: p.account_name,
+          vendorId: p.user_uid,
+          vendorName: p.user_name,
+          status: p.status || 'pending'
         })),
         ...localSales.map(s => ({
           id: s.id,
           type: 'sale',
-          amount: s.amount,
-          date: s.timestamp?.toDate ? s.timestamp.toDate() : new Date(),
-          description: s.title || 'Store Sales Earning',
+          amount: s.amount || (s.grossAmount ? s.grossAmount * 0.7 : 0),
+          grossAmount: s.grossAmount || (s.amount ? s.amount / 0.7 : 0),
+          platformFee: s.platformFee || (s.grossAmount ? s.grossAmount * 0.3 : 0),
+          itemsCount: s.itemsCount || (s.items?.length || 1),
+          date: s.timestamp?.toDate ? s.timestamp.toDate() : (s.timestamp ? new Date(s.timestamp) : new Date()),
+          description: s.title || `Sales Earning from Order #${s.orderNumber || ''}`,
+          orderNumber: s.orderNumber,
+          orderId: s.orderId,
+          customerName: s.customerName,
+          customerPhone: s.customerPhone,
+          customerAddress: s.customerAddress,
+          items: s.items,
+          vendorId: s.vendorId || s.user_uid,
+          vendorName: s.vendorName,
           status: s.status || 'completed'
         }))
       ].sort((a, b) => b.date.getTime() - a.date.getTime());
@@ -309,15 +668,15 @@ export const VendorDashboard: React.FC = () => {
       }));
     };
 
-    const unsubPayouts = onSnapshot(qPay, (snap) => {
+    const unsubPayouts = qPay ? onSnapshot(qPay, (snap) => {
       localPayouts = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       mergeAndSort();
-    });
+    }) : () => {};
 
-    const unsubSales = onSnapshot(qSales, (snap) => {
+    const unsubSales = qSales ? onSnapshot(qSales, (snap) => {
       localSales = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       mergeAndSort();
-    });
+    }) : () => {};
 
     // 4. Listen to Bank Details real-time
     const unsubUser = onSnapshot(doc(db, 'users', user.uid), (snap) => {
@@ -390,7 +749,7 @@ export const VendorDashboard: React.FC = () => {
       unsubUser();
       unsubOrders();
     };
-  }, [user?.uid, isUserAdmin]);
+  }, [user?.uid, isUserAdmin, selectedVendorFilter]);
 
   // Order action handlers
   const handleAcceptOrder = async (order: Order) => {
@@ -631,6 +990,16 @@ export const VendorDashboard: React.FC = () => {
     }
   };
 
+  // Remove product image
+  const handleRemoveProductImage = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setProductForm(prev => ({ ...prev, image: '' }));
+    if (productImageInputRef.current) {
+      productImageInputRef.current.value = '';
+    }
+    toast.info('Picture removed. Choose a new picture or upload from your device.');
+  };
+
   // Save Product (Create or Edit)
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -769,8 +1138,8 @@ export const VendorDashboard: React.FC = () => {
       return;
     }
 
-    if (amt > vendorWallet.funded_balance) {
-      toast.error('Insufficient available wallet balance.');
+    if (amt > computedStats.availableBalance) {
+      toast.error(`Insufficient vendor withdrawable balance. Available: ₦${computedStats.availableBalance.toLocaleString()}`);
       return;
     }
 
@@ -855,6 +1224,13 @@ export const VendorDashboard: React.FC = () => {
             Products ({allProducts.length})
           </Button>
           <Button 
+            onClick={() => setActiveSubTab('transactions')} 
+            variant={activeSubTab === 'transactions' ? 'default' : 'outline'}
+            className="relative flex-1 md:flex-initial text-[10px] md:text-xs uppercase font-black tracking-widest px-2.5 py-1.5 h-9 md:h-10"
+          >
+            <Receipt className="w-3.5 h-3.5 mr-1" /> Transactions ({history.length})
+          </Button>
+          <Button 
             onClick={() => setActiveSubTab('payout')} 
             variant={activeSubTab === 'payout' ? 'default' : 'outline'}
             className="flex-1 md:flex-initial text-[10px] md:text-xs uppercase font-black tracking-widest px-2.5 py-1.5 h-9 md:h-10"
@@ -878,27 +1254,54 @@ export const VendorDashboard: React.FC = () => {
               exit={{ opacity: 0, y: -15 }}
               className="space-y-6 md:space-y-8"
             >
+              {/* Admin Active Vendor Bar */}
+              {isUserAdmin && (
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 sm:p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="border-amber-500/40 text-amber-300 bg-black/40 text-[8px] font-black uppercase px-2 py-0.5">
+                      Admin Oversight
+                    </Badge>
+                    <span className="text-xs font-bold text-white">Viewing Store Finances For:</span>
+                  </div>
+                  <VendorFilterCustomDropdown
+                    selectedVendor={selectedVendorFilter}
+                    onSelectVendor={setSelectedVendorFilter}
+                    vendors={adminVendors}
+                    totalAllCount={allOrders.length}
+                    countLabel="orders"
+                    getItemCount={(vid) => allOrders.filter(o => o.vendorId === vid).length}
+                    currentUserId={user?.uid}
+                    variant="gold"
+                    className="w-full sm:w-auto"
+                  />
+                </div>
+              )}
+
               {/* Financial Stats Grid */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
+                {/* 1. Store Net Earnings (70%) */}
                 <Card className="glass-card p-4 md:p-6 border-white/5 flex flex-col justify-between space-y-3 md:space-y-4">
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-[8px] md:text-[10px] font-black uppercase text-muted-foreground tracking-widest">Available Balance</span>
-                      <DollarSign className="w-4 h-4 md:w-5 md:h-5 text-emerald-400" />
+                      <span className="text-[8px] md:text-[10px] font-black uppercase text-muted-foreground tracking-widest">Store Net Earnings</span>
+                      <Percent className="w-4 h-4 md:w-5 md:h-5 text-amber-500" />
                     </div>
                     <div className="space-y-1">
-                      <h3 className="text-base sm:text-lg md:text-2xl font-black text-emerald-400">₦{vendorWallet.funded_balance.toLocaleString()}</h3>
-                      <p className="text-[8px] md:text-[9px] text-muted-foreground uppercase font-black">Cleared & Withdrawable</p>
+                      <h3 className="text-base sm:text-lg md:text-2xl font-black text-amber-500">
+                        ₦{computedStats.totalEarnings.toLocaleString()}
+                      </h3>
+                      <p className="text-[8px] md:text-[9px] text-muted-foreground uppercase font-black">
+                        70% Vendor Share Credited
+                      </p>
                     </div>
                   </div>
-                  <Button 
-                    onClick={handleOpenWithdrawModal}
-                    className="w-full text-[9px] md:text-xs font-black uppercase tracking-widest h-8 md:h-10 gradient-bg"
-                  >
-                    Withdraw
-                  </Button>
+                  <div className="text-[8px] md:text-[9px] font-black uppercase flex justify-between bg-white/5 p-2 rounded-lg border border-white/5">
+                    <span className="text-muted-foreground">Orders</span>
+                    <span className="text-amber-400">{computedStats.ordersCount} Fulfilled</span>
+                  </div>
                 </Card>
 
+                {/* 2. Total Gross Sales Revenue */}
                 <Card className="glass-card p-4 md:p-6 border-white/5 flex flex-col justify-between space-y-3 md:space-y-4">
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
@@ -906,105 +1309,134 @@ export const VendorDashboard: React.FC = () => {
                       <TrendingUp className="w-4 h-4 md:w-5 md:h-5 text-blue-400" />
                     </div>
                     <div className="space-y-1">
-                      <h3 className="text-base sm:text-lg md:text-2xl font-black text-white">₦{vendorWallet.vendor_revenue.toLocaleString()}</h3>
-                      <p className="text-[8px] md:text-[9px] text-muted-foreground uppercase font-black">Gross generated</p>
+                      <h3 className="text-base sm:text-lg md:text-2xl font-black text-white">
+                        ₦{computedStats.totalRevenue.toLocaleString()}
+                      </h3>
+                      <p className="text-[8px] md:text-[9px] text-muted-foreground uppercase font-black">
+                        100% Gross Customer Spend
+                      </p>
                     </div>
                   </div>
                   <div className="text-[8px] md:text-[9px] font-black uppercase flex justify-between bg-white/5 p-2 rounded-lg border border-white/5">
-                    <span className="text-muted-foreground">Orders</span>
-                    <span className="text-primary">{vendorWallet.vendor_sales_count} Sold</span>
+                    <span className="text-muted-foreground">Items Sold</span>
+                    <span className="text-primary">{computedStats.totalUnits} Units</span>
                   </div>
                 </Card>
 
+                {/* 3. Platform Commission (30%) */}
                 <Card className="glass-card p-4 md:p-6 border-white/5 flex flex-col justify-between space-y-3 md:space-y-4">
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-[8px] md:text-[10px] font-black uppercase text-muted-foreground tracking-widest">Store Earning (70%)</span>
-                      <Percent className="w-4 h-4 md:w-5 md:h-5 text-amber-500" />
-                    </div>
-                    <div className="space-y-1">
-                      <h3 className="text-base sm:text-lg md:text-2xl font-black text-amber-500">₦{vendorWallet.vendor_earnings.toLocaleString()}</h3>
-                      <p className="text-[8px] md:text-[9px] text-muted-foreground uppercase font-black">Your Share of sales</p>
-                    </div>
-                  </div>
-                </Card>
-
-                <Card className="glass-card p-4 md:p-6 border-white/5 flex flex-col justify-between space-y-3 md:space-y-4">
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[8px] md:text-[10px] font-black uppercase text-muted-foreground tracking-widest">Payout Account</span>
+                      <span className="text-[8px] md:text-[10px] font-black uppercase text-muted-foreground tracking-widest">Platform Fee (30%)</span>
                       <Building className="w-4 h-4 md:w-5 md:h-5 text-indigo-400" />
                     </div>
                     <div className="space-y-1">
-                      <h3 className="text-xs sm:text-sm font-black text-white truncate">{bankDetails.bankName || 'NOT CONFIGURED'}</h3>
-                      <p className="text-[8px] md:text-[9px] text-muted-foreground uppercase font-black truncate">{bankDetails.accountNumber ? `No. ${bankDetails.accountNumber}` : 'Configure in settings'}</p>
+                      <h3 className="text-base sm:text-lg md:text-2xl font-black text-indigo-300">
+                        ₦{computedStats.totalFees.toLocaleString()}
+                      </h3>
+                      <p className="text-[8px] md:text-[9px] text-muted-foreground uppercase font-black">
+                        StreamAura service fee
+                      </p>
                     </div>
                   </div>
-                  {bankDetails.accountName ? (
-                    <div className="flex items-center gap-1.5 p-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400 text-[7px] sm:text-[8px] font-black uppercase tracking-widest w-fit truncate max-w-full">
-                      <UserCheck className="w-3 h-3 flex-shrink-0" /> <span className="truncate">{bankDetails.accountName}</span>
+                  <div className="text-[8px] md:text-[9px] font-black uppercase flex justify-between bg-white/5 p-2 rounded-lg border border-white/5">
+                    <span className="text-muted-foreground">Platform Cut</span>
+                    <span className="text-indigo-400">30% of your sales</span>
+                  </div>
+                </Card>
+
+                {/* 4. Available Withdrawable Balance */}
+                <Card className="glass-card p-4 md:p-6 border-white/5 flex flex-col justify-between space-y-3 md:space-y-4">
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[8px] md:text-[10px] font-black uppercase text-muted-foreground tracking-widest">Store Withdrawable Balance</span>
+                      <DollarSign className="w-4 h-4 md:w-5 md:h-5 text-emerald-400" />
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-1.5 p-1.5 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-[7px] sm:text-[8px] font-black uppercase tracking-widest w-fit">
-                      <AlertCircle className="w-3 h-3 flex-shrink-0" /> Missing Settings
+                    <div className="space-y-1">
+                      <h3 className="text-base sm:text-lg md:text-2xl font-black text-emerald-400">
+                        ₦{computedStats.availableBalance.toLocaleString()}
+                      </h3>
+                      <p className="text-[8px] md:text-[9px] text-muted-foreground uppercase font-black">
+                        Store Earnings • 0% withdrawal fee
+                      </p>
                     </div>
-                  )}
+                  </div>
+                  <Button 
+                    onClick={handleOpenWithdrawModal}
+                    className="w-full text-[9px] md:text-xs font-black uppercase tracking-widest h-8 md:h-10 gradient-bg"
+                  >
+                    <Banknote className="w-3.5 h-3.5 mr-1" /> Withdraw
+                  </Button>
                 </Card>
               </div>
 
               {/* Fast links */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 md:gap-6">
                 <Card className="glass-card p-4 md:p-6 border-white/5 space-y-3 md:space-y-4">
                   <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Order Inflow</h3>
-                  <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between p-3.5 bg-white/5 rounded-xl border border-white/10 w-full">
+                  <div className="flex flex-col gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
                     <div className="flex items-center gap-3">
-                      <Truck className="w-7 h-7 sm:w-8 sm:h-8 text-amber-500" />
+                      <Truck className="w-7 h-7 text-amber-500 flex-shrink-0" />
                       <div>
                         <h4 className="text-xs sm:text-sm font-bold uppercase">{allOrders.length} Total Orders</h4>
-                        <p className="text-[9px] sm:text-[10px] text-muted-foreground uppercase">
-                          {allOrders.filter(o => o.status === 'pending' || !o.status).length} Pending Action
+                        <p className="text-[9px] text-muted-foreground uppercase">
+                          {allOrders.filter(o => o.status === 'pending' || !o.status).length} Pending
                         </p>
                       </div>
                     </div>
-                    <Button onClick={() => setActiveSubTab('orders')} className="w-full sm:w-auto px-3 py-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest h-8 gradient-bg">
+                    <Button onClick={() => setActiveSubTab('orders')} className="w-full px-3 py-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest h-8 gradient-bg">
                       Manage Orders
                     </Button>
                   </div>
                 </Card>
 
                 <Card className="glass-card p-4 md:p-6 border-white/5 space-y-3 md:space-y-4">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Product Hub</h3>
-                  <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between p-3.5 bg-white/5 rounded-xl border border-white/10 w-full">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Product Catalog</h3>
+                  <div className="flex flex-col gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
                     <div className="flex items-center gap-3">
-                      <ShoppingBag className="w-7 h-7 sm:w-8 sm:h-8 text-primary" />
+                      <ShoppingBag className="w-7 h-7 text-primary flex-shrink-0" />
                       <div>
-                        <h4 className="text-xs sm:text-sm font-bold uppercase">{allProducts.length} Products</h4>
-                        <p className="text-[9px] sm:text-[10px] text-muted-foreground uppercase">Uploaded to Cinema Store</p>
+                        <h4 className="text-xs sm:text-sm font-bold uppercase">{allProducts.length} Live Items</h4>
+                        <p className="text-[9px] text-muted-foreground uppercase">In Cinema Snack Store</p>
                       </div>
                     </div>
-                    <Button onClick={() => openProductModal()} className="w-full sm:w-auto px-3 py-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest h-8">
+                    <Button onClick={() => openProductModal()} className="w-full px-3 py-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest h-8">
                       <Plus className="w-4 h-4 mr-1" /> Add Product
                     </Button>
                   </div>
                 </Card>
 
                 <Card className="glass-card p-4 md:p-6 border-white/5 space-y-3 md:space-y-4">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Recent Payouts</h3>
-                  <div className="space-y-2">
-                    {payouts.slice(0, 3).map((p: any) => (
-                      <div key={p.id} className="flex justify-between items-center p-2.5 bg-black/20 rounded-lg border border-white/5">
-                        <div className="text-left">
-                          <p className="text-xs font-bold uppercase">₦{p.amount.toLocaleString()}</p>
-                          <p className="text-[8px] text-muted-foreground uppercase font-black">{p.bank_name} • {p.account_number}</p>
-                        </div>
-                        <Badge className="text-[8px] font-black uppercase" variant={p.status === 'completed' ? 'default' : p.status === 'pending' ? 'secondary' : 'destructive'}>
-                          {p.status}
-                        </Badge>
+                  <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Financial Activity</h3>
+                  <div className="flex flex-col gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
+                    <div className="flex items-center gap-3">
+                      <Receipt className="w-7 h-7 text-emerald-400 flex-shrink-0" />
+                      <div>
+                        <h4 className="text-xs sm:text-sm font-bold uppercase">{history.length} Transactions</h4>
+                        <p className="text-[9px] text-muted-foreground uppercase">Sales & Payout Logs</p>
                       </div>
-                    ))}
-                    {payouts.length === 0 && (
-                      <p className="text-xs text-muted-foreground italic text-center py-4">No payout requests placed yet.</p>
-                    )}
+                    </div>
+                    <Button onClick={() => setActiveSubTab('transactions')} variant="outline" className="w-full px-3 py-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest h-8 border-white/20">
+                      View Activity Log
+                    </Button>
+                  </div>
+                </Card>
+
+                <Card className="glass-card p-4 md:p-6 border-white/5 space-y-3 md:space-y-4">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Payout Destination</h3>
+                  <div className="flex flex-col gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
+                    <div className="flex items-center gap-3">
+                      <Building className="w-7 h-7 text-indigo-400 flex-shrink-0" />
+                      <div className="truncate">
+                        <h4 className="text-xs sm:text-sm font-bold uppercase truncate">{bankDetails.bankName || 'Not Setup'}</h4>
+                        <p className="text-[9px] text-muted-foreground uppercase truncate">
+                          {bankDetails.accountNumber ? `No. ${bankDetails.accountNumber}` : 'Configure Bank'}
+                        </p>
+                      </div>
+                    </div>
+                    <Button onClick={() => setActiveSubTab('payout')} variant="outline" className="w-full px-3 py-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest h-8 border-white/20">
+                      Payout Settings
+                    </Button>
                   </div>
                 </Card>
               </div>
@@ -1021,36 +1453,38 @@ export const VendorDashboard: React.FC = () => {
             >
               {/* Header bar with filters & search */}
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">
-                    {isUserAdmin ? 'Vendor Orders (Admin Oversight)' : 'Customer Orders & Fulfilment'}
-                  </h3>
-                  {isUserAdmin && (
-                    <Badge variant="outline" className="border-amber-500/40 text-amber-400 bg-amber-500/10 text-[8px] font-black uppercase tracking-wider">
-                      Admin
-                    </Badge>
-                  )}
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                    <ShoppingBag className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-black uppercase tracking-widest text-white flex items-center gap-2">
+                      {isUserAdmin ? 'Vendor Orders (Admin Oversight)' : 'Customer Orders & Fulfilment'}
+                      {isUserAdmin && (
+                        <Badge variant="outline" className="border-amber-500/40 text-amber-400 bg-amber-500/10 text-[8px] font-black uppercase tracking-wider">
+                          Admin
+                        </Badge>
+                      )}
+                    </h3>
+                    <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
+                      Live order queue & dispatch management
+                    </p>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
                   {/* Admin Vendor Filter */}
                   {isUserAdmin && (
-                    <select
-                      value={selectedVendorFilter}
-                      onChange={(e) => setSelectedVendorFilter(e.target.value)}
-                      aria-label="Filter orders by vendor"
-                      className="bg-black/60 border border-white/20 rounded-lg px-2.5 py-1.5 text-[10px] sm:text-xs text-white focus:outline-none focus:border-amber-400 font-bold"
-                    >
-                      <option value="all">All Vendors ({allOrders.length} orders)</option>
-                      {adminVendors.map(v => {
-                        const count = allOrders.filter(o => o.vendorId === v.id).length;
-                        return (
-                          <option key={v.id} value={v.id}>
-                            {v.name || v.id} ({count})
-                          </option>
-                        );
-                      })}
-                    </select>
+                    <VendorFilterCustomDropdown
+                      selectedVendor={selectedVendorFilter}
+                      onSelectVendor={setSelectedVendorFilter}
+                      vendors={adminVendors}
+                      totalAllCount={allOrders.length}
+                      countLabel="orders"
+                      getItemCount={(vid) => allOrders.filter(o => o.vendorId === vid).length}
+                      currentUserId={user?.uid}
+                      className="w-full sm:w-auto"
+                    />
                   )}
 
                   {/* Search box */}
@@ -1076,15 +1510,15 @@ export const VendorDashboard: React.FC = () => {
                 </div>
               </div>
 
-              {/* Status Filter Pills */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-none">
+              {/* Status Filter Tabs */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
                 {[
-                  { id: 'all', label: 'All', count: allOrders.length },
-                  { id: 'pending', label: 'Pending', count: allOrders.filter(o => o.status === 'pending' || !o.status).length, color: 'text-amber-400' },
-                  { id: 'accepted', label: 'Accepted', count: allOrders.filter(o => o.status === 'accepted').length, color: 'text-blue-400' },
-                  { id: 'shipped', label: 'Out for Delivery', count: allOrders.filter(o => o.status === 'shipped').length, color: 'text-purple-400' },
-                  { id: 'delivered', label: 'Delivered', count: allOrders.filter(o => o.status === 'delivered').length, color: 'text-emerald-400' },
-                  { id: 'cancelled', label: 'Cancelled', count: allOrders.filter(o => o.status === 'cancelled').length, color: 'text-red-400' },
+                  { id: 'all', label: 'All Orders', count: allOrders.length },
+                  { id: 'pending', label: 'Pending', count: allOrders.filter(o => o.status === 'pending' || !o.status).length },
+                  { id: 'accepted', label: 'In Kitchen', count: allOrders.filter(o => o.status === 'accepted').length },
+                  { id: 'shipped', label: 'Out for Delivery', count: allOrders.filter(o => o.status === 'shipped').length },
+                  { id: 'delivered', label: 'Delivered', count: allOrders.filter(o => o.status === 'delivered').length },
+                  { id: 'cancelled', label: 'Cancelled', count: allOrders.filter(o => o.status === 'cancelled').length },
                 ].map(tab => (
                   <button
                     key={tab.id}
@@ -1103,228 +1537,433 @@ export const VendorDashboard: React.FC = () => {
                 ))}
               </div>
 
+              {/* Dedicated View Controls & Summary Bar */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white/[0.02] border border-white/5 p-2.5 sm:px-3.5 sm:py-2 rounded-xl">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="font-bold text-white uppercase text-[11px]">
+                    {displayedOrders.length} {displayedOrders.length === 1 ? 'Order' : 'Orders'}
+                  </span>
+                  {orderStatusFilter !== 'all' && (
+                    <Badge variant="outline" className="text-[9px] font-bold border-white/10 text-muted-foreground capitalize">
+                      Filter: {orderStatusFilter}
+                    </Badge>
+                  )}
+                  {allOrders.filter(o => o.status === 'pending' || !o.status).length > 0 && (
+                    <span className="text-amber-400 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                      {allOrders.filter(o => o.status === 'pending' || !o.status).length} Action Required
+                    </span>
+                  )}
+                </div>
+
+                {/* Clean View Toggle (Segmented Compact vs Expand All) */}
+                {displayedOrders.length > 0 && (
+                  <div className="flex items-center gap-1 bg-black/40 border border-white/10 p-1 rounded-lg w-full sm:w-auto justify-end">
+                    <button
+                      type="button"
+                      onClick={collapseAllOrders}
+                      className={`flex-1 sm:flex-initial px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
+                        displayedOrders.filter(o => expandedOrderIds[o.id]).length === 0
+                          ? 'bg-white/15 text-white shadow-sm font-black'
+                          : 'text-muted-foreground hover:text-white'
+                      }`}
+                      title="Collapse all orders into compact list"
+                    >
+                      <Minimize2 className="w-3 h-3" />
+                      <span>Compact</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={expandAllOrders}
+                      className={`flex-1 sm:flex-initial px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
+                        displayedOrders.length > 0 && displayedOrders.every(o => expandedOrderIds[o.id])
+                          ? 'bg-amber-500 text-black font-black shadow-sm'
+                          : 'text-muted-foreground hover:text-white'
+                      }`}
+                      title="Expand all orders to show full details"
+                    >
+                      <Maximize2 className="w-3 h-3" />
+                      <span>Expand All</span>
+                      {displayedOrders.filter(o => expandedOrderIds[o.id]).length > 0 && (
+                        <span className={`px-1.5 py-0.2 rounded-full text-[8px] font-black ${displayedOrders.every(o => expandedOrderIds[o.id]) ? 'bg-black/20 text-black' : 'bg-white/15 text-white'}`}>
+                          {displayedOrders.filter(o => expandedOrderIds[o.id]).length}/{displayedOrders.length}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* Orders Feed */}
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {displayedOrders.map((order) => {
                   const status = order.status || 'pending';
                   const orderNum = order.orderNumber || order.id.substring(0, 8).toUpperCase();
                   const dateStr = order.createdAt ? new Date(order.createdAt).toLocaleString() : 'Recent';
+                  const isExpanded = Boolean(expandedOrderIds[order.id]);
+                  const itemsCount = order.items?.reduce((sum: number, it: any) => sum + (it.quantity || 1), 0) || order.items?.length || 0;
+                  const itemsSummary = order.items?.map((it: any) => `${it.quantity || 1}x ${it.name}`).join(', ') || 'Snack items';
+
+                  const grossAmount = order.totalAmount || 0;
+                  const netVendorEarnings = grossAmount * 0.70;
+                  const platformFee = grossAmount * 0.30;
 
                   return (
-                    <Card key={order.id} className="glass-card border-white/10 p-4 sm:p-5 space-y-4 text-left transition-all hover:border-white/20">
-                      {/* Order Header */}
-                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2.5 border-b border-white/5 pb-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-400 font-mono">
-                            #{orderNum}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              navigator.clipboard.writeText(orderNum);
-                              toast.success(`Order #${orderNum} copied to clipboard!`);
-                            }}
-                            className="p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-white transition-colors"
-                            title="Copy Order Number"
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                          </button>
-                          <span className="text-[10px] text-muted-foreground">• {dateStr}</span>
-                          {isUserAdmin && order.vendorName && (
-                            <Badge variant="outline" className="text-[8px] font-black uppercase border-amber-500/30 text-amber-300 bg-amber-500/10">
-                              Vendor: {order.vendorName}
-                            </Badge>
-                          )}
+                    <Card 
+                      key={order.id} 
+                      className={`glass-card border-white/10 overflow-hidden text-left transition-all hover:border-white/20 ${
+                        isExpanded ? 'ring-1 ring-amber-500/30 border-amber-500/20' : ''
+                      }`}
+                    >
+                      {/* Interactive Header Bar */}
+                      <div 
+                        onClick={() => toggleOrderExpand(order.id)}
+                        className="p-3.5 sm:p-4 cursor-pointer hover:bg-white/[0.02] transition-colors space-y-3"
+                      >
+                        {/* Top Line: Status Badge, Order Number, Time, Paid Amount, Details Toggle */}
+                        <div className="flex flex-wrap items-center justify-between gap-2.5">
+                          {/* Left Group */}
+                          <div className="flex flex-wrap items-center gap-2">
+                            {/* Status Indicator */}
+                            {status === 'pending' && (
+                              <Badge className="bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[9px] font-black uppercase tracking-widest animate-pulse">
+                                Pending
+                              </Badge>
+                            )}
+                            {status === 'accepted' && (
+                              <Badge className="bg-blue-500/20 text-blue-400 border border-blue-500/40 text-[9px] font-black uppercase tracking-widest">
+                                In Kitchen
+                              </Badge>
+                            )}
+                            {status === 'shipped' && (
+                              <Badge className="bg-purple-500/20 text-purple-400 border border-purple-500/40 text-[9px] font-black uppercase tracking-widest">
+                                Out for Delivery
+                              </Badge>
+                            )}
+                            {status === 'delivered' && (
+                              <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[9px] font-black uppercase tracking-widest">
+                                Delivered
+                              </Badge>
+                            )}
+                            {status === 'cancelled' && (
+                              <Badge className="bg-red-500/20 text-red-400 border border-red-500/40 text-[9px] font-black uppercase tracking-widest">
+                                Cancelled
+                              </Badge>
+                            )}
+
+                            {/* Order Number & Copy */}
+                            <div className="flex items-center gap-1 bg-white/5 border border-white/10 px-2 py-0.5 rounded-md">
+                              <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-400 font-mono">
+                                #{orderNum}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigator.clipboard.writeText(orderNum);
+                                  toast.success(`Order #${orderNum} copied to clipboard!`);
+                                }}
+                                className="p-0.5 rounded hover:bg-white/10 text-muted-foreground hover:text-white transition-colors"
+                                title="Copy Order Number"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            </div>
+
+                            <span className="text-[10px] text-muted-foreground">• {dateStr}</span>
+
+                            {isUserAdmin && order.vendorName && (
+                              <Badge variant="outline" className="text-[8px] font-black uppercase border-amber-500/30 text-amber-300 bg-amber-500/10">
+                                Vendor: {order.vendorName}
+                              </Badge>
+                            )}
+                          </div>
+
+                          {/* Right Group: Paid Amount & Explicit Details Toggle Button */}
+                          <div className="flex items-center gap-2.5 ml-auto">
+                            <div className="text-right">
+                              <span className="text-xs sm:text-base font-black text-emerald-400 font-mono">
+                                ₦{grossAmount.toLocaleString()}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleOrderExpand(order.id);
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 border ${
+                                isExpanded
+                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                  : 'bg-white/5 hover:bg-white/10 text-muted-foreground hover:text-white border-white/10'
+                              }`}
+                            >
+                              <span>{isExpanded ? 'Less' : 'Details'}</span>
+                              <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                            </button>
+                          </div>
                         </div>
 
-                        {/* Status Badge */}
-                        <div>
-                          {status === 'pending' && (
-                            <Badge className="bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[9px] font-black uppercase tracking-widest animate-pulse">
-                              Pending Acceptance
-                            </Badge>
-                          )}
-                          {status === 'accepted' && (
-                            <Badge className="bg-blue-500/20 text-blue-400 border border-blue-500/40 text-[9px] font-black uppercase tracking-widest">
-                              Accepted / In Kitchen
-                            </Badge>
-                          )}
-                          {status === 'shipped' && (
-                            <Badge className="bg-purple-500/20 text-purple-400 border border-purple-500/40 text-[9px] font-black uppercase tracking-widest">
-                              Out for Delivery
-                            </Badge>
-                          )}
-                          {status === 'delivered' && (
-                            <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[9px] font-black uppercase tracking-widest">
-                              Delivered
-                            </Badge>
-                          )}
-                          {status === 'cancelled' && (
-                            <Badge className="bg-red-500/20 text-red-400 border border-red-500/40 text-[9px] font-black uppercase tracking-widest">
-                              Cancelled
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
+                        {/* Middle Line: Customer info & Basket summary & Quick action */}
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2.5 pt-2 border-t border-white/5 text-[11px]">
+                          <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
+                            <span className="font-bold text-white uppercase flex items-center gap-1">
+                              <ChefHat className="w-3.5 h-3.5 text-amber-400" />
+                              {order.userName || 'Guest Customer'}
+                            </span>
 
-                      {/* Customer & Delivery Information */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-white/[0.02] border border-white/5 p-3 rounded-xl">
-                        <div className="space-y-1.5">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
-                            <ChefHat className="w-3.5 h-3.5 text-primary" /> Customer Info
-                          </p>
-                          <p className="text-xs font-bold text-white uppercase">{order.userName || 'Guest Customer'}</p>
-                          {order.userPhone ? (
-                            <div className="flex items-center gap-2 text-xs">
-                              <Phone className="w-3 h-3 text-emerald-400" />
-                              <a href={`tel:${order.userPhone}`} className="text-emerald-400 hover:underline font-mono font-bold">
-                                {order.userPhone}
+                            {order.userPhone && (
+                              <a
+                                href={`tel:${order.userPhone}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex items-center gap-1 font-mono text-emerald-400 hover:underline text-[10px] bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20"
+                              >
+                                <Phone className="w-2.5 h-2.5" /> {order.userPhone}
                               </a>
-                            </div>
-                          ) : (
-                            <p className="text-[10px] text-muted-foreground italic">No phone provided</p>
-                          )}
-                        </div>
+                            )}
 
-                        <div className="space-y-1.5">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
-                            <MapPin className="w-3.5 h-3.5 text-amber-500" /> Delivery Address / Notes
-                          </p>
-                          <p className="text-xs text-white/90 font-medium">
-                            {order.deliveryAddress || 'Standard Delivery / In-Cinema Pick-Up'}
-                          </p>
-                          {order.estimatedDeliveryTime && (
-                            <div className="flex items-center gap-1.5 text-[10px] font-black uppercase text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-md w-fit">
-                              <Clock className="w-3 h-3" /> ETA: {order.estimatedDeliveryTime}
-                            </div>
-                          )}
+                            <span>•</span>
+                            <span className="truncate max-w-xs sm:max-w-md text-white/80 font-medium">
+                              {itemsCount} {itemsCount === 1 ? 'item' : 'items'} ({itemsSummary})
+                            </span>
+                          </div>
+
+                          {/* Quick Action Button in Header */}
+                          <div className="flex items-center gap-1.5 ml-auto sm:ml-0" onClick={(e) => e.stopPropagation()}>
+                            {(status === 'pending' || !status) && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleAcceptOrder(order)}
+                                className="h-7 px-3 text-[9px] font-black uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm"
+                              >
+                                <CheckCircle2 className="w-3 h-3 mr-1" /> Accept
+                              </Button>
+                            )}
+                            {status === 'accepted' && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleOpenShipModal(order)}
+                                className="h-7 px-3 text-[9px] font-black uppercase tracking-wider bg-purple-600 hover:bg-purple-500 text-white shadow-sm"
+                              >
+                                <Truck className="w-3 h-3 mr-1" /> Ship / Set ETA
+                              </Button>
+                            )}
+                            {status === 'shipped' && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleDeliverOrder(order)}
+                                className="h-7 px-3 text-[9px] font-black uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm"
+                              >
+                                <PackageCheck className="w-3 h-3 mr-1" /> Deliver
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </div>
 
-                      {/* Items Ordered List */}
-                      <div className="space-y-2">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
-                          Order Items ({order.items?.length || 0})
-                        </p>
-                        <div className="divide-y divide-white/5 border border-white/5 rounded-xl overflow-hidden bg-black/30">
-                          {order.items?.map((item: any, idx: number) => (
-                            <div key={idx} className="p-2.5 sm:p-3 flex items-center justify-between gap-3 text-xs">
-                              <div className="flex items-center gap-3">
-                                {item.image ? (
-                                  <img src={item.image} alt={item.name} className="w-10 h-10 rounded-lg object-cover bg-white/5 flex-shrink-0" />
-                                ) : (
-                                  <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
-                                    <ShoppingBag className="w-4 h-4 text-muted-foreground" />
-                                  </div>
-                                )}
-                                <div>
-                                  <p className="font-bold text-white uppercase">{item.name}</p>
-                                  <p className="text-[10px] text-muted-foreground font-mono">
-                                    ₦{(item.price || 0).toLocaleString()} × {item.quantity || 1}
+                      {/* Expandable Body Dropdown */}
+                      <AnimatePresence>
+                        {isExpanded && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.25, ease: 'easeInOut' }}
+                            className="overflow-hidden border-t border-white/10 bg-black/40"
+                          >
+                            <div className="p-4 sm:p-5 space-y-4">
+                              {/* Customer & Delivery Information Cards */}
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-white/[0.02] border border-white/5 p-3.5 rounded-xl">
+                                <div className="space-y-1.5">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                                    <ChefHat className="w-3.5 h-3.5 text-primary" /> Customer Contact
                                   </p>
+                                  <p className="text-xs font-bold text-white uppercase">{order.userName || 'Guest Customer'}</p>
+                                  {order.userPhone ? (
+                                    <div className="flex items-center gap-2 text-xs">
+                                      <Phone className="w-3 h-3 text-emerald-400" />
+                                      <a href={`tel:${order.userPhone}`} className="text-emerald-400 hover:underline font-mono font-bold">
+                                        {order.userPhone}
+                                      </a>
+                                    </div>
+                                  ) : (
+                                    <p className="text-[10px] text-muted-foreground italic">No phone provided</p>
+                                  )}
+                                  {order.userEmail && (
+                                    <p className="text-[10px] text-muted-foreground">{order.userEmail}</p>
+                                  )}
+                                </div>
+
+                                <div className="space-y-1.5">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                                    <MapPin className="w-3.5 h-3.5 text-amber-500" /> Delivery Address / Seat Notes
+                                  </p>
+                                  <p className="text-xs text-white/90 font-medium leading-relaxed">
+                                    {order.deliveryAddress || 'Standard Delivery / In-Cinema Pick-Up'}
+                                  </p>
+                                  {order.estimatedDeliveryTime && (
+                                    <div className="flex items-center gap-1.5 text-[10px] font-black uppercase text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-md w-fit mt-1">
+                                      <Clock className="w-3 h-3" /> ETA: {order.estimatedDeliveryTime}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <span className="font-black text-white font-mono">
-                                  ₦{((item.price || 0) * (item.quantity || 1)).toLocaleString()}
-                                </span>
+
+                              {/* Items Ordered Breakdown */}
+                              <div className="space-y-2">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                                  Order Items ({order.items?.length || 0})
+                                </p>
+                                <div className="divide-y divide-white/5 border border-white/5 rounded-xl overflow-hidden bg-black/40">
+                                  {order.items?.map((item: any, idx: number) => (
+                                    <div key={idx} className="p-2.5 sm:p-3 flex items-center justify-between gap-3 text-xs">
+                                      <div className="flex items-center gap-3">
+                                        {item.image ? (
+                                          <img src={item.image} alt={item.name} className="w-10 h-10 rounded-lg object-cover bg-white/5 flex-shrink-0" />
+                                        ) : (
+                                          <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
+                                            <ShoppingBag className="w-4 h-4 text-muted-foreground" />
+                                          </div>
+                                        )}
+                                        <div>
+                                          <p className="font-bold text-white uppercase">{item.name}</p>
+                                          <p className="text-[10px] text-muted-foreground font-mono">
+                                            ₦{(item.price || 0).toLocaleString()} × {item.quantity || 1}
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="font-black text-white font-mono">
+                                          ₦{((item.price || 0) * (item.quantity || 1)).toLocaleString()}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Revenue Share Split Breakdown Card */}
+                              <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl grid grid-cols-3 gap-2 text-center text-xs">
+                                <div className="space-y-0.5">
+                                  <span className="text-[9px] font-black uppercase text-muted-foreground tracking-wider">Gross Total</span>
+                                  <p className="font-mono font-bold text-white">₦{grossAmount.toLocaleString()}</p>
+                                </div>
+                                <div className="space-y-0.5 border-x border-white/5">
+                                  <span className="text-[9px] font-black uppercase text-emerald-400 tracking-wider">Store Net (70%)</span>
+                                  <p className="font-mono font-bold text-emerald-400">₦{netVendorEarnings.toLocaleString()}</p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <span className="text-[9px] font-black uppercase text-indigo-400 tracking-wider">Fee (30%)</span>
+                                  <p className="font-mono font-bold text-indigo-300">₦{platformFee.toLocaleString()}</p>
+                                </div>
+                              </div>
+
+                              {/* Rating & Review (if rated) */}
+                              {order.rated && order.rating && (
+                                <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl space-y-1">
+                                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
+                                    <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                                    <span>Customer Rating: {order.rating} / 5 Stars</span>
+                                  </div>
+                                  {order.review && (
+                                    <p className="text-xs text-muted-foreground italic">"{order.review}"</p>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Action Footer & Order Status Bar */}
+                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pt-3 border-t border-white/5">
+                                <div className="flex flex-col">
+                                  <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Order Total:</span>
+                                  <span className="text-base sm:text-lg font-black text-emerald-400 font-mono">
+                                    ₦{grossAmount.toLocaleString()}
+                                  </span>
+                                </div>
+
+                                {/* Full Action Buttons */}
+                                <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                                  {(status === 'pending' || !status) && (
+                                    <>
+                                      <Button
+                                        onClick={() => handleAcceptOrder(order)}
+                                        className="flex-1 sm:flex-initial h-9 px-4 text-[10px] sm:text-xs font-black uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white"
+                                      >
+                                        <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Accept Order
+                                      </Button>
+                                      <Button
+                                        onClick={() => handleCancelOrder(order)}
+                                        variant="outline"
+                                        className="h-9 px-3 text-[10px] font-black uppercase tracking-wider text-red-400 border-red-500/30 hover:bg-red-500/10"
+                                      >
+                                        <XCircle className="w-3.5 h-3.5 mr-1" /> Cancel Order
+                                      </Button>
+                                    </>
+                                  )}
+
+                                  {status === 'accepted' && (
+                                    <>
+                                      <Button
+                                        onClick={() => handleOpenShipModal(order)}
+                                        className="flex-1 sm:flex-initial h-9 px-4 text-[10px] sm:text-xs font-black uppercase tracking-wider bg-purple-600 hover:bg-purple-500 text-white"
+                                      >
+                                        <Truck className="w-3.5 h-3.5 mr-1.5" /> Ship / Out for Delivery
+                                      </Button>
+                                      <Button
+                                        onClick={() => handleCancelOrder(order)}
+                                        variant="outline"
+                                        className="h-9 px-3 text-[10px] font-black uppercase tracking-wider text-red-400 border-red-500/30 hover:bg-red-500/10"
+                                      >
+                                        <XCircle className="w-3.5 h-3.5 mr-1" /> Cancel
+                                      </Button>
+                                    </>
+                                  )}
+
+                                  {status === 'shipped' && (
+                                    <>
+                                      <Button
+                                        onClick={() => handleDeliverOrder(order)}
+                                        className="flex-1 sm:flex-initial h-9 px-4 text-[10px] sm:text-xs font-black uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white"
+                                      >
+                                        <PackageCheck className="w-3.5 h-3.5 mr-1.5" /> Mark Delivered
+                                      </Button>
+                                      <Button
+                                        onClick={() => handleOpenShipModal(order)}
+                                        variant="outline"
+                                        className="h-9 px-3 text-[10px] font-black uppercase tracking-wider border-white/20 hover:bg-white/10 text-purple-300"
+                                      >
+                                        <Clock className="w-3.5 h-3.5 mr-1" /> Update ETA
+                                      </Button>
+                                    </>
+                                  )}
+
+                                  {status === 'delivered' && (
+                                    <div className="flex items-center gap-1.5 text-xs font-black text-emerald-400 uppercase py-1.5 px-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                                      <CheckCircle2 className="w-4 h-4" /> Delivered & Completed
+                                    </div>
+                                  )}
+
+                                  {status === 'cancelled' && (
+                                    <div className="flex items-center gap-1.5 text-xs font-black text-red-400 uppercase py-1.5 px-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                                      <XCircle className="w-4 h-4" /> Order Cancelled
+                                    </div>
+                                  )}
+
+                                  <Button
+                                    onClick={() => toggleOrderExpand(order.id)}
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-9 px-3 text-[10px] font-black uppercase tracking-wider text-muted-foreground hover:text-white"
+                                  >
+                                    <ChevronUp className="w-3.5 h-3.5 mr-1" /> Close Drawer
+                                  </Button>
+                                </div>
                               </div>
                             </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Rating & Review (if rated) */}
-                      {order.rated && order.rating && (
-                        <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl space-y-1">
-                          <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
-                            <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                            <span>Customer Rating: {order.rating} / 5 Stars</span>
-                          </div>
-                          {order.review && (
-                            <p className="text-xs text-muted-foreground italic">"{order.review}"</p>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Total & Action Bar */}
-                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pt-3 border-t border-white/5">
-                        <div>
-                          <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Total Paid: </span>
-                          <span className="text-base sm:text-lg font-black text-emerald-400 font-mono">
-                            ₦{(order.totalAmount || 0).toLocaleString()}
-                          </span>
-                        </div>
-
-                        {/* Action Buttons */}
-                        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                          {(status === 'pending' || !status) && (
-                            <>
-                              <Button
-                                onClick={() => handleAcceptOrder(order)}
-                                className="flex-1 sm:flex-initial h-9 px-4 text-[10px] sm:text-xs font-black uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Accept Order
-                              </Button>
-                              <Button
-                                onClick={() => handleCancelOrder(order)}
-                                variant="outline"
-                                className="h-9 px-3 text-[10px] font-black uppercase tracking-wider text-red-400 border-red-500/30 hover:bg-red-500/10"
-                              >
-                                <XCircle className="w-3.5 h-3.5 mr-1" /> Cancel
-                              </Button>
-                            </>
-                          )}
-
-                          {status === 'accepted' && (
-                            <>
-                              <Button
-                                onClick={() => handleOpenShipModal(order)}
-                                className="flex-1 sm:flex-initial h-9 px-4 text-[10px] sm:text-xs font-black uppercase tracking-wider bg-purple-600 hover:bg-purple-500 text-white"
-                              >
-                                <Truck className="w-3.5 h-3.5 mr-1.5" /> Ship / Out for Delivery
-                              </Button>
-                              <Button
-                                onClick={() => handleCancelOrder(order)}
-                                variant="outline"
-                                className="h-9 px-3 text-[10px] font-black uppercase tracking-wider text-red-400 border-red-500/30 hover:bg-red-500/10"
-                              >
-                                <XCircle className="w-3.5 h-3.5 mr-1" /> Cancel
-                              </Button>
-                            </>
-                          )}
-
-                          {status === 'shipped' && (
-                            <>
-                              <Button
-                                onClick={() => handleDeliverOrder(order)}
-                                className="flex-1 sm:flex-initial h-9 px-4 text-[10px] sm:text-xs font-black uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white"
-                              >
-                                <PackageCheck className="w-3.5 h-3.5 mr-1.5" /> Mark Delivered
-                              </Button>
-                              <Button
-                                onClick={() => handleOpenShipModal(order)}
-                                variant="outline"
-                                className="h-9 px-3 text-[10px] font-black uppercase tracking-wider border-white/20 hover:bg-white/10 text-purple-300"
-                              >
-                                <Clock className="w-3.5 h-3.5 mr-1" /> Update ETA
-                              </Button>
-                            </>
-                          )}
-
-                          {status === 'delivered' && (
-                            <div className="flex items-center gap-1.5 text-xs font-black text-emerald-400 uppercase py-1 px-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-                              <CheckCircle2 className="w-4 h-4" /> Delivered & Completed
-                            </div>
-                          )}
-
-                          {status === 'cancelled' && (
-                            <div className="flex items-center gap-1.5 text-xs font-black text-red-400 uppercase py-1 px-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-                              <XCircle className="w-4 h-4" /> Order Cancelled
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </Card>
                   );
                 })}
@@ -1375,29 +2014,18 @@ export const VendorDashboard: React.FC = () => {
                     </Badge>
                   )}
                 </div>
-                <div className="flex items-center gap-2 w-full sm:w-auto">
+                <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-between sm:justify-end">
                   {isUserAdmin && (
-                    <select
-                      value={selectedVendorFilter}
-                      onChange={(e) => setSelectedVendorFilter(e.target.value)}
-                      aria-label="Filter products by vendor"
-                      className="bg-black/60 border border-white/20 rounded-lg px-2.5 py-1.5 text-[10px] sm:text-xs text-white focus:outline-none focus:border-amber-400 font-bold"
-                    >
-                      <option value="all">All Vendors ({allProducts.length})</option>
-                      {adminVendors.map(v => {
-                        const count = allProducts.filter(p => p.vendorId === v.id).length;
-                        return (
-                          <option key={v.id} value={v.id}>
-                            {v.name || v.id} ({count})
-                          </option>
-                        );
-                      })}
-                      {user?.uid && !adminVendors.some(v => v.id === user.uid) && (
-                        <option value={user.uid}>
-                          My Personal Products ({allProducts.filter(p => p.vendorId === user.uid).length})
-                        </option>
-                      )}
-                    </select>
+                    <VendorFilterCustomDropdown
+                      selectedVendor={selectedVendorFilter}
+                      onSelectVendor={setSelectedVendorFilter}
+                      vendors={adminVendors}
+                      totalAllCount={allProducts.length}
+                      countLabel="products"
+                      getItemCount={(vid) => allProducts.filter(p => p.vendorId === vid).length}
+                      currentUserId={user?.uid}
+                      className="w-full sm:w-auto"
+                    />
                   )}
                   <Button onClick={() => openProductModal()} className="text-[10px] sm:text-xs font-black uppercase tracking-widest h-9 sm:h-10 gradient-bg ml-auto sm:ml-0">
                     <Plus className="w-4 h-4 mr-1.5" /> Add Product Detail
@@ -1476,62 +2104,230 @@ export const VendorDashboard: React.FC = () => {
             </motion.div>
           )}
 
-          {activeSubTab === 'payout' && (
+          {/* DEDICATED TRANSACTIONS ACTIVITY TAB */}
+          {activeSubTab === 'transactions' && (
             <motion.div 
-              key="payouts"
+              key="transactions"
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -15 }}
               className="space-y-6"
             >
-              <div className="flex justify-between items-center">
-                <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">
-                  Earning Sales & Settlement History
-                </h3>
-                <Button onClick={handleOpenWithdrawModal} className="text-[10px] sm:text-xs font-black uppercase tracking-widest h-9 sm:h-10 gradient-bg">
-                  <Banknote className="w-4 h-4 mr-1.5" /> Cash Out Earning
-                </Button>
+              {/* Header & Controls */}
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-widest text-white flex items-center gap-2">
+                    <Receipt className="w-4 h-4 text-emerald-400" /> Store Sales & Financial Activity Log
+                  </h3>
+                  <p className="text-[9px] sm:text-xs text-muted-foreground uppercase font-medium mt-0.5">
+                    Real-time ledger of incoming store sales, customer orders, platform commission, and payout settlements
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+                  {/* Admin Vendor Filter */}
+                  {isUserAdmin && (
+                    <VendorFilterCustomDropdown
+                      selectedVendor={selectedVendorFilter}
+                      onSelectVendor={setSelectedVendorFilter}
+                      vendors={adminVendors}
+                      totalAllCount={history.length}
+                      countLabel="logs"
+                      getItemCount={(vid) => history.filter(h => h.vendorId === vid).length}
+                      currentUserId={user?.uid}
+                      className="w-full sm:w-auto"
+                    />
+                  )}
+
+                  {/* Search box */}
+                  <div className="relative flex-1 md:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="Search order #, customer, ID..."
+                      value={txSearchQuery}
+                      onChange={(e) => setTxSearchQuery(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-lg pl-8 pr-7 py-1.5 text-xs text-white placeholder:text-muted-foreground/60 outline-none focus:border-primary/50 font-medium"
+                    />
+                    {txSearchQuery && (
+                      <button 
+                        type="button" 
+                        onClick={() => setTxSearchQuery('')} 
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              {/* Desktop Table view */}
+              {/* Transactions Metrics Banner */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <Card className="glass-card p-3.5 border-white/5 space-y-1">
+                  <span className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-wider flex items-center gap-1">
+                    <ArrowDownLeft className="w-3 h-3 text-emerald-400" /> Sales Volume (Gross)
+                  </span>
+                  <p className="text-sm sm:text-base font-black text-white">₦{computedStats.totalRevenue.toLocaleString()}</p>
+                  <p className="text-[8px] text-muted-foreground uppercase font-mono">100% total sales</p>
+                </Card>
+
+                <Card className="glass-card p-3.5 border-white/5 space-y-1">
+                  <span className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-wider flex items-center gap-1">
+                    <Percent className="w-3 h-3 text-amber-400" /> Net Credited (70%)
+                  </span>
+                  <p className="text-sm sm:text-base font-black text-amber-400">₦{computedStats.totalEarnings.toLocaleString()}</p>
+                  <p className="text-[8px] text-muted-foreground uppercase font-mono">Credited to wallet</p>
+                </Card>
+
+                <Card className="glass-card p-3.5 border-white/5 space-y-1">
+                  <span className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-wider flex items-center gap-1">
+                    <Building className="w-3 h-3 text-indigo-400" /> Platform Fee (30%)
+                  </span>
+                  <p className="text-sm sm:text-base font-black text-indigo-300">₦{computedStats.totalFees.toLocaleString()}</p>
+                  <p className="text-[8px] text-muted-foreground uppercase font-mono">StreamAura fee cut</p>
+                </Card>
+
+                <Card className="glass-card p-3.5 border-white/5 space-y-1">
+                  <span className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-wider flex items-center gap-1">
+                    <ArrowUpRight className="w-3 h-3 text-orange-400" /> Total Cash Outs
+                  </span>
+                  <p className="text-sm sm:text-base font-black text-orange-400">
+                    ₦{payouts.reduce((sum, p) => sum + (p.amount || 0), 0).toLocaleString()}
+                  </p>
+                  <p className="text-[8px] text-muted-foreground uppercase font-mono">{payouts.length} payout requests</p>
+                </Card>
+              </div>
+
+              {/* Activity Type Filters */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                {[
+                  { id: 'all', label: 'All Activities', count: history.length },
+                  { id: 'sale', label: 'Store Sales (70%)', count: history.filter(h => h.type === 'sale').length },
+                  { id: 'withdrawal', label: 'Payout Settlements', count: history.filter(h => h.type === 'withdrawal').length }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setTxTypeFilter(tab.id as any)}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1.5 border ${
+                      txTypeFilter === tab.id
+                        ? 'bg-primary text-black border-primary font-black shadow-lg shadow-primary/20'
+                        : 'bg-white/5 border-white/10 text-muted-foreground hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] ${txTypeFilter === tab.id ? 'bg-black/20 text-black' : 'bg-white/10 text-white'}`}>
+                      {tab.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Desktop Table View */}
               <div className="glass-card overflow-hidden border-white/5 hidden md:block">
                 <div className="p-4 overflow-x-auto">
                   <table className="w-full border-collapse text-left">
                     <thead>
                       <tr className="border-b border-white/10 text-[9px] uppercase font-black text-muted-foreground tracking-widest">
-                        <th className="py-3 px-4">Transaction ID</th>
-                        <th className="py-3 px-4">Activity Type</th>
-                        <th className="py-3 px-4">Amount</th>
-                        <th className="py-3 px-4">Description</th>
-                        <th className="py-3 px-4">Date</th>
-                        <th className="py-3 px-4 text-right">Status</th>
+                        <th className="py-3 px-4">Ref / Order #</th>
+                        <th className="py-3 px-4">Type</th>
+                        <th className="py-3 px-4">Net Amount</th>
+                        <th className="py-3 px-4">Gross Breakdown</th>
+                        <th className="py-3 px-4">Activity Details</th>
+                        <th className="py-3 px-4">Date & Time</th>
+                        <th className="py-3 px-4">Status</th>
+                        <th className="py-3 px-4 text-right">Action</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {history.map(item => (
-                        <tr key={item.id} className="border-b border-white/5 hover:bg-white/[0.01] text-xs font-bold uppercase tracking-tight">
-                          <td className="py-3.5 px-4 font-mono text-[10px] text-muted-foreground">{item.id.substring(0, 10)}...</td>
-                          <td className="py-3.5 px-4">
-                            <Badge variant={item.type === 'sale' ? 'default' : 'secondary'} className="text-[8px] font-black uppercase tracking-widest">
-                              {item.type === 'sale' ? 'Sale Earning' : 'Withdrawal'}
-                            </Badge>
-                          </td>
-                          <td className={`py-3.5 px-4 font-black ${item.type === 'sale' ? 'text-emerald-400' : 'text-orange-400'}`}>
-                            {item.type === 'sale' ? `+₦${item.amount.toLocaleString()}` : `-₦${item.amount.toLocaleString()}`}
-                          </td>
-                          <td className="py-3.5 px-4 text-muted-foreground max-w-xs truncate">{item.description}</td>
-                          <td className="py-3.5 px-4 text-muted-foreground">{item.date.toLocaleString()}</td>
-                          <td className="py-3.5 px-4 text-right">
-                            <Badge variant={item.status === 'completed' ? 'default' : item.status === 'pending' ? 'secondary' : 'destructive'} className="text-[8px] font-black uppercase">
-                              {item.status}
-                            </Badge>
-                          </td>
-                        </tr>
-                      ))}
-                      {history.length === 0 && (
+                    <tbody className="divide-y divide-white/5">
+                      {displayedTransactions.map((item) => {
+                        const isSale = item.type === 'sale';
+                        const refCode = item.orderNumber ? `#${item.orderNumber}` : item.id.substring(0, 10).toUpperCase();
+
+                        return (
+                          <tr key={item.id} className="hover:bg-white/[0.02] text-xs font-bold uppercase tracking-tight transition-colors">
+                            <td className="py-3.5 px-4">
+                              <div className="flex items-center gap-1.5 font-mono text-[11px] text-amber-400">
+                                <span>{refCode}</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigator.clipboard.writeText(item.orderNumber || item.id);
+                                    toast.success(`Copied ${refCode}`);
+                                  }}
+                                  className="p-0.5 rounded hover:bg-white/10 text-muted-foreground hover:text-white"
+                                  title="Copy"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </td>
+
+                            <td className="py-3.5 px-4">
+                              <Badge 
+                                variant={isSale ? 'default' : 'secondary'} 
+                                className={`text-[8px] font-black uppercase tracking-widest ${isSale ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-orange-500/20 text-orange-400 border-orange-500/30'}`}
+                              >
+                                {isSale ? 'Sale Earning (70%)' : 'Settlement Payout'}
+                              </Badge>
+                            </td>
+
+                            <td className={`py-3.5 px-4 font-black font-mono text-sm ${isSale ? 'text-emerald-400' : 'text-orange-400'}`}>
+                              {isSale ? `+₦${item.amount.toLocaleString()}` : `-₦${item.amount.toLocaleString()}`}
+                            </td>
+
+                            <td className="py-3.5 px-4 text-[10px] font-mono text-muted-foreground">
+                              {isSale ? (
+                                <div className="space-y-0.5">
+                                  <div>Gross: <span className="text-white font-bold">₦{(item.grossAmount || item.amount).toLocaleString()}</span></div>
+                                  <div>Fee (30%): <span className="text-indigo-300">-₦{(item.platformFee || 0).toLocaleString()}</span></div>
+                                </div>
+                              ) : (
+                                <div>Fee: <span className="text-muted-foreground">₦{(item.feeAmount || 0).toLocaleString()}</span></div>
+                              )}
+                            </td>
+
+                            <td className="py-3.5 px-4 max-w-xs truncate text-muted-foreground text-[11px]">
+                              {item.customerName && <span className="text-white font-bold block truncate">{item.customerName}</span>}
+                              <span className="truncate block">{item.description}</span>
+                            </td>
+
+                            <td className="py-3.5 px-4 text-muted-foreground text-[10px] font-mono whitespace-nowrap">
+                              {item.date.toLocaleString()}
+                            </td>
+
+                            <td className="py-3.5 px-4">
+                              <Badge 
+                                variant={item.status === 'completed' || item.status === 'delivered' ? 'default' : item.status === 'pending' ? 'secondary' : 'destructive'} 
+                                className="text-[8px] font-black uppercase"
+                              >
+                                {item.status}
+                              </Badge>
+                            </td>
+
+                            <td className="py-3.5 px-4 text-right">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setSelectedTxDetail(item)}
+                                className="h-7 px-2 text-[10px] font-black uppercase text-primary hover:bg-primary/10"
+                              >
+                                <Eye className="w-3.5 h-3.5 mr-1" /> View
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {displayedTransactions.length === 0 && (
                         <tr>
-                          <td colSpan={6} className="py-12 text-center text-muted-foreground italic">
-                            No store sales or payouts recorded yet.
+                          <td colSpan={8} className="py-16 text-center space-y-2">
+                            <Receipt className="w-10 h-10 text-muted-foreground mx-auto opacity-30" />
+                            <p className="text-xs uppercase font-bold text-muted-foreground">No transaction records found</p>
+                            <p className="text-[10px] text-muted-foreground/60">
+                              {txSearchQuery || txTypeFilter !== 'all' ? 'Try clearing your search filters' : 'Incoming snack store sales will automatically show here.'}
+                            </p>
                           </td>
                         </tr>
                       )}
@@ -1540,37 +2336,258 @@ export const VendorDashboard: React.FC = () => {
                 </div>
               </div>
 
-              {/* Mobile Card feed view */}
+              {/* Mobile Card Feed View */}
               <div className="space-y-3 md:hidden">
-                {history.map(item => (
-                  <Card key={item.id} className="glass-card p-4 border-white/5 space-y-3 text-left">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-mono text-muted-foreground">ID: {item.id.substring(0, 10)}...</span>
-                      <Badge variant={item.status === 'completed' ? 'default' : item.status === 'pending' ? 'secondary' : 'destructive'} className="text-[8px] font-black uppercase">
-                        {item.status}
-                      </Badge>
-                    </div>
-                    <div className="flex justify-between items-end gap-2">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-1.5">
-                          <Badge variant={item.type === 'sale' ? 'default' : 'secondary'} className="text-[7px] font-black uppercase tracking-widest px-1 py-0.5">
-                            {item.type === 'sale' ? 'Sale' : 'Withdrawal'}
+                {displayedTransactions.map((item) => {
+                  const isSale = item.type === 'sale';
+                  const refCode = item.orderNumber ? `#${item.orderNumber}` : item.id.substring(0, 10).toUpperCase();
+
+                  return (
+                    <Card 
+                      key={item.id} 
+                      onClick={() => setSelectedTxDetail(item)}
+                      className="glass-card p-4 border-white/5 space-y-3 text-left active:scale-[0.99] transition-transform cursor-pointer"
+                    >
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-1.5 font-mono text-[10px] text-amber-400">
+                          <span>{refCode}</span>
+                          <Badge 
+                            variant={isSale ? 'default' : 'secondary'} 
+                            className={`text-[7px] font-black uppercase tracking-widest px-1 py-0.2 ${isSale ? 'bg-emerald-500/20 text-emerald-400' : 'bg-orange-500/20 text-orange-400'}`}
+                          >
+                            {isSale ? '70% Sale' : 'Payout'}
                           </Badge>
                         </div>
-                        <p className="text-xs font-bold uppercase text-white leading-normal">{item.description}</p>
-                        <p className="text-[9px] text-muted-foreground">{item.date.toLocaleString()}</p>
+                        <Badge 
+                          variant={item.status === 'completed' || item.status === 'delivered' ? 'default' : item.status === 'pending' ? 'secondary' : 'destructive'} 
+                          className="text-[8px] font-black uppercase"
+                        >
+                          {item.status}
+                        </Badge>
                       </div>
-                      <p className={`text-sm font-black whitespace-nowrap ${item.type === 'sale' ? 'text-emerald-400' : 'text-orange-400'}`}>
-                        {item.type === 'sale' ? `+₦${item.amount.toLocaleString()}` : `-₦${item.amount.toLocaleString()}`}
-                      </p>
-                    </div>
-                  </Card>
-                ))}
-                {history.length === 0 && (
-                  <p className="text-xs text-muted-foreground italic text-center py-8">
-                    No store sales or payouts recorded yet.
-                  </p>
+
+                      <div className="space-y-1">
+                        {item.customerName && (
+                          <p className="text-xs font-bold text-white uppercase">{item.customerName}</p>
+                        )}
+                        <p className="text-[11px] text-white/90 leading-tight line-clamp-2">{item.description}</p>
+                        <p className="text-[9px] text-muted-foreground font-mono">{item.date.toLocaleString()}</p>
+                      </div>
+
+                      <div className="flex justify-between items-center pt-2 border-t border-white/5 text-[10px]">
+                        <div className="text-muted-foreground font-mono">
+                          {isSale ? `Gross: ₦${(item.grossAmount || item.amount).toLocaleString()}` : (item.bankName || 'Bank')}
+                        </div>
+                        <div className={`text-sm font-black font-mono ${isSale ? 'text-emerald-400' : 'text-orange-400'}`}>
+                          {isSale ? `+₦${item.amount.toLocaleString()}` : `-₦${item.amount.toLocaleString()}`}
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })}
+
+                {displayedTransactions.length === 0 && (
+                  <div className="p-8 text-center space-y-2 glass-card border-white/5">
+                    <Receipt className="w-10 h-10 text-muted-foreground mx-auto opacity-30" />
+                    <p className="text-xs uppercase font-bold text-muted-foreground">No transactions found</p>
+                  </div>
                 )}
+              </div>
+            </motion.div>
+          )}
+
+          {activeSubTab === 'payout' && (
+            <motion.div 
+              key="payouts"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              className="space-y-6"
+            >
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div>
+                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-widest text-white">
+                    Vendor Payouts & Settlement Account
+                  </h3>
+                  <p className="text-[9px] sm:text-xs text-muted-foreground uppercase font-black mt-0.5">
+                    Configure your bank account and withdraw earned store revenue
+                  </p>
+                </div>
+                <Button onClick={handleOpenWithdrawModal} className="text-[10px] sm:text-xs font-black uppercase tracking-widest h-9 sm:h-10 gradient-bg">
+                  <Banknote className="w-4 h-4 mr-1.5" /> Cash Out Earning
+                </Button>
+              </div>
+
+              {/* Payout Destination Bank Card */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                <Card className="glass-card p-5 border-white/5 space-y-4">
+                  <div className="flex justify-between items-center border-b border-white/5 pb-3">
+                    <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-1.5">
+                      <Building className="w-4 h-4 text-indigo-400" /> Configured Payout Destination
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTempBankDetails({
+                          account: bankDetails.accountNumber,
+                          bankName: bankDetails.bankName,
+                          bankCode: bankDetails.bankCode,
+                          name: bankDetails.accountName
+                        });
+                        setBankSearch(bankDetails.bankName);
+                        setIsEditingBank(true);
+                        setIsWithdrawModalOpen(true);
+                      }}
+                      className="text-[9px] font-black uppercase text-primary hover:underline"
+                    >
+                      {bankDetails.accountNumber ? 'Change Bank' : 'Setup Bank'}
+                    </button>
+                  </div>
+
+                  {bankDetails.accountNumber ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">
+                          <Building className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-bold text-white uppercase">{bankDetails.bankName}</h4>
+                          <p className="text-xs font-mono text-muted-foreground">Account: {bankDetails.accountNumber}</p>
+                        </div>
+                      </div>
+                      <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase">
+                        <UserCheck className="w-4 h-4 flex-shrink-0" />
+                        <span className="truncate">{bankDetails.accountName}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="py-6 text-center space-y-2">
+                      <AlertCircle className="w-8 h-8 text-amber-400 mx-auto opacity-70" />
+                      <p className="text-xs font-bold uppercase text-white">No Bank Account Configured</p>
+                      <p className="text-[10px] text-muted-foreground">Add your Nigerian bank details to receive automated earnings withdrawals.</p>
+                      <Button
+                        onClick={() => {
+                          setIsEditingBank(true);
+                          setIsWithdrawModalOpen(true);
+                        }}
+                        className="text-[10px] font-black uppercase tracking-wider h-8 gradient-bg mt-2"
+                      >
+                        Setup Bank Account
+                      </Button>
+                    </div>
+                  )}
+                </Card>
+
+                <Card className="glass-card p-5 border-white/5 flex flex-col justify-between space-y-4">
+                  <div className="space-y-2">
+                    <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-1.5">
+                      <DollarSign className="w-4 h-4 text-emerald-400" /> Store Withdrawable Balance
+                    </span>
+                    <h3 className="text-2xl sm:text-3xl font-black text-emerald-400">
+                      ₦{computedStats.availableBalance.toLocaleString()}
+                    </h3>
+                    <p className="text-[10px] text-muted-foreground uppercase font-black">
+                      Store sales earnings • 0% withdrawal fee
+                    </p>
+                  </div>
+                  <Button 
+                    onClick={handleOpenWithdrawModal} 
+                    className="w-full h-10 text-xs font-black uppercase tracking-widest gradient-bg"
+                    disabled={computedStats.availableBalance <= 0}
+                  >
+                    Request Payout
+                  </Button>
+                </Card>
+              </div>
+
+              {/* Payouts History */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">
+                  Withdrawal History ({payouts.length})
+                </h4>
+
+                <div className="glass-card overflow-hidden border-white/5 hidden md:block">
+                  <div className="p-4 overflow-x-auto">
+                    <table className="w-full border-collapse text-left">
+                      <thead>
+                        <tr className="border-b border-white/10 text-[9px] uppercase font-black text-muted-foreground tracking-widest">
+                          <th className="py-3 px-4">Request ID</th>
+                          <th className="py-3 px-4">Requested Amount</th>
+                          <th className="py-3 px-4">Fee (0%)</th>
+                          <th className="py-3 px-4">Net Payout</th>
+                          <th className="py-3 px-4">Bank Destination</th>
+                          <th className="py-3 px-4">Date</th>
+                          <th className="py-3 px-4 text-right">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {payouts.map(p => (
+                          <tr key={p.id} className="hover:bg-white/[0.01] text-xs font-bold uppercase tracking-tight">
+                            <td className="py-3.5 px-4 font-mono text-[10px] text-muted-foreground">{p.id.substring(0, 10)}...</td>
+                            <td className="py-3.5 px-4 font-black text-white">₦{p.amount.toLocaleString()}</td>
+                            <td className="py-3.5 px-4 text-muted-foreground font-mono text-[11px]">₦{(p.fee_amount !== undefined ? p.fee_amount : (p.type === 'vendor' ? 0 : p.amount * 0.05)).toLocaleString()}</td>
+                            <td className="py-3.5 px-4 font-black text-emerald-400">₦{(p.payout_amount !== undefined ? p.payout_amount : (p.type === 'vendor' ? p.amount : p.amount * 0.95)).toLocaleString()}</td>
+                            <td className="py-3.5 px-4 text-muted-foreground text-[11px]">
+                              {p.bank_name} • {p.account_number}
+                            </td>
+                            <td className="py-3.5 px-4 text-muted-foreground text-[10px] font-mono">
+                              {p.created_at?.toDate ? p.created_at.toDate().toLocaleString() : 'Recent'}
+                            </td>
+                            <td className="py-3.5 px-4 text-right">
+                              <Badge 
+                                variant={p.status === 'completed' || p.status === 'approved' ? 'default' : p.status === 'pending' ? 'secondary' : 'destructive'} 
+                                className="text-[8px] font-black uppercase"
+                              >
+                                {p.status}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                        {payouts.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="py-12 text-center text-muted-foreground italic">
+                              No withdrawal requests submitted yet.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="space-y-3 md:hidden">
+                  {payouts.map(p => (
+                    <Card key={p.id} className="glass-card p-4 border-white/5 space-y-2 text-left">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-mono text-muted-foreground">ID: {p.id.substring(0, 10)}...</span>
+                        <Badge 
+                          variant={p.status === 'completed' || p.status === 'approved' ? 'default' : p.status === 'pending' ? 'secondary' : 'destructive'} 
+                          className="text-[8px] font-black uppercase"
+                        >
+                          {p.status}
+                        </Badge>
+                      </div>
+                      <div className="flex justify-between items-end">
+                        <div>
+                          <p className="text-xs font-bold text-white uppercase">{p.bank_name}</p>
+                          <p className="text-[10px] text-muted-foreground font-mono">No. {p.account_number}</p>
+                          <p className="text-[9px] text-muted-foreground font-mono mt-1">
+                            {p.created_at?.toDate ? p.created_at.toDate().toLocaleString() : 'Recent'}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-black text-emerald-400 font-mono">₦{p.amount.toLocaleString()}</p>
+                          <p className="text-[8px] text-muted-foreground">Fee: ₦{(p.fee_amount !== undefined ? p.fee_amount : (p.type === 'vendor' ? 0 : p.amount * 0.05)).toLocaleString()}</p>
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+                  {payouts.length === 0 && (
+                    <p className="text-xs text-muted-foreground italic text-center py-6">
+                      No withdrawal requests submitted yet.
+                    </p>
+                  )}
+                </div>
               </div>
             </motion.div>
           )}
@@ -1613,18 +2630,29 @@ export const VendorDashboard: React.FC = () => {
                       onChange={e => setProductForm({ ...productForm, name: e.target.value })}
                     />
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1.5 sm:col-span-2">
                     <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest ml-1">Category</label>
-                    <select
-                      className="w-full bg-slate-900 border border-white/10 rounded-xl p-3 text-xs text-white outline-none focus:border-primary/50"
-                      value={productForm.category}
-                      onChange={e => setProductForm({ ...productForm, category: e.target.value })}
-                    >
-                      <option value="snack">Popcorn & Snacks</option>
-                      <option value="drink">Chilled Drinks</option>
-                      <option value="combo">Combo Packages</option>
-                      <option value="candy">Sweets & Candies</option>
-                    </select>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                      {[
+                        { id: 'snack', label: '🍿 Popcorn & Snacks' },
+                        { id: 'drink', label: '🥤 Chilled Drinks' },
+                        { id: 'combo', label: '🍱 Combo Deals' },
+                        { id: 'candy', label: '🍬 Sweets & Candies' }
+                      ].map(cat => (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => setProductForm({ ...productForm, category: cat.id })}
+                          className={`p-2 sm:p-2.5 rounded-xl text-[10px] sm:text-[11px] font-bold text-center transition-all border ${
+                            productForm.category === cat.id
+                              ? 'bg-primary/20 text-primary border-primary/50 shadow-md font-black'
+                              : 'bg-white/5 border-white/10 text-muted-foreground hover:text-white hover:bg-white/10'
+                          }`}
+                        >
+                          {cat.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
@@ -1662,27 +2690,96 @@ export const VendorDashboard: React.FC = () => {
                   />
                 </div>
 
-                {/* Cover Image Upload */}
+                {/* Cover Image Upload & Remove */}
                 <div className="space-y-2">
-                  <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest ml-1">Cover Image</label>
-                  <div className="flex gap-3 items-center">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest ml-1">
+                      Product Picture / Image
+                    </label>
                     {productForm.image && (
-                      <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl border border-white/10 overflow-hidden bg-black/40 flex-shrink-0 flex items-center justify-center">
-                        <img src={productForm.image} className="w-full h-full object-cover" />
-                      </div>
+                      <button
+                        type="button"
+                        onClick={handleRemoveProductImage}
+                        className="text-[9px] font-black uppercase text-rose-400 hover:text-rose-300 flex items-center gap-1 transition-colors px-2 py-0.5 rounded-md hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20"
+                      >
+                        <Trash2 className="w-3 h-3" /> Remove Picture
+                      </button>
                     )}
-                    <label className="flex-1 flex flex-col items-center justify-center h-14 sm:h-16 border-2 border-dashed border-white/10 hover:border-primary/50 rounded-xl cursor-pointer hover:bg-white/[0.02] transition-all">
-                      <div className="flex flex-col items-center justify-center py-2 text-center">
+                  </div>
+
+                  {productForm.image ? (
+                    <div className="relative rounded-2xl border border-white/10 overflow-hidden bg-black/40 p-2.5 flex items-center gap-3.5 group">
+                      <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-black/60 border border-white/10 flex-shrink-0">
+                        <img 
+                          src={productForm.image} 
+                          alt="Product preview" 
+                          className="w-full h-full object-cover" 
+                        />
+                        <button
+                          type="button"
+                          onClick={handleRemoveProductImage}
+                          className="absolute top-1 right-1 p-1 rounded-lg bg-black/75 hover:bg-rose-600 text-white transition-all shadow-md"
+                          title="Remove picture"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        <div className="flex items-center gap-1.5 text-emerald-400 text-[10px] font-black uppercase tracking-wider">
+                          <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>Image Attached</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground truncate font-mono">
+                          {productForm.image.split('/').pop() || 'product_image.jpg'}
+                        </p>
+                        <div className="flex items-center gap-2 pt-0.5">
+                          <label 
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-[10px] font-black uppercase tracking-wider cursor-pointer border border-white/10 transition-all active:scale-95"
+                          >
+                            <Upload className="w-3 h-3" />
+                            <span>Change Picture</span>
+                            <input 
+                              ref={productImageInputRef}
+                              type="file" 
+                              accept="image/*" 
+                              className="hidden" 
+                              onChange={handleImageChange}
+                              disabled={isUploadingImage}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleRemoveProductImage}
+                            className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-[10px] font-black uppercase tracking-wider transition-all"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-white/10 hover:border-primary/50 rounded-2xl cursor-pointer hover:bg-white/[0.02] transition-all group">
+                      <div className="flex flex-col items-center justify-center text-center space-y-2">
                         {isUploadingImage ? (
-                          <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                          <div className="flex flex-col items-center gap-2 py-2">
+                            <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                            <span className="text-[9px] font-black uppercase tracking-widest text-primary">Uploading Image...</span>
+                          </div>
                         ) : (
                           <>
-                            <Upload className="w-4 h-4 text-muted-foreground" />
-                            <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-wider text-muted-foreground mt-1">Upload Product image</span>
+                            <div className="w-10 h-10 rounded-xl bg-white/5 group-hover:bg-primary/10 text-muted-foreground group-hover:text-primary flex items-center justify-center border border-white/10 transition-colors">
+                              <Upload className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-black uppercase tracking-wide text-white">Click to upload product image</p>
+                              <p className="text-[9px] text-muted-foreground mt-0.5">Supports PNG, JPG, WEBP (Max 5MB)</p>
+                            </div>
                           </>
                         )}
                       </div>
                       <input 
+                        ref={productImageInputRef}
                         type="file" 
                         accept="image/*" 
                         className="hidden" 
@@ -1690,20 +2787,31 @@ export const VendorDashboard: React.FC = () => {
                         disabled={isUploadingImage}
                       />
                     </label>
-                  </div>
+                  )}
                 </div>
 
-                <div className="space-y-1 py-1">
+                <div className="space-y-1.5 py-1">
                   <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest ml-1">Stock Status</label>
-                  <select
-                    className="w-full bg-slate-900 border border-white/10 rounded-xl p-3 text-xs text-white outline-none focus:border-primary/50"
-                    value={productForm.stockStatus}
-                    onChange={e => setProductForm({ ...productForm, stockStatus: e.target.value as any })}
-                  >
-                    <option value="in_stock">In Stock</option>
-                    <option value="out_of_stock">Out of Stock</option>
-                    <option value="restocking">Restocking</option>
-                  </select>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { id: 'in_stock', label: 'In Stock', activeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 ring-1 ring-emerald-500/30' },
+                      { id: 'restocking', label: 'Restocking', activeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40 ring-1 ring-amber-500/30' },
+                      { id: 'out_of_stock', label: 'Out of Stock', activeClass: 'bg-red-500/20 text-red-300 border-red-500/40 ring-1 ring-red-500/30' }
+                    ].map(st => (
+                      <button
+                        key={st.id}
+                        type="button"
+                        onClick={() => setProductForm({ ...productForm, stockStatus: st.id as any })}
+                        className={`py-2.5 px-2 rounded-xl text-[10px] font-black uppercase tracking-wider text-center transition-all border ${
+                          productForm.stockStatus === st.id
+                            ? `${st.activeClass} shadow-md`
+                            : 'bg-white/5 border-white/10 text-muted-foreground hover:text-white hover:bg-white/10'
+                        }`}
+                      >
+                        {st.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="flex gap-3 pt-3 sm:pt-4 border-t border-white/5">
@@ -1917,7 +3025,7 @@ export const VendorDashboard: React.FC = () => {
                 <div className="space-y-1">
                   <div className="flex justify-between items-center px-1">
                     <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Amount to Withdraw</label>
-                    <span className="text-[9px] text-primary font-black uppercase">Max: ₦{vendorWallet.funded_balance.toLocaleString()}</span>
+                    <span className="text-[9px] text-primary font-black uppercase">Max: ₦{computedStats.availableBalance.toLocaleString()}</span>
                   </div>
                   <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-black text-white">₦</span>
@@ -1930,6 +3038,17 @@ export const VendorDashboard: React.FC = () => {
                       value={withdrawAmount}
                       onChange={e => setWithdrawAmount(e.target.value.replace(/[^0-9.]/g, ''))}
                     />
+                  </div>
+                </div>
+
+                {/* 0% Fee Guarantee Banner */}
+                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-start gap-2.5 text-left">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="text-[10px] font-black uppercase text-emerald-300 tracking-wider">0% Additional Fee</p>
+                    <p className="text-[8.5px] text-muted-foreground uppercase font-bold leading-tight">
+                      You receive 100% of your withdrawn amount. Platform fee (30%) was already settled on purchase.
+                    </p>
                   </div>
                 </div>
 
@@ -2112,6 +3231,166 @@ export const VendorDashboard: React.FC = () => {
                   </Button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Transaction Details Modal */}
+      <AnimatePresence>
+        {selectedTxDetail && (
+          <div 
+            className="fixed inset-0 bg-black/70 backdrop-blur-md z-[1000] flex items-center justify-center p-4"
+            onClick={() => setSelectedTxDetail(null)}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-lg glass-card border-white/15 p-5 sm:p-6 space-y-5 text-left shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex justify-between items-center border-b border-white/5 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${selectedTxDetail.type === 'sale' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-orange-500/10 text-orange-400 border border-orange-500/20'}`}>
+                    <Receipt className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-white">
+                      {selectedTxDetail.type === 'sale' ? 'Store Sales Receipt' : 'Payout Settlement'}
+                    </h3>
+                    <p className="text-[9px] text-muted-foreground uppercase font-mono">
+                      Ref: {selectedTxDetail.orderNumber ? `#${selectedTxDetail.orderNumber}` : selectedTxDetail.id}
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSelectedTxDetail(null)} 
+                  className="p-1 rounded-lg hover:bg-white/5 text-muted-foreground hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Amount Highlight */}
+              <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl flex justify-between items-center">
+                <div>
+                  <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest block">
+                    {selectedTxDetail.type === 'sale' ? 'Net Vendor Share Credited' : 'Withdrawal Amount'}
+                  </span>
+                  <p className={`text-2xl sm:text-3xl font-black font-mono mt-0.5 ${selectedTxDetail.type === 'sale' ? 'text-emerald-400' : 'text-orange-400'}`}>
+                    {selectedTxDetail.type === 'sale' ? `+₦${selectedTxDetail.amount.toLocaleString()}` : `-₦${selectedTxDetail.amount.toLocaleString()}`}
+                  </p>
+                </div>
+                <Badge 
+                  variant={selectedTxDetail.status === 'completed' || selectedTxDetail.status === 'delivered' || selectedTxDetail.status === 'approved' ? 'default' : selectedTxDetail.status === 'pending' ? 'secondary' : 'destructive'} 
+                  className="text-[9px] font-black uppercase tracking-wider px-2.5 py-1"
+                >
+                  {selectedTxDetail.status}
+                </Badge>
+              </div>
+
+              {/* Financial Breakdown (Sales) */}
+              {selectedTxDetail.type === 'sale' && (
+                <div className="space-y-3">
+                  <h4 className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                    Revenue & Commission Split
+                  </h4>
+                  <div className="p-3.5 bg-black/40 border border-white/5 rounded-xl space-y-2 text-xs">
+                    <div className="flex justify-between items-center text-white">
+                      <span className="text-muted-foreground uppercase text-[10px]">Gross Order Total (100%):</span>
+                      <span className="font-bold font-mono">₦{(selectedTxDetail.grossAmount || selectedTxDetail.amount).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-indigo-300">
+                      <span className="uppercase text-[10px]">StreamAura Platform Commission (30%):</span>
+                      <span className="font-bold font-mono">-₦{(selectedTxDetail.platformFee || ((selectedTxDetail.grossAmount || selectedTxDetail.amount) * 0.3)).toLocaleString()}</span>
+                    </div>
+                    <div className="border-t border-white/5 pt-2 flex justify-between items-center text-emerald-400 font-bold">
+                      <span className="uppercase text-[10px]">Net Credited to Vendor (70%):</span>
+                      <span className="font-black font-mono">₦{selectedTxDetail.amount.toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Order Items (Sales) */}
+              {selectedTxDetail.items && selectedTxDetail.items.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                    Ordered Snack Items ({selectedTxDetail.items.length})
+                  </h4>
+                  <div className="divide-y divide-white/5 border border-white/5 rounded-xl overflow-hidden bg-black/20 text-xs">
+                    {selectedTxDetail.items.map((it: any, idx: number) => (
+                      <div key={idx} className="p-2.5 flex justify-between items-center">
+                        <div className="flex items-center gap-2.5">
+                          <ShoppingBag className="w-3.5 h-3.5 text-amber-500" />
+                          <span className="font-bold text-white uppercase">{it.name || it.productName}</span>
+                          <span className="text-[10px] text-muted-foreground font-mono">× {it.quantity || 1}</span>
+                        </div>
+                        <span className="font-mono text-white font-bold">
+                          ₦{((it.price || 0) * (it.quantity || 1)).toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Customer / Destination Info */}
+              {selectedTxDetail.type === 'sale' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-white/[0.02] border border-white/5 rounded-xl text-xs">
+                  <div>
+                    <span className="text-[8px] font-black uppercase tracking-wider text-muted-foreground block">Customer Name</span>
+                    <span className="font-bold text-white uppercase">{selectedTxDetail.customerName || 'Customer'}</span>
+                  </div>
+                  {selectedTxDetail.customerPhone && (
+                    <div>
+                      <span className="text-[8px] font-black uppercase tracking-wider text-muted-foreground block">Phone</span>
+                      <span className="font-mono text-emerald-400 font-bold">{selectedTxDetail.customerPhone}</span>
+                    </div>
+                  )}
+                  {selectedTxDetail.customerAddress && (
+                    <div className="col-span-full">
+                      <span className="text-[8px] font-black uppercase tracking-wider text-muted-foreground block">Delivery Address</span>
+                      <span className="text-white/90">{selectedTxDetail.customerAddress}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="p-3.5 bg-white/[0.02] border border-white/5 rounded-xl space-y-2 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground text-[10px] uppercase">Destination Bank:</span>
+                    <span className="font-bold text-white uppercase">{selectedTxDetail.bankName || 'Bank'}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground text-[10px] uppercase">Account Number:</span>
+                    <span className="font-mono font-bold text-white">{selectedTxDetail.accountNumber}</span>
+                  </div>
+                  {selectedTxDetail.accountName && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground text-[10px] uppercase">Account Holder:</span>
+                      <span className="font-bold text-emerald-400 uppercase">{selectedTxDetail.accountName}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Timestamp */}
+              <div className="flex justify-between items-center text-[10px] text-muted-foreground font-mono pt-1">
+                <span>Timestamp:</span>
+                <span>{selectedTxDetail.date.toLocaleString()}</span>
+              </div>
+
+              {/* Close button */}
+              <Button
+                type="button"
+                onClick={() => setSelectedTxDetail(null)}
+                className="w-full h-10 rounded-xl text-xs font-black uppercase tracking-wider"
+                variant="outline"
+              >
+                Close Receipt
+              </Button>
             </motion.div>
           </div>
         )}

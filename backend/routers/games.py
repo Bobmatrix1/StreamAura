@@ -322,6 +322,34 @@ async def delete_game_room(game_id: str, user: dict = Depends(get_current_user))
         if not is_admin and data.get("hostUid") != uid:
             raise HTTPException(status_code=403, detail="Unauthorized to delete this room")
             
+        # Refund host unspent prize & participant entry fees if room was still waiting/selecting
+        if data.get("status") in ["waiting", "selecting"]:
+            host_uid = data.get("hostUid")
+            total_rounds = data.get("numberOfRounds", 1) if data.get("isMultipleRounds") else 1
+            prize_per_round = data.get("prizeAmount", 0)
+            total_prize = prize_per_round * total_rounds
+            
+            if total_prize > 0 and host_uid:
+                db.collection("game_wallets").document(host_uid).set({"balance": firestore.Increment(total_prize)}, merge=True)
+                db.collection("game_wallets").document(host_uid).collection("activity").add({
+                    "type": "room_cancelled_refund",
+                    "amount": total_prize,
+                    "desc": f"Refunded prize from cancelled room: {data.get('roomName', 'Game')}",
+                    "timestamp": firestore.SERVER_TIMESTAMP
+                })
+
+            entry_fee = data.get("entryFee", 0)
+            participants = data.get("participants", [])
+            for p in participants:
+                if not p.get("isBot") and p.get("uid") and entry_fee > 0:
+                    db.collection("game_wallets").document(p["uid"]).set({"balance": firestore.Increment(entry_fee)}, merge=True)
+                    db.collection("game_wallets").document(p["uid"]).collection("activity").add({
+                        "type": "pool_cancelled_refund",
+                        "amount": entry_fee,
+                        "desc": f"Refunded entry fee from cancelled room: {data.get('roomName', 'Game')}",
+                        "timestamp": firestore.SERVER_TIMESTAMP
+                    })
+
         from websockets.game_sync import manager
         if game_id in manager.active_connections:
             await manager.broadcast({

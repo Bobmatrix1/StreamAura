@@ -185,6 +185,9 @@ const Notifications: React.FC = () => {
     if (type === 'withdrawal_approved' || (type === 'success' && title.toLowerCase().includes('withdrawal'))) {
       return <Banknote className="w-5 h-5 text-emerald-400" />;
     }
+    if (type === 'withdrawal_pending' || title.toLowerCase().includes('withdrawal')) {
+      return <Banknote className="w-5 h-5 text-amber-400" />;
+    }
 
     switch (type) {
       case 'order_placed':

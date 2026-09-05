@@ -1,5 +1,18 @@
 import os
 import sys
+
+# Ensure standard streams handle UTF-8 safely on Windows
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    try:
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 import asyncio
 import time
 import re
@@ -93,6 +106,11 @@ if os.getenv("SPOTIFY_CLIENT_ID"):
 
 # CORS
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+@app.get("/health")
+@app.get("/api/health")
+async def health_check():
+    return {"status": "ok", "time": time.time()}
 
 DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -1129,8 +1147,8 @@ async def dynamic_share_preview(
     return HTMLResponse(content=html_content)
 
 def escape_tg(text: str) -> str:
-    if not text: return ""
-    return str(text).replace("*", "").replace("_", "").replace("`", "").replace("[", "(").replace("]", ")")
+    if text is None: return ""
+    return html.escape(str(text))
 
 def format_order_telegram_message(order: dict, status: str = "pending", eta: Optional[str] = None) -> str:
     order_num = escape_tg(order.get("orderNumber") or str(order.get("id", ""))[:8].upper())
@@ -1149,25 +1167,28 @@ def format_order_telegram_message(order: dict, status: str = "pending", eta: Opt
         items_lines.append(f"• {name} x{qty} (₦{price:,.0f})")
     items_text = "\n".join(items_lines) if items_lines else "• Order items"
     
-    status_display = "🟡 *Pending Vendor Acceptance*"
-    if status == "accepted":
-        status_display = "👨‍🍳 *Accepted & Being Processed*"
+    if status == "pending":
+        status_display = "🟡 <b>Pending Vendor Acceptance</b>"
+    elif status == "accepted":
+        status_display = "👨‍🍳 <b>Accepted & Being Processed</b>\n⏱️ <i>Please select estimated delivery time below:</i>"
     elif status == "shipped":
         eta_str = f" (ETA: {escape_tg(eta)})" if eta else ""
-        status_display = f"🚚 *Out for Delivery*{eta_str} 🛵"
+        status_display = f"🚚 <b>Out for Delivery{eta_str}</b> 🛵"
     elif status == "delivered":
-        status_display = "🟢 *Delivered Successfully* ✅"
+        status_display = "🟢 <b>Delivered Successfully</b> ✅"
     elif status == "cancelled":
-        status_display = "🔴 *Cancelled* ❌"
+        status_display = "🔴 <b>Cancelled</b> ❌"
+    else:
+        status_display = f"<b>{escape_tg(status.title())}</b>"
         
     msg = (
-        f"🛒 *Order #{order_num}*\n\n"
-        f"*Customer:* {cust_name}\n"
-        f"*Phone:* {cust_phone}\n"
-        f"*Address:* {cust_addr}\n\n"
-        f"*Items:*\n{items_text}\n\n"
-        f"*Total Paid:* ₦{total:,.0f}\n\n"
-        f"*Status:* {status_display}\n\n"
+        f"🛒 <b>Order #{order_num}</b>\n\n"
+        f"<b>Customer:</b> {cust_name}\n"
+        f"<b>Phone:</b> {cust_phone}\n"
+        f"<b>Address:</b> {cust_addr}\n\n"
+        f"<b>Items:</b>\n{items_text}\n\n"
+        f"<b>Total Paid:</b> ₦{total:,.0f}\n\n"
+        f"<b>Status:</b> {status_display}\n\n"
         f"Sent for {vendor_name}."
     )
     return msg
@@ -1188,10 +1209,16 @@ def format_order_telegram_keyboard(order_id: str, status: str = "pending") -> di
         return {
             "inline_keyboard": [
                 [
-                    {"text": "🚚 Out for Delivery (Set ETA)", "callback_data": f"prompt_ship_{order_id}"}
+                    {"text": "⏱️ 15 Mins", "callback_data": f"ship_{order_id}_15 mins"},
+                    {"text": "⏱️ 30 Mins", "callback_data": f"ship_{order_id}_30 mins"}
                 ],
                 [
-                    {"text": "📦 Mark as Delivered", "callback_data": f"deliver_{order_id}"}
+                    {"text": "⏱️ 45 Mins", "callback_data": f"ship_{order_id}_45 mins"},
+                    {"text": "⏱️ 1 Hour", "callback_data": f"ship_{order_id}_1 hour"}
+                ],
+                [
+                    {"text": "⏱️ 2 Hours", "callback_data": f"ship_{order_id}_2 hours"},
+                    {"text": "📦 Delivered Now", "callback_data": f"deliver_{order_id}"}
                 ],
                 [
                     {"text": "❌ Cancel Order", "callback_data": f"cancel_{order_id}"}
@@ -1337,9 +1364,13 @@ async def execute_order_status_change(
                         "rated": False
                     }
                     try:
-                        db_admin.collection('users').document(uid).collection('notifications').add(notif_data)
-                        db_admin.collection('users').document(uid).set({"unreadCount": firestore.Increment(1)}, merge=True)
-                        print(f"[StoreOrder] Successfully created in-app notification '{notif_title}' for user {uid}")
+                        notif_doc_id = f"order_{order_id}_{new_status}"
+                        notif_ref = db_admin.collection('users').document(uid).collection('notifications').document(notif_doc_id)
+                        notif_snap = notif_ref.get()
+                        if not notif_snap.exists:
+                            db_admin.collection('users').document(uid).set({"unreadCount": firestore.Increment(1)}, merge=True)
+                        notif_ref.set(notif_data, merge=True)
+                        print(f"[StoreOrder] Successfully created/updated in-app notification '{notif_title}' for user {uid}")
                     except Exception as notif_err:
                         print(f"[StoreOrder] Failed to write in-app notification: {notif_err}")
                         traceback.print_exc()
@@ -1359,15 +1390,26 @@ async def execute_order_status_change(
             txt = format_order_telegram_message(order_dict, status=new_status, eta=eta or order_dict.get("estimatedDeliveryTime"))
             kb = format_order_telegram_keyboard(order_id, status=new_status)
             edit_url = f"https://api.telegram.org/bot{bot_token}/editMessageText"
-            await client.post(edit_url, json={
+            edit_resp = await client.post(edit_url, json={
                 "chat_id": chat_id,
                 "message_id": message_id,
                 "text": txt,
-                "parse_mode": "Markdown",
+                "parse_mode": "HTML",
                 "reply_markup": kb
             })
+            edit_data = edit_resp.json()
+            if not edit_data.get("ok"):
+                print(f"[Telegram] editMessageText notice: {edit_data}")
+                # Fallback to updating just the reply_markup if text was unchanged or rejected
+                markup_url = f"https://api.telegram.org/bot{bot_token}/editMessageReplyMarkup"
+                await client.post(markup_url, json={
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "reply_markup": kb
+                })
         except Exception as tg_err:
             print(f"Failed to edit Telegram message: {tg_err}")
+            traceback.print_exc()
 
     # Answer callback query if from Telegram
     if cb_id and bot_token:
@@ -1419,6 +1461,10 @@ async def handle_telegram_callback(callback_query: dict, bot_token: str):
                 order_id = data.replace("view_", "")
                 if db_admin:
                     doc_snap = db_admin.collection('orders').document(order_id).get()
+                    if not doc_snap.exists:
+                        q_snaps = db_admin.collection('orders').where('orderNumber', '==', order_id).limit(1).get()
+                        if q_snaps:
+                            doc_snap = q_snaps[0]
                     if doc_snap.exists:
                         order_dict = doc_snap.to_dict() or {}
                         order_dict["id"] = order_id
@@ -1427,7 +1473,7 @@ async def handle_telegram_callback(callback_query: dict, bot_token: str):
                         txt = format_order_telegram_message(order_dict, status=st, eta=eta)
                         kb = format_order_telegram_keyboard(order_id, status=st)
                         edit_url = f"https://api.telegram.org/bot{bot_token}/editMessageText"
-                        await client.post(edit_url, json={"chat_id": chat_id, "message_id": message_id, "text": txt, "parse_mode": "Markdown", "reply_markup": kb})
+                        await client.post(edit_url, json={"chat_id": chat_id, "message_id": message_id, "text": txt, "parse_mode": "HTML", "reply_markup": kb})
                 ans_url = f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery"
                 await client.post(ans_url, json={"callback_query_id": cb_id})
             elif data.startswith("noop_"):
@@ -1542,7 +1588,7 @@ async def process_store_order(order: OrderRequest):
                 payload = {
                     "chat_id": order.telegramGroupId,
                     "text": message,
-                    "parse_mode": "Markdown",
+                    "parse_mode": "HTML",
                     "reply_markup": keyboard
                 }
                 
@@ -1644,6 +1690,7 @@ async def rate_vendor_endpoint(req: RateVendorRequest):
         now_ms = int(time.time() * 1000)
         user_name = "Valued Customer"
         order_items = []
+        already_rated = False
         
         # 1. Fetch order details & update order document
         if req.orderId:
@@ -1652,6 +1699,7 @@ async def rate_vendor_endpoint(req: RateVendorRequest):
                 ord_snap = ord_ref.get()
                 if ord_snap.exists:
                     ord_data = ord_snap.to_dict() or {}
+                    already_rated = bool(ord_data.get("rated"))
                     user_name = ord_data.get("userName") or ord_data.get("customerName") or user_name
                     order_items = ord_data.get("items", [])
                 ord_ref.set({
@@ -1673,8 +1721,10 @@ async def rate_vendor_endpoint(req: RateVendorRequest):
             except Exception as ne:
                 print(f"Notification rating update failed: {ne}")
                 
-        # 3. Create Review Document & Save to root 'reviews' and subcollections
+        # 3. Create Review Document with deterministic ID & Save to root 'reviews' and subcollections
+        rev_id = f"review_{req.orderId}_{req.userId}"
         review_doc = {
+            "id": rev_id,
             "orderId": req.orderId,
             "vendorId": req.vendorId,
             "userId": req.userId,
@@ -1685,9 +1735,9 @@ async def rate_vendor_endpoint(req: RateVendorRequest):
         }
         
         try:
-            db_admin.collection('reviews').add(review_doc)
+            db_admin.collection('reviews').document(rev_id).set(review_doc, merge=True)
         except Exception as re:
-            print(f"Failed to add root review: {re}")
+            print(f"Failed to set root review: {re}")
             
         # 4. Save review on each product in the order & update product average rating
         for item in order_items:
@@ -1695,28 +1745,29 @@ async def rate_vendor_endpoint(req: RateVendorRequest):
             if p_id:
                 try:
                     p_ref = db_admin.collection('products').document(p_id)
-                    p_ref.collection('reviews').add(review_doc)
+                    p_ref.collection('reviews').document(rev_id).set(review_doc, merge=True)
                     
-                    p_snap = p_ref.get()
-                    if p_snap.exists:
-                        p_data = p_snap.to_dict() or {}
-                        p_count = int(p_data.get("reviewCount", p_data.get("ratingCount", 0)))
-                        p_points = float(p_data.get("totalRatingPoints", (float(p_data.get("rating", 5.0)) * p_count) if p_count > 0 else 0))
-                        new_p_count = p_count + 1
-                        new_p_points = p_points + float(req.rating)
-                        new_p_avg = round(new_p_points / new_p_count, 1)
-                        p_ref.set({
-                            "rating": new_p_avg,
-                            "reviewCount": new_p_count,
-                            "ratingCount": new_p_count,
-                            "totalRatingPoints": new_p_points,
-                            "updatedAt": now_ms
-                        }, merge=True)
+                    if not already_rated:
+                        p_snap = p_ref.get()
+                        if p_snap.exists:
+                            p_data = p_snap.to_dict() or {}
+                            p_count = int(p_data.get("reviewCount", p_data.get("ratingCount", 0)))
+                            p_points = float(p_data.get("totalRatingPoints", (float(p_data.get("rating", 5.0)) * p_count) if p_count > 0 else 0))
+                            new_p_count = p_count + 1
+                            new_p_points = p_points + float(req.rating)
+                            new_p_avg = round(new_p_points / new_p_count, 1)
+                            p_ref.set({
+                                "rating": new_p_avg,
+                                "reviewCount": new_p_count,
+                                "ratingCount": new_p_count,
+                                "totalRatingPoints": new_p_points,
+                                "updatedAt": now_ms
+                            }, merge=True)
                 except Exception as pe:
                     print(f"Failed to update product review {p_id}: {pe}")
 
         # 5. Update vendor rating stats safely
-        if req.vendorId:
+        if req.vendorId and not already_rated:
             try:
                 v_ref = db_admin.collection('vendors').document(req.vendorId)
                 v_snap = v_ref.get()
