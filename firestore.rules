@@ -57,7 +57,7 @@ service cloud.firestore {
 
     match /room_wallets/{userId} {
       allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
-      allow write: if isAdmin() || (isAuthenticated() && isOwner(userId));
+      allow write: if isAdmin();
     }
 
     match /transactions/{txId} {
@@ -66,15 +66,13 @@ service cloud.firestore {
     }
 
     match /withdrawals/{wdId} {
-      allow create: if isAuthenticated() && request.resource.data.user_uid == request.auth.uid;
       allow read, list: if isAuthenticated() && (resource.data.user_uid == request.auth.uid || isAdmin());
-      allow update, delete: if isAdmin();
+      allow write: if isAdmin();
     }
 
     match /withdrawal_requests/{reqId} {
-      allow create: if isAuthenticated() && request.resource.data.user_uid == request.auth.uid;
       allow read, list: if isAuthenticated() && (resource.data.user_uid == request.auth.uid || isAdmin());
-      allow update, delete: if isAdmin();
+      allow write: if isAdmin();
     }
 
     // =================================================================
@@ -112,11 +110,11 @@ service cloud.firestore {
 
     match /game_wallets/{userId} {
       allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
-      allow write: if isAdmin() || (isAuthenticated() && isOwner(userId));
+      allow write: if isAdmin();
 
       match /activity/{activityId} {
         allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
-        allow create: if isAdmin() || (isAuthenticated() && isOwner(userId));
+        allow write: if isAdmin();
       }
     }
 
@@ -197,7 +195,7 @@ service cloud.firestore {
     match /vendors/{vendorId} { 
       allow read: if true; 
       allow write: if isAdmin(); 
-      allow update: if isAuthenticated(); 
+      allow update: if isAuthenticated() && (request.auth.uid == vendorId || isAdmin()); 
 
       match /reviews/{reviewId} {
         allow read: if true;
@@ -209,7 +207,7 @@ service cloud.firestore {
     match /products/{productId} {
       allow read: if true;
       allow create: if isAuthenticated() && (isAdmin() || (isVendor() && request.resource.data.vendorId == request.auth.uid));
-      allow update: if isAuthenticated();
+      allow update: if isAuthenticated() && (isAdmin() || (isVendor() && resource.data.vendorId == request.auth.uid));
       allow delete: if isAuthenticated() && (isAdmin() || (isVendor() && resource.data.vendorId == request.auth.uid));
 
       match /reviews/{reviewId} {

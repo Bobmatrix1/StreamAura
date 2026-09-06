@@ -279,7 +279,7 @@ async def get_visitor_location(request: Request):
         "device": device
     }
 
-from core.security import get_current_admin
+from core.security import get_current_admin, get_current_user
 
 @app.post("/api/admin/broadcast")
 async def broadcast_notification(request: Request, admin: dict = Depends(get_current_admin)):
@@ -1502,7 +1502,7 @@ async def handle_telegram_message(message: dict, bot_token: str):
                 await client.post(url, json={"chat_id": chat_id, "text": f"✅ Order #{order_id[:8]} ETA set to: {eta}!"})
 
 async def telegram_polling_worker():
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "8601644738:AAG5MMSgR0paQ_wI_ZHkCyy4ekeQL1Sus5Q")
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     if not bot_token:
         print("Telegram bot token not configured; polling disabled.")
         return
@@ -1560,7 +1560,7 @@ class OrderRequest(BaseModel):
 @app.post("/api/store/order")
 async def process_store_order(order: OrderRequest):
     try:
-        bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "8601644738:AAG5MMSgR0paQ_wI_ZHkCyy4ekeQL1Sus5Q")
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         order_num = order.orderNumber or order.orderId[:8].upper()
         
         # Construct message & keyboard
@@ -1579,7 +1579,7 @@ async def process_store_order(order: OrderRequest):
         chat_id = order.telegramGroupId
 
         # Send Telegram message if telegramGroupId is provided
-        if order.telegramGroupId:
+        if order.telegramGroupId and bot_token:
             try:
                 message = format_order_telegram_message(order_dict, status="pending")
                 keyboard = format_order_telegram_keyboard(order.orderId, status="pending")
@@ -1604,7 +1604,7 @@ async def process_store_order(order: OrderRequest):
             except Exception as te:
                 print(f"Failed to send Telegram message: {te}")
         else:
-            print(f"No telegramGroupId provided for vendor {order.vendorId}, skipping Telegram dispatch.")
+            print(f"No telegramGroupId or bot token configured for vendor {order.vendorId}, skipping Telegram dispatch.")
             
         # Save complete order document to Firestore
         if db_admin:
@@ -1656,9 +1656,26 @@ class OrderStatusUpdateRequest(BaseModel):
     userId: Optional[str] = None
 
 @app.post("/api/store/order/status")
-async def update_order_status_endpoint(req: OrderStatusUpdateRequest):
+async def update_order_status_endpoint(req: OrderStatusUpdateRequest, user: dict = Depends(get_current_user)):
     try:
-        bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "8601644738:AAG5MMSgR0paQ_wI_ZHkCyy4ekeQL1Sus5Q")
+        uid = user.get("uid")
+        is_admin = bool(user.get("admin") or user.get("isAdmin", False))
+        if not is_admin and db_admin:
+            user_doc = db_admin.collection("users").document(uid).get()
+            if user_doc.exists and user_doc.to_dict().get("isAdmin", False):
+                is_admin = True
+                
+        # Validate caller has permission on this order
+        if not is_admin and db_admin and req.orderId:
+            ord_snap = db_admin.collection('orders').document(req.orderId).get()
+            if ord_snap.exists:
+                ord_dict = ord_snap.to_dict() or {}
+                ord_vendor = ord_dict.get("vendorId")
+                ord_user = ord_dict.get("userId")
+                if uid != ord_vendor and uid != ord_user:
+                    raise HTTPException(status_code=403, detail="Unauthorized to update status for this order")
+
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         async with httpx.AsyncClient(timeout=15.0) as client:
             await execute_order_status_change(
                 order_id=req.orderId,
@@ -1670,6 +1687,7 @@ async def update_order_status_endpoint(req: OrderStatusUpdateRequest):
                 user_id=req.userId
             )
         return {"success": True, "message": f"Order status updated to {req.status}"}
+    except HTTPException: raise
     except Exception as e:
         print(f"Status update endpoint error: {e}")
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
@@ -1683,12 +1701,16 @@ class RateVendorRequest(BaseModel):
     notificationId: Optional[str] = None
 
 @app.post("/api/store/rate-vendor")
-async def rate_vendor_endpoint(req: RateVendorRequest):
+async def rate_vendor_endpoint(req: RateVendorRequest, user: dict = Depends(get_current_user)):
     if not db_admin:
         return JSONResponse(status_code=500, content={"success": False, "error": "Database offline"})
     try:
+        uid = user.get("uid")
+        # Enforce that caller cannot spoof another user's review
+        req_user_id = uid if uid else req.userId
+
         now_ms = int(time.time() * 1000)
-        user_name = "Valued Customer"
+        user_name = user.get("name") or "Valued Customer"
         order_items = []
         already_rated = False
         
@@ -1712,9 +1734,9 @@ async def rate_vendor_endpoint(req: RateVendorRequest):
                 print(f"Order rating update failed: {oe}")
         
         # 2. Update notification if provided
-        if req.notificationId and req.userId:
+        if req.notificationId and req_user_id:
             try:
-                db_admin.collection('users').document(req.userId).collection('notifications').document(req.notificationId).set({
+                db_admin.collection('users').document(req_user_id).collection('notifications').document(req.notificationId).set({
                     "rated": True,
                     "rating": float(req.rating)
                 }, merge=True)
@@ -1722,12 +1744,12 @@ async def rate_vendor_endpoint(req: RateVendorRequest):
                 print(f"Notification rating update failed: {ne}")
                 
         # 3. Create Review Document with deterministic ID & Save to root 'reviews' and subcollections
-        rev_id = f"review_{req.orderId}_{req.userId}"
+        rev_id = f"review_{req.orderId}_{req_user_id}"
         review_doc = {
             "id": rev_id,
             "orderId": req.orderId,
             "vendorId": req.vendorId,
-            "userId": req.userId,
+            "userId": req_user_id,
             "userName": user_name,
             "rating": float(req.rating),
             "review": req.review or "",
@@ -1795,7 +1817,7 @@ async def rate_vendor_endpoint(req: RateVendorRequest):
 @app.post("/api/store/telegram-webhook")
 async def telegram_webhook(request: Request):
     try:
-        bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "8601644738:AAG5MMSgR0paQ_wI_ZHkCyy4ekeQL1Sus5Q")
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         update = await request.json()
         if "callback_query" in update:
             asyncio.create_task(handle_telegram_callback(update["callback_query"], bot_token))

@@ -473,13 +473,13 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="flex items-center gap-3 pb-2 border-b border-white/5"
+                className="flex items-center gap-3 pb-2 border-b border-slate-200 dark:border-white/5"
               >
                 <button
                   onClick={handleBack}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.08] dark:bg-white/[0.06] backdrop-blur-md border border-white/10 dark:border-white/5 hover:bg-white/[0.12] hover:border-white/20 active:scale-95 shadow-[0_4px_12px_rgba(0,0,0,0.1)] text-white text-xs font-black uppercase tracking-widest transition-all duration-200 group"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.06] dark:hover:bg-white/[0.12] backdrop-blur-md border border-slate-200 dark:border-white/10 active:scale-95 shadow-sm text-slate-800 dark:text-white text-xs font-black uppercase tracking-widest transition-all duration-200 group"
                 >
-                  <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+                  <ArrowLeft className="w-3.5 h-3.5 text-slate-800 dark:text-white group-hover:-translate-x-0.5 transition-transform" />
                   <span>Back</span>
                 </button>
               </motion.div>

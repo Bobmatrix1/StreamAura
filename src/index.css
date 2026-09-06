@@ -88,8 +88,7 @@
 .light .bg-red-600 .lucide,
 .light .bg-indigo-600 .lucide,
 .light .bg-orange-600 .lucide,
-.light .bg-lime-600 .lucide,
-.light .text-white .lucide {
+.light .bg-lime-600 .lucide {
   color: #ffffff !important;
 }
 
@@ -338,9 +337,72 @@
 .light .px-3.py-1.rounded-full.bg-purple-500\/10.text-purple-400 *,
 .light .px-3.py-1.rounded-full.bg-primary\/10.text-primary,
 .light .px-3.py-1.rounded-full.bg-primary\/10.text-primary *,
-.light .px-5.py-2.5.rounded-xl.bg-primary,
-.light .px-5.py-2.5.rounded-xl.bg-primary * {
-  color: inherit !important;
+.light .px-5.py-2\.5.rounded-xl.bg-primary,
+.light .px-5.py-2\.5.rounded-xl.bg-primary *,
+.light [class*="bg-black/"],
+.light [class*="bg-black/"] *,
+.light .media-badge,
+.light .media-badge * {
+  color: inherit;
+}
+
+.light .text-amber-400,
+.light .text-amber-500,
+.light .text-amber-600,
+.light .text-yellow-400,
+.light .text-yellow-500,
+.light .text-yellow-600 {
+  color: #f59e0b !important;
+}
+
+.light .fill-amber-400,
+.light .fill-amber-500,
+.light .fill-amber-600,
+.light .fill-yellow-400,
+.light .fill-yellow-500,
+.light .fill-yellow-600,
+.light svg.lucide-star.fill-current {
+  fill: #f59e0b !important;
+}
+
+.light [class*="bg-black/"] {
+  color: #ffffff !important;
+}
+
+.light [class*="bg-black/"] span,
+.light [class*="bg-black/"] p,
+.light [class*="bg-black/"] div,
+.light [class*="bg-black/"] .text-white,
+.light [class*="bg-black/"] span.text-white,
+.light [class*="bg-black/"] p.text-white,
+.light [class*="bg-black/"] .text-white\/90,
+.light [class*="bg-black/"] .text-white\/80 {
+  color: #ffffff !important;
+}
+
+.light [class*="bg-black/"] .text-white\/60,
+.light [class*="bg-black/"] .text-white\/70 {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.light [class*="bg-black/"] .text-amber-400,
+.light [class*="bg-black/"] .text-amber-500,
+.light [class*="bg-black/"] .text-yellow-400,
+.light [class*="bg-black/"] .text-yellow-500,
+.light [class*="bg-black/"] svg.text-amber-400,
+.light [class*="bg-black/"] svg.fill-amber-400 {
+  color: #f59e0b !important;
+  fill: #f59e0b !important;
+}
+
+.light [class*="bg-black/"] .text-emerald-400,
+.light [class*="bg-black/"] svg.text-emerald-400 {
+  color: #34d399 !important;
+}
+
+.light [class*="bg-black/"] .text-rose-400,
+.light [class*="bg-black/"] .text-rose-500 {
+  color: #f43f5e !important;
 }
 
 .light button.gradient-bg, 
@@ -367,6 +429,136 @@
 .light button.bg-lime-600 *,
 .light button.bg-emerald-500 * {
   color: #ffffff !important;
+}
+
+/* Cinema Store Light Mode Typography & Color Contrast */
+.light .cinema-store-modal {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+.light .cinema-store-modal h1,
+.light .cinema-store-modal h2,
+.light .cinema-store-modal h3,
+.light .cinema-store-modal h4 {
+  color: #0f172a !important;
+}
+
+.light .cinema-store-modal input,
+.light .cinema-store-modal textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+.light .cinema-store-modal input::placeholder,
+.light .cinema-store-modal textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+.light .cinema-store-modal .gradient-bg,
+.light .cinema-store-modal .gradient-bg *,
+.light .cinema-store-modal button.gradient-bg,
+.light .cinema-store-modal button.gradient-bg *,
+.light .cinema-store-modal button.bg-primary,
+.light .cinema-store-modal button.bg-primary * {
+  color: #ffffff !important;
+}
+
+/* Cinema Navigation Tabs in Light Mode */
+.light .cinema-store-modal .cinema-nav-tab {
+  color: #0f172a !important;
+  font-weight: 900 !important;
+}
+
+.light .cinema-store-modal .cinema-nav-tab span {
+  color: #0f172a !important;
+  font-weight: 900 !important;
+}
+
+.light .cinema-store-modal .cinema-nav-tab svg {
+  color: #0f172a !important;
+  stroke: #0f172a !important;
+}
+
+.light .cinema-store-modal .cinema-nav-tab:hover {
+  color: #000000 !important;
+  background-color: #f1f5f9 !important;
+}
+
+.light .cinema-store-modal .cinema-nav-tab.active,
+.light .cinema-store-modal .cinema-nav-tab-active {
+  background-color: #0f172a !important;
+  color: #ffffff !important;
+  border-color: #0f172a !important;
+}
+
+.light .cinema-store-modal .cinema-nav-tab.active span,
+.light .cinema-store-modal .cinema-nav-tab-active span {
+  color: #ffffff !important;
+  font-weight: 900 !important;
+}
+
+.light .cinema-store-modal .cinema-nav-tab.active svg,
+.light .cinema-store-modal .cinema-nav-tab-active svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+.light .cinema-store-modal .quantity-selector-label,
+.light .cinema-store-modal .quantity-selector-value,
+.light .cinema-store-modal .quantity-subtotal-label {
+  color: #0f172a !important;
+}
+
+.light .cinema-store-modal .quantity-subtotal-value {
+  color: #059669 !important;
+}
+
+.light .cinema-store-modal .cinema-order-now-btn {
+  background-color: #0f172a !important;
+  color: #ffffff !important;
+  border-color: #0f172a !important;
+}
+
+.light .cinema-store-modal .cinema-order-now-btn * {
+  color: #ffffff !important;
+}
+
+/* Header Cart Button & Close (X) Button in Light Mode */
+.light .cinema-store-modal .header-cart-btn,
+.light .cinema-store-modal .header-close-btn {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.light .cinema-store-modal .header-cart-btn:hover,
+.light .cinema-store-modal .header-close-btn:hover {
+  background-color: #e2e8f0 !important;
+  border-color: #94a3b8 !important;
+}
+
+.light .cinema-store-modal .header-cart-btn svg,
+.light .cinema-store-modal .header-close-btn svg {
+  color: #0f172a !important;
+  stroke: #0f172a !important;
+}
+
+/* User Comments & Reviews in Light Mode */
+.light .cinema-store-modal .review-comment-box {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+.light .cinema-store-modal .review-comment-text {
+  color: #0f172a !important;
+  font-weight: 700 !important;
+}
+
+.light .cinema-store-modal .review-author-name {
+  color: #0f172a !important;
+  font-weight: 900 !important;
 }
 
 /* Ensure secondary buttons and text-inputs have proper border and text */

@@ -155,7 +155,15 @@ const MusicDownloader: React.FC = () => {
             <div className="glass-card p-6">
               <div className="flex flex-col md:flex-row gap-6">
                 <div className="relative w-full md:w-40 aspect-square rounded-xl overflow-hidden bg-black/50 shadow-2xl flex-shrink-0">
-                  {currentPreview.thumbnail && <img src={currentPreview.thumbnail} className="w-full h-full object-cover" />}
+                  {currentPreview.thumbnail && (
+                    <img 
+                      src={currentPreview.thumbnail} 
+                      alt={currentPreview.title}
+                      referrerPolicy="no-referrer" 
+                      loading="lazy" 
+                      className="w-full h-full object-cover" 
+                    />
+                  )}
                 </div>
 
                 <div className="flex-1 space-y-4">

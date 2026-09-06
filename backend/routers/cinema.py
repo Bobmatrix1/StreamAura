@@ -82,56 +82,64 @@ from core.payouts import calculate_payout_split
 @router.post("/verify-wallet-funding")
 async def verify_wallet_funding(reference: str, user: dict = Depends(get_current_user)):
     """
-    Verify Paystack transaction for wallet funding and update balance.
+    Verify Paystack transaction for wallet funding and update balance atomically.
     """
     db = get_db()
+    uid = user["uid"]
     try:
         response = await verify_transaction(reference)
         
-        if response["data"]["status"] == "success":
+        if response.get("data", {}).get("status") == "success":
             # Check transaction owner to prevent reference theft
             metadata = response["data"].get("metadata", {})
-            if metadata and metadata.get("user_uid") != user["uid"]:
+            if metadata and metadata.get("user_uid") != uid:
                 raise HTTPException(status_code=403, detail="Unauthorized transaction reference")
             amount_kobo = response["data"]["amount"]
-            amount_naira = amount_kobo / 100
+            amount_naira = round(amount_kobo / 100, 2)
             
-            # Check if transaction was already processed
             tx_ref = db.collection("transactions").document(reference)
-            tx_doc = tx_ref.get()
-            if tx_doc.exists and tx_doc.to_dict().get("status") == "completed":
-                return {"success": True, "message": "Already processed"}
-                
-            # Update user's wallet (Funded Balance)
-            wallet_ref = db.collection("room_wallets").document(user["uid"])
-            wallet_ref.set({
-                "funded_balance": firestore.Increment(amount_naira),
-                "balance": firestore.Increment(amount_naira), # Total spending power
-                "total_funded": firestore.Increment(amount_naira)
-            }, merge=True)
-            
-            # Save transaction
-            tx_ref.set({
-                "user_uid": user["uid"],
-                "type": "deposit",
-                "amount": amount_naira,
-                "title": "Wallet Top-up",
-                "status": "completed",
-                "timestamp": firestore.SERVER_TIMESTAMP,
-                "reference": reference
-            })
-            
-            # Update global analytics
+            wallet_ref = db.collection("room_wallets").document(uid)
             stats_ref = db.collection('system_analytics').document('global_counters')
-            stats_ref.set({
-                "payments.success.count": firestore.Increment(1),
-                "payments.success.totalAmount": firestore.Increment(amount_naira),
-                "actions.deposit": firestore.Increment(1)
-            }, merge=True)
             
-            return {"success": True, "amount": amount_naira}
+            transaction = db.transaction()
+            
+            @firestore.transactional
+            def transactional_fund(transaction):
+                tx_snap = tx_ref.get(transaction=transaction)
+                if tx_snap.exists and tx_snap.to_dict().get("status") == "completed":
+                    return {"success": True, "message": "Already processed", "amount": amount_naira}
+                    
+                # Update user's wallet (Funded Balance)
+                transaction.set(wallet_ref, {
+                    "funded_balance": firestore.Increment(amount_naira),
+                    "balance": firestore.Increment(amount_naira), # Total spending power
+                    "total_funded": firestore.Increment(amount_naira)
+                }, merge=True)
+                
+                # Save transaction
+                transaction.set(tx_ref, {
+                    "user_uid": uid,
+                    "type": "deposit",
+                    "amount": amount_naira,
+                    "title": "Wallet Top-up",
+                    "status": "completed",
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                    "reference": reference
+                })
+                
+                # Update global analytics
+                transaction.set(stats_ref, {
+                    "payments.success.count": firestore.Increment(1),
+                    "payments.success.totalAmount": firestore.Increment(amount_naira),
+                    "actions.deposit": firestore.Increment(1)
+                }, merge=True)
+                
+                return {"success": True, "amount": amount_naira}
+                
+            return transactional_fund(transaction)
         else:
             raise HTTPException(status_code=400, detail="Payment verification failed")
+    except HTTPException: raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -144,6 +152,7 @@ async def transactpay_webhook(request: Request):
     """
     Handle TransactPay Webhook events.
     Queries TransactPay API directly to verify transaction status before processing.
+    Uses Firestore atomic transactions to prevent double-crediting from webhook retries.
     """
     try:
         body = await request.json()
@@ -159,15 +168,9 @@ async def transactpay_webhook(request: Request):
     if not verify_resp.get("status"):
         return {"status": "ignored", "reason": "Transaction not successful on TransactPay"}
         
-    amount_naira = verify_resp["data"]["amount_naira"]
+    amount_naira = round(float(verify_resp["data"]["amount_naira"]), 2)
     db = get_db()
     
-    # Check if already processed
-    tx_ref = db.collection("transactions").document(reference)
-    tx_doc = tx_ref.get()
-    if tx_doc.exists and tx_doc.to_dict().get("status") == "completed":
-        return {"status": "already_processed"}
-        
     # Determine type of transaction from reference
     if reference.startswith("deposit_"):
         parts = reference.split("_")
@@ -175,35 +178,45 @@ async def transactpay_webhook(request: Request):
             return {"status": "error", "reason": "Malformed deposit reference"}
         uid = parts[1]
         
-        # Update user's wallet
+        tx_ref = db.collection("transactions").document(reference)
         wallet_ref = db.collection("room_wallets").document(uid)
-        wallet_ref.set({
-            "funded_balance": firestore.Increment(amount_naira),
-            "balance": firestore.Increment(amount_naira),
-            "total_funded": firestore.Increment(amount_naira)
-        }, merge=True)
-        
-        # Save transaction
-        tx_ref.set({
-            "user_uid": uid,
-            "type": "deposit",
-            "amount": amount_naira,
-            "title": "Wallet Top-up via TransactPay",
-            "status": "completed",
-            "timestamp": firestore.SERVER_TIMESTAMP,
-            "reference": reference
-        })
-        
-        # Update global stats
         stats_ref = db.collection('system_analytics').document('global_counters')
-        stats_ref.set({
-            "payments.success.count": firestore.Increment(1),
-            "payments.success.totalAmount": firestore.Increment(amount_naira),
-            "actions.deposit": firestore.Increment(1)
-        }, merge=True)
+        
+        transaction = db.transaction()
+        
+        @firestore.transactional
+        def transactional_deposit_webhook(transaction):
+            tx_snap = tx_ref.get(transaction=transaction)
+            if tx_snap.exists and tx_snap.to_dict().get("status") == "completed":
+                return {"status": "already_processed"}
+                
+            transaction.set(wallet_ref, {
+                "funded_balance": firestore.Increment(amount_naira),
+                "balance": firestore.Increment(amount_naira),
+                "total_funded": firestore.Increment(amount_naira)
+            }, merge=True)
+            
+            transaction.set(tx_ref, {
+                "user_uid": uid,
+                "type": "deposit",
+                "amount": amount_naira,
+                "title": "Wallet Top-up via TransactPay",
+                "status": "completed",
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "reference": reference
+            })
+            
+            transaction.set(stats_ref, {
+                "payments.success.count": firestore.Increment(1),
+                "payments.success.totalAmount": firestore.Increment(amount_naira),
+                "actions.deposit": firestore.Increment(1)
+            }, merge=True)
+            return {"status": "success"}
+            
+        return transactional_deposit_webhook(transaction)
         
     elif reference.startswith("ticket_"):
-        # Look up pending transaction to get metadata
+        tx_ref = db.collection("transactions").document(reference)
         pending_tx = tx_ref.get()
         if not pending_tx.exists:
             return {"status": "error", "reason": "Ticket transaction not found"}
@@ -213,24 +226,40 @@ async def transactpay_webhook(request: Request):
         room_id = tx_data.get("room_id")
         
         if room_id:
-            room_doc = db.collection("cinema_rooms").document(room_id).get()
-            if room_doc.exists:
-                host_uid = room_doc.to_dict().get("host_uid")
-                host_name = room_doc.to_dict().get("host_name", "Host")
+            room_ref = db.collection("cinema_rooms").document(room_id)
+            pass_id = f"pass_{uuid.uuid4().hex}"
+            pass_ref = db.collection("room_access_passes").document(pass_id)
+            
+            transaction = db.transaction()
+            
+            @firestore.transactional
+            def transactional_ticket_webhook(transaction):
+                tx_snap = tx_ref.get(transaction=transaction)
+                if tx_snap.exists and tx_snap.to_dict().get("status") == "completed":
+                    return {"status": "already_processed"}
+                    
+                room_snap = room_ref.get(transaction=transaction)
+                if not room_snap.exists:
+                    return {"status": "error", "reason": "Cinema room not found"}
+                    
+                room_data = room_snap.to_dict()
+                host_uid = room_data.get("host_uid")
+                host_name = room_data.get("host_name", "Host")
                 
-                platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, amount_naira, db)
+                platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, amount_naira, db, transaction=transaction)
                 
                 # Update Host Wallet
-                wallet_ref = db.collection("room_wallets").document(host_uid)
-                wallet_ref.set({
-                    "host_balance": firestore.Increment(host_final),
-                    "balance": firestore.Increment(host_final),
-                    "total_earned": firestore.Increment(host_final),
-                    "tickets_sold": firestore.Increment(1)
-                }, merge=True)
-                
+                if host_uid:
+                    wallet_ref = db.collection("room_wallets").document(host_uid)
+                    transaction.set(wallet_ref, {
+                        "host_balance": firestore.Increment(host_final),
+                        "balance": firestore.Increment(host_final),
+                        "total_earned": firestore.Increment(host_final),
+                        "tickets_sold": firestore.Increment(1)
+                    }, merge=True)
+                    
                 # Update Room Stats
-                db.collection("cinema_rooms").document(room_id).update({
+                transaction.update(room_ref, {
                     "tickets_sold": firestore.Increment(1),
                     "total_earned": firestore.Increment(host_final),
                     "gross_revenue": firestore.Increment(amount_naira)
@@ -239,34 +268,37 @@ async def transactpay_webhook(request: Request):
                 # Update Referrer if active
                 if referrer_uid and referrer_cut > 0:
                     ref_user_ref = db.collection("users").document(referrer_uid)
-                    ref_user_ref.update({"referralBalance": firestore.Increment(referrer_cut)})
-                    db.collection("game_wallets").document(referrer_uid).collection("activity").add({
+                    transaction.update(ref_user_ref, {"referralBalance": firestore.Increment(referrer_cut)})
+                    ref_activity_ref = db.collection("game_wallets").document(referrer_uid).collection("activity").document()
+                    transaction.set(ref_activity_ref, {
                         "type": "referral_earning",
                         "amount": referrer_cut,
                         "desc": f"10% commission from {host_name}'s ticket sale",
                         "timestamp": firestore.SERVER_TIMESTAMP
                     })
-            
-            # Update transaction
-            tx_ref.set({
-                "room_id": room_id,
-                "user_uid": uid,
-                "amount": amount_naira,
-                "status": "completed",
-                "title": "Cinema Ticket Purchase",
-                "type": "purchase",
-                "timestamp": firestore.SERVER_TIMESTAMP,
-                "reference": reference
-            }, merge=True)
-            
-            # Grant access pass
-            pass_id = f"pass_{uuid.uuid4().hex}"
-            db.collection("room_access_passes").document(pass_id).set({
-                "room_id": room_id,
-                "user_uid": uid,
-                "reference": reference,
-                "granted_at": firestore.SERVER_TIMESTAMP
-            })
+                    
+                # Mark completed
+                transaction.set(tx_ref, {
+                    "room_id": room_id,
+                    "user_uid": uid,
+                    "amount": amount_naira,
+                    "status": "completed",
+                    "title": "Cinema Ticket Purchase",
+                    "type": "purchase",
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                    "reference": reference
+                }, merge=True)
+                
+                # Grant access pass
+                transaction.set(pass_ref, {
+                    "room_id": room_id,
+                    "user_uid": uid,
+                    "reference": reference,
+                    "granted_at": firestore.SERVER_TIMESTAMP
+                })
+                return {"status": "success"}
+                
+            return transactional_ticket_webhook(transaction)
             
     return {"status": "success"}
 
@@ -557,52 +589,62 @@ async def init_room_payment(room_id: str, user: dict = Depends(get_current_user)
 @router.post("/rooms/{room_id}/verify-payment")
 async def verify_room_payment(room_id: str, reference: str, user: dict = Depends(get_current_user)):
     """
-    Verify payment and grant access pass.
+    Verify payment and grant access pass atomically.
     """
     db = get_db()
+    uid = user["uid"]
     try:
-        # Verify transaction database existence, status, owner, and room ID
         tx_ref = db.collection("transactions").document(reference)
-        tx_doc = tx_ref.get()
-        if not tx_doc.exists:
-            raise HTTPException(status_code=404, detail="Transaction reference not found")
-            
-        tx_data = tx_doc.to_dict()
-        if tx_data.get("status") == "completed":
-            raise HTTPException(status_code=400, detail="Transaction has already been verified/completed")
-            
-        if tx_data.get("user_uid") != user["uid"]:
-            raise HTTPException(status_code=403, detail="Unauthorized transaction reference owner")
-            
-        if tx_data.get("room_id") != room_id:
-            raise HTTPException(status_code=400, detail="Transaction reference does not match room ID")
-
-        response = await verify_transaction(reference)
+        room_ref = db.collection("cinema_rooms").document(room_id)
         
-        if response["data"]["status"] == "success":
-            # Grant access pass
+        # Verify transaction with gateway
+        response = await verify_transaction(reference)
+        if response.get("data", {}).get("status") != "success":
+            return {"success": False, "message": "Payment not successful on gateway"}
+            
+        transaction = db.transaction()
+        
+        @firestore.transactional
+        def transactional_grant_access(transaction):
+            tx_snap = tx_ref.get(transaction=transaction)
+            if not tx_snap.exists:
+                raise HTTPException(status_code=404, detail="Transaction reference not found")
+                
+            tx_data = tx_snap.to_dict()
+            if tx_data.get("status") == "completed":
+                return {"success": True, "message": "Already processed. Access pass active."}
+                
+            if tx_data.get("user_uid") != uid:
+                raise HTTPException(status_code=403, detail="Unauthorized transaction reference owner")
+                
+            if tx_data.get("room_id") != room_id:
+                raise HTTPException(status_code=400, detail="Transaction reference does not match room ID")
+                
+            room_snap = room_ref.get(transaction=transaction)
+            if not room_snap.exists:
+                raise HTTPException(status_code=404, detail="Room not found")
+                
+            room_data = room_snap.to_dict()
+            amount = round(float(room_data.get("ticket_price", 0)), 2)
+            host_uid = room_data.get("host_uid")
+            host_name = room_data.get("host_name", "Host")
+            
+            platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, amount, db, transaction=transaction)
+            
+            # 1. Grant access pass
             pass_id = f"pass_{uuid.uuid4().hex}"
-            db.collection("room_access_passes").document(pass_id).set({
+            pass_ref = db.collection("room_access_passes").document(pass_id)
+            transaction.set(pass_ref, {
                 "room_id": room_id,
-                "user_uid": user["uid"],
+                "user_uid": uid,
                 "reference": reference,
                 "granted_at": firestore.SERVER_TIMESTAMP
             })
             
-            # Fetch room details for ticket price
-            room_doc = db.collection("cinema_rooms").document(room_id).get()
-            if not room_doc.exists:
-                return {"success": False, "message": "Room not found during payout"}
-                
-            room_data = room_doc.to_dict()
-            amount = room_data.get("ticket_price", 0)
-            host_uid = room_data.get("host_uid")
-            host_name = room_data.get("host_name", "Host")
-            
-            # Set completed transaction document
-            db.collection("transactions").document(reference).set({
+            # 2. Mark transaction completed
+            transaction.set(tx_ref, {
                 "room_id": room_id,
-                "user_uid": user["uid"],
+                "user_uid": uid,
                 "amount": amount,
                 "status": "completed",
                 "title": "Cinema Ticket Purchase",
@@ -611,23 +653,22 @@ async def verify_room_payment(room_id: str, reference: str, user: dict = Depends
                 "reference": reference
             }, merge=True)
             
-            platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, amount, db)
-            
-            # Update Host Wallet (Host Balance)
-            wallet_ref = db.collection("room_wallets").document(host_uid)
-            wallet_ref.set({
-                "host_balance": firestore.Increment(host_final),
-                "balance": firestore.Increment(host_final), # spending power
-                "total_earned": firestore.Increment(host_final),
-                "tickets_sold": firestore.Increment(1)
-            }, merge=True)
+            # 3. Update Host Wallet
+            if host_uid:
+                wallet_ref = db.collection("room_wallets").document(host_uid)
+                transaction.set(wallet_ref, {
+                    "host_balance": firestore.Increment(host_final),
+                    "balance": firestore.Increment(host_final),
+                    "total_earned": firestore.Increment(host_final),
+                    "tickets_sold": firestore.Increment(1)
+                }, merge=True)
                 
-            # Update Referrer if active
+            # 4. Update Referrer
             if referrer_uid and referrer_cut > 0:
                 ref_user_ref = db.collection("users").document(referrer_uid)
-                ref_user_ref.update({"referralBalance": firestore.Increment(referrer_cut)})
-                # Log activity for referrer
-                db.collection("game_wallets").document(referrer_uid).collection("activity").add({
+                transaction.update(ref_user_ref, {"referralBalance": firestore.Increment(referrer_cut)})
+                ref_activity_ref = db.collection("game_wallets").document(referrer_uid).collection("activity").document()
+                transaction.set(ref_activity_ref, {
                     "type": "referral_earning",
                     "amount": referrer_cut,
                     "desc": f"10% commission from {host_name}'s ticket sale",
@@ -635,8 +676,9 @@ async def verify_room_payment(room_id: str, reference: str, user: dict = Depends
                 })
                 
             return {"success": True, "message": "Payment verified. Access granted."}
-        else:
-            return {"success": False, "message": "Payment not successful"}
+            
+        return transactional_grant_access(transaction)
+    except HTTPException: raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -193,6 +193,8 @@ const VideoDownloader: React.FC = () => {
                       <img
                         src={currentPreview.thumbnail}
                         alt={currentPreview.title}
+                        referrerPolicy="no-referrer"
+                        loading="lazy"
                         className="w-full h-full object-cover"
                       />
                     )}

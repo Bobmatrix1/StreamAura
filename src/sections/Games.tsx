@@ -572,20 +572,20 @@ export default function Games() {
     <div className="space-y-8 pb-20">
       {/* Insufficient Funds Modal */}
       {insufficientFunds?.show && createPortal(
-        <div className="fixed inset-0 z-[5000] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
-           <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="glass-card max-w-sm w-full p-8 text-center space-y-6 border-white/10 shadow-2xl">
+        <div className="fixed inset-0 z-[5000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+           <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white dark:bg-slate-900 max-w-sm w-full p-8 text-center space-y-6 border border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl sm:rounded-3xl text-slate-900 dark:text-white">
               <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center mx-auto border border-rose-500/20">
                  <ShieldAlert className="text-rose-500 w-8 h-8" />
               </div>
               <div className="space-y-2">
-                 <h3 className="text-xl font-black uppercase text-white">Insufficient Balance</h3>
-                 <p className="text-xs text-muted-foreground font-medium uppercase leading-relaxed tracking-wider">
+                 <h3 className="text-xl font-black uppercase text-slate-900 dark:text-white">Insufficient Balance</h3>
+                 <p className="text-xs text-slate-500 dark:text-muted-foreground font-medium uppercase leading-relaxed tracking-wider">
                     You need ₦{insufficientFunds.required.toLocaleString()} in your Game Wallet to fund the prize pool for this room. Add funds from your main wallet to your game wallet and try again.
                  </p>
               </div>
               <div className="flex flex-col gap-3">
                  <Button onClick={handleGoToWallet} className="w-full gradient-bg h-12 font-black uppercase text-[10px]">Go to Wallet</Button>
-                 <Button variant="ghost" onClick={() => setInsufficientFunds(null)} className="w-full h-11 text-[10px] font-black uppercase border border-white/5">Cancel</Button>
+                 <Button variant="ghost" onClick={() => setInsufficientFunds(null)} className="w-full h-11 text-[10px] font-black uppercase border border-slate-200 dark:border-white/5 text-slate-600 hover:text-slate-900 dark:text-white">Cancel</Button>
               </div>
            </motion.div>
         </div>, document.body
@@ -593,20 +593,20 @@ export default function Games() {
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && deletingGame && createPortal(
-        <div className="fixed inset-0 z-[5000] flex items-center justify-center p-4 bg-black/95 backdrop-blur-md">
-           <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-card max-w-sm w-full p-8 text-center space-y-6 border-white/10 shadow-2xl">
+        <div className="fixed inset-0 z-[5000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+           <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white dark:bg-slate-900 max-w-sm w-full p-8 text-center space-y-6 border border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl sm:rounded-3xl text-slate-900 dark:text-white">
               <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center mx-auto border border-rose-500/20">
                  <Trash2 className="text-rose-500 w-8 h-8" />
               </div>
               <div className="space-y-2">
-                 <h3 className="text-xl font-black uppercase text-white">Delete Room?</h3>
-                 <p className="text-xs text-muted-foreground font-medium uppercase leading-relaxed tracking-wider">
-                    Are you sure you want to delete <span className="text-white font-bold">"{deletingGame.roomName}"</span>? This will close the room for everyone and cannot be undone.
+                 <h3 className="text-xl font-black uppercase text-slate-900 dark:text-white">Delete Room?</h3>
+                 <p className="text-xs text-slate-500 dark:text-muted-foreground font-medium uppercase leading-relaxed tracking-wider">
+                    Are you sure you want to delete <span className="text-slate-900 dark:text-white font-bold">"{deletingGame.roomName}"</span>? This will close the room for everyone and cannot be undone.
                  </p>
               </div>
               <div className="flex flex-col gap-3">
                  <Button onClick={confirmDeleteRoom} className="w-full bg-rose-600 hover:bg-rose-700 text-white h-12 font-black uppercase text-[10px] tracking-widest shadow-lg shadow-rose-600/20">Delete Room</Button>
-                 <Button variant="ghost" onClick={() => { setShowDeleteConfirm(false); setDeletingGame(null); }} className="w-full h-11 text-[10px] font-black uppercase border border-white/5">Keep Room</Button>
+                 <Button variant="ghost" onClick={() => { setShowDeleteConfirm(false); setDeletingGame(null); }} className="w-full h-11 text-[10px] font-black uppercase border border-slate-200 dark:border-white/5 text-slate-600 hover:text-slate-900 dark:text-white">Keep Room</Button>
               </div>
            </motion.div>
         </div>, document.body
@@ -618,10 +618,10 @@ export default function Games() {
           <Gamepad2 className="w-10 h-10 text-yellow-500" />
         </div>
         <div className="space-y-2">
-          <h1 className="text-4xl font-black uppercase tracking-tight text-white drop-shadow-md">
+          <h1 className="text-4xl font-black uppercase tracking-tight text-slate-900 dark:text-white drop-shadow-sm">
             StreamAura <span className="text-yellow-500">Games</span>
           </h1>
-          <p className="text-xs text-muted-foreground font-bold uppercase tracking-[0.2em] opacity-70">
+          <p className="text-xs text-slate-500 dark:text-muted-foreground font-bold uppercase tracking-[0.2em] opacity-80 dark:opacity-70">
             Play, Compete, and Win Cash Prizes
           </p>
         </div>
@@ -629,12 +629,12 @@ export default function Games() {
         {/* GAME WALLET CARD */}
         {user && (
           <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-6">
-             <div className="p-6 rounded-3xl bg-gradient-to-br from-yellow-500/20 to-purple-600/20 border border-white/10 shadow-2xl relative overflow-hidden group">
+             <div className="p-6 rounded-3xl bg-gradient-to-br from-yellow-500/15 via-purple-500/10 to-amber-500/10 dark:from-yellow-500/20 dark:to-purple-600/20 border border-slate-200 dark:border-white/10 shadow-xl relative overflow-hidden group text-slate-900 dark:text-white">
                 <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
                 <div className="flex justify-between items-start relative z-10">
                    <div className="text-left space-y-1">
-                     <p className="text-[10px] font-black uppercase tracking-widest text-yellow-500">My Game Wallet</p>
-                     <p className="text-3xl font-black text-white">₦{gameWalletBalance.toLocaleString()}</p>
+                     <p className="text-[10px] font-black uppercase tracking-widest text-yellow-700 dark:text-yellow-500">My Game Wallet</p>
+                     <p className="text-3xl font-black text-slate-900 dark:text-white">₦{gameWalletBalance.toLocaleString()}</p>
                    </div>
                    <div className="flex flex-col gap-2">
                       <Button 
@@ -652,15 +652,15 @@ export default function Games() {
                           setFundingAmount('');
                           setIsFundingModalOpen(true);
                         }} 
-                        className="h-9 px-5 rounded-xl font-black uppercase text-[10px] bg-white/10 hover:bg-white/20 text-white border border-white/10"
+                        className="h-9 px-5 rounded-xl font-black uppercase text-[10px] bg-slate-100 hover:bg-slate-200 dark:bg-white/10 dark:hover:bg-white/20 text-slate-900 dark:text-white border border-slate-200 dark:border-white/10"
                       >
                         Add Funds
                       </Button>
                    </div>
                 </div>
-                <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between text-[9px] font-bold text-muted-foreground uppercase tracking-widest relative z-10">
+                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-white/10 flex items-center justify-between text-[9px] font-bold text-slate-500 dark:text-muted-foreground uppercase tracking-widest relative z-10">
                    <span>Winnings & Host Earnings</span>
-                   <span className="text-emerald-500">0% Internal Fee</span>
+                   <span className="text-emerald-600 dark:text-emerald-400 font-black">0% Internal Fee</span>
                 </div>
              </div>
 
@@ -708,8 +708,8 @@ export default function Games() {
         <AnimatePresence>
           {isFundingModalOpen && (
             <div className="fixed inset-0 z-[6000] flex items-center justify-center p-4">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setFundingAmount(''); setIsFundingModalOpen(false); }} className="absolute inset-0 bg-black/95 backdrop-blur-md" />
-              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card border-slate-200 dark:border-white/10 shadow-2xl p-8 space-y-8 max-h-[85vh] overflow-y-auto custom-scrollbar">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setFundingAmount(''); setIsFundingModalOpen(false); }} className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl p-8 space-y-8 max-h-[85vh] overflow-y-auto custom-scrollbar rounded-2xl sm:rounded-3xl text-slate-900 dark:text-white">
                  <div className="text-center space-y-2">
                     <div className="w-16 h-16 rounded-3xl bg-primary/10 flex items-center justify-center mx-auto mb-4 border border-primary/20">
                        <Plus className="w-8 h-8 text-primary" />
@@ -720,7 +720,7 @@ export default function Games() {
 
                  <div className="space-y-4">
                     <div className="space-y-2">
-                       <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select Source Balance</label>
+                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Select Source Balance</label>
                        <div className="grid grid-cols-1 gap-2">
                           {[
                             { id: 'funded', label: 'Main Wallet Balance', balance: mainWalletBalance, color: 'text-primary' },
@@ -740,7 +740,7 @@ export default function Games() {
                     </div>
 
                     <div className="space-y-2">
-                       <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Amount to Transfer (₦)</label>
+                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Amount to Transfer (₦)</label>
                        <div className="relative">
                           <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 dark:text-white/40">₦</span>
                           <input 
@@ -778,26 +778,26 @@ export default function Games() {
       )}
 
       {/* Featured Game Info */}
-      <div className="glass-card p-1 border-white/10 overflow-hidden relative group">
+      <div className="glass-card p-1 border-slate-200 dark:border-white/10 overflow-hidden relative group bg-white/70 dark:bg-slate-900/60 shadow-sm">
          <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/10 via-purple-500/10 to-transparent opacity-50 pointer-events-none" />
          <div className="relative z-10 p-8 flex flex-col md:flex-row items-center gap-8">
             <div className="w-32 h-32 rounded-full bg-gradient-to-br from-yellow-500 to-purple-600 flex items-center justify-center shrink-0 shadow-[0_0_30px_rgba(234,179,8,0.3)]">
                <Swords className="w-12 h-12 text-white" />
             </div>
             <div className="space-y-3 text-center md:text-left">
-               <Badge className="bg-white/10 text-white border-white/20">NOW AVAILABLE</Badge>
-               <h2 className="text-3xl font-black uppercase tracking-tighter">Split or Steal</h2>
-               <p className="text-sm text-muted-foreground font-medium max-w-xl">
+               <Badge className="bg-slate-900/10 dark:bg-white/10 text-slate-900 dark:text-white border-slate-900/20 dark:border-white/20 font-black">NOW AVAILABLE</Badge>
+               <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Split or Steal</h2>
+               <p className="text-sm text-slate-600 dark:text-muted-foreground font-medium max-w-xl">
                  Two players are randomly selected. You have 60 seconds to chat and convince each other. Then, you must choose to Split or Steal.
                </p>
                <div className="flex flex-wrap justify-center md:justify-start gap-4 pt-2">
-                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-yellow-500">
+                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-yellow-600 dark:text-yellow-500">
                     <div className="w-2 h-2 rounded-full bg-yellow-500" /> Split + Split = Share
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-purple-400">
+                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-400">
                     <div className="w-2 h-2 rounded-full bg-purple-500" /> Split + Steal = Stealer Takes All
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-400">
                     <div className="w-2 h-2 rounded-full bg-slate-500" /> Steal + Steal = Nothing
                   </div>
                </div>
@@ -807,13 +807,13 @@ export default function Games() {
 
       {/* Live Lobbies */}
       <div className="space-y-4">
-        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
+        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-500 dark:text-muted-foreground flex items-center gap-2">
           <Timer className="w-4 h-4 text-yellow-500" /> Active Lobbies
         </h3>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {rooms.map(game => (
-            <Card key={game.id} className="glass-card border-white/10 overflow-hidden group hover:border-yellow-500/30 transition-colors">
+            <Card key={game.id} className="glass-card border-slate-200 dark:border-white/10 overflow-hidden group hover:border-yellow-500/50 dark:hover:border-yellow-500/30 transition-all bg-white dark:bg-slate-900/60 shadow-sm">
               <div className="p-5 space-y-4">
                 <div className="flex justify-between items-start">
                    {(() => {
@@ -824,7 +824,7 @@ export default function Games() {
                     
                     if (game.status === 'finished') {
                       return (
-                        <Badge className="bg-zinc-800 text-white/50 border border-white/10 uppercase font-black text-[9px] tracking-widest">
+                        <Badge className="bg-zinc-100 text-zinc-600 border-zinc-200 dark:bg-zinc-800 dark:text-white/50 dark:border-white/10 uppercase font-black text-[9px] tracking-widest">
                           ROOM ENDED
                         </Badge>
                       );
@@ -836,13 +836,13 @@ export default function Games() {
                       );
                     } else if (isComplete) {
                       return (
-                        <Badge className="bg-yellow-500/20 text-yellow-500 border border-yellow-500/30 uppercase font-black text-[9px] tracking-widest animate-pulse">
+                        <Badge className="bg-yellow-500/20 text-yellow-600 dark:text-yellow-500 border border-yellow-500/30 uppercase font-black text-[9px] tracking-widest animate-pulse">
                           LOBBY READY FOR ACTION
                         </Badge>
                       );
                     } else {
                       return (
-                        <Badge className="bg-blue-500/20 text-blue-400 border-none uppercase font-black text-[9px] tracking-widest">
+                        <Badge className="bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 dark:border-none uppercase font-black text-[9px] tracking-widest">
                           WAITING FOR PLAYERS
                         </Badge>
                       );
@@ -858,7 +858,7 @@ export default function Games() {
                         {isDeletingId === game.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                       </button>
                     )}
-                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/5 text-[10px] font-black tracking-widest text-white/60">
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-100 dark:bg-white/5 text-[10px] font-black tracking-widest text-slate-600 dark:text-white/60">
                       <Users className="w-3.5 h-3.5" />
                       {game.participants?.length || 0} / {(game.numberOfRounds || 1) * 2}
                     </div>
@@ -866,20 +866,20 @@ export default function Games() {
                 </div>
                 
                 <div>
-                  <h3 className="text-xl font-black uppercase tracking-tight">{game.roomName}</h3>
-                  <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">Host: {game.hostName}</p>
+                  <h3 className="text-xl font-black uppercase tracking-tight text-slate-900 dark:text-white">{game.roomName}</h3>
+                  <p className="text-[10px] text-slate-500 dark:text-muted-foreground font-bold uppercase tracking-widest">Host: {game.hostName}</p>
                 </div>
 
-                <div className="pt-4 border-t border-white/5 flex justify-between items-end">
+                <div className="pt-4 border-t border-slate-100 dark:border-white/5 flex justify-between items-end">
                    <div className="flex gap-6">
                       <div>
-                        <p className="text-[9px] text-muted-foreground uppercase font-black tracking-widest">Entry Fee</p>
-                        <p className="text-lg font-black text-white">₦{game.entryFee}</p>
+                        <p className="text-[9px] text-slate-500 dark:text-muted-foreground uppercase font-black tracking-widest">Entry Fee</p>
+                        <p className="text-lg font-black text-slate-900 dark:text-white">₦{game.entryFee}</p>
                       </div>
                       {game.prizeAmount > 0 && (
                         <div>
-                          <p className="text-[9px] text-yellow-500/80 uppercase font-black tracking-widest">Prize Pool</p>
-                          <p className="text-lg font-black text-yellow-500">₦{game.prizeAmount.toLocaleString()}</p>
+                          <p className="text-[9px] text-yellow-600 dark:text-yellow-500/80 uppercase font-black tracking-widest">Prize Pool</p>
+                          <p className="text-lg font-black text-yellow-600 dark:text-yellow-500">₦{game.prizeAmount.toLocaleString()}</p>
                         </div>
                       )}
                    </div>
@@ -887,7 +887,7 @@ export default function Games() {
                      <Button
                        onClick={(e) => handleShareRoom(e, game)}
                        variant="outline"
-                       className="h-9 w-9 rounded-xl border-white/10 hover:bg-white/10 text-white flex items-center justify-center p-0"
+                       className="h-9 w-9 rounded-xl border-slate-200 dark:border-white/10 bg-slate-50 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-white flex items-center justify-center p-0 transition-colors"
                        title="Share Room Link"
                      >
                        <Share2 className="w-3.5 h-3.5" />
@@ -895,7 +895,7 @@ export default function Games() {
                      <Button 
                       disabled={isSubmitting}
                       onClick={() => handleJoinClick(game)}
-                      className="h-9 px-5 rounded-xl font-black uppercase text-[10px] bg-white/10 hover:bg-yellow-500 hover:text-black transition-all"
+                      className="h-9 px-5 rounded-xl font-black uppercase text-[10px] bg-yellow-500 hover:bg-yellow-400 text-black shadow-md shadow-yellow-500/20 active:scale-95 transition-all disabled:opacity-50"
                      >
                        {isSubmitting ? '...' : 'Enter Room'}
                      </Button>
@@ -908,7 +908,7 @@ export default function Games() {
       </div>
 
       {/* Detailed Game Rules & Operator's Guide */}
-      <div className="glass-card p-6 md:p-10 border-white/10 relative overflow-hidden mt-12">
+      <div className="glass-card p-6 md:p-10 border-slate-200 dark:border-white/10 relative overflow-hidden mt-12 bg-white dark:bg-slate-900/60 shadow-sm">
         <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/5 via-purple-500/5 to-transparent pointer-events-none" />
         <div className="relative z-10 space-y-8">
            <div className="flex items-center gap-3">
@@ -916,86 +916,86 @@ export default function Games() {
                  <BookOpen className="w-5 h-5 text-primary" />
               </div>
               <div>
-                 <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight">How it Works & Arena Rules</h2>
-                 <p className="text-[10px] md:text-xs text-muted-foreground font-bold uppercase tracking-widest">Master the Split or Steal Game & Lobbies</p>
+                 <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-slate-900 dark:text-white">How it Works & Arena Rules</h2>
+                 <p className="text-[10px] md:text-xs text-slate-500 dark:text-muted-foreground font-bold uppercase tracking-widest">Master the Split or Steal Game & Lobbies</p>
               </div>
            </div>
 
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {/* Step 1: Create */}
-              <div className="space-y-3 p-5 rounded-2xl bg-white/5 border border-white/10 hover:border-primary/20 transition-all">
-                 <div className="w-8 h-8 rounded-lg bg-yellow-500/20 text-yellow-500 flex items-center justify-center font-black text-sm">1</div>
-                 <h4 className="font-black uppercase tracking-wider text-xs text-white">Create a Room</h4>
-                 <p className="text-[10px] leading-relaxed text-muted-foreground font-medium">
-                   Click <span className="text-yellow-500 font-bold">"Create Room"</span>. Specify the name, number of rounds, entry fee (from Game Wallet), and prize pool. You must fund the prize pool from your Game or Referral Wallet.
+              <div className="space-y-3 p-5 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 hover:border-primary/30 transition-all">
+                 <div className="w-8 h-8 rounded-lg bg-yellow-500/20 text-yellow-600 dark:text-yellow-500 flex items-center justify-center font-black text-sm">1</div>
+                 <h4 className="font-black uppercase tracking-wider text-xs text-slate-900 dark:text-white">Create a Room</h4>
+                 <p className="text-[10px] leading-relaxed text-slate-600 dark:text-muted-foreground font-medium">
+                   Click <span className="text-yellow-600 dark:text-yellow-500 font-bold">"Create Room"</span>. Specify the name, number of rounds, entry fee (from Game Wallet), and prize pool. You must fund the prize pool from your Game or Referral Wallet.
                  </p>
               </div>
 
               {/* Step 2: Join */}
-              <div className="space-y-3 p-5 rounded-2xl bg-white/5 border border-white/10 hover:border-primary/20 transition-all">
-                 <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center font-black text-sm">2</div>
-                 <h4 className="font-black uppercase tracking-wider text-xs text-white">Invite & Join</h4>
-                 <p className="text-[10px] leading-relaxed text-muted-foreground font-medium">
-                   Click the <span className="text-purple-400 font-bold">Share icon</span> to copy the direct invite link. Users can join as a <span className="text-white font-bold">Player</span> (requires paying the entry fee to enter the contestant pool) or as a <span className="text-white font-bold">Viewer</span>.
+              <div className="space-y-3 p-5 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 hover:border-primary/30 transition-all">
+                 <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-600 dark:text-purple-400 flex items-center justify-center font-black text-sm">2</div>
+                 <h4 className="font-black uppercase tracking-wider text-xs text-slate-900 dark:text-white">Invite & Join</h4>
+                 <p className="text-[10px] leading-relaxed text-slate-600 dark:text-muted-foreground font-medium">
+                   Click the <span className="text-purple-600 dark:text-purple-400 font-bold">Share icon</span> to copy the direct invite link. Users can join as a <span className="text-slate-900 dark:text-white font-bold">Player</span> (requires paying the entry fee to enter the contestant pool) or as a <span className="text-slate-900 dark:text-white font-bold">Viewer</span>.
                  </p>
               </div>
 
               {/* Step 3: Matchmaking */}
-              <div className="space-y-3 p-5 rounded-2xl bg-white/5 border border-white/10 hover:border-primary/20 transition-all">
-                 <div className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-500 flex items-center justify-center font-black text-sm">3</div>
-                 <h4 className="font-black uppercase tracking-wider text-xs text-white">Arena Matchmaking</h4>
-                 <p className="text-[10px] leading-relaxed text-muted-foreground font-medium">
+              <div className="space-y-3 p-5 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 hover:border-primary/30 transition-all">
+                 <div className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-600 dark:text-rose-500 flex items-center justify-center font-black text-sm">3</div>
+                 <h4 className="font-black uppercase tracking-wider text-xs text-slate-900 dark:text-white">Arena Matchmaking</h4>
+                 <p className="text-[10px] leading-relaxed text-slate-600 dark:text-muted-foreground font-medium">
                    Once the lobby is full, the host shuffles the participants. Two players enter the Arena per round. The host initiates a 60-second timer where they converse in the Arena Chat.
                  </p>
               </div>
 
               {/* Step 4: Split or Steal */}
-              <div className="space-y-3 p-5 rounded-2xl bg-white/5 border border-white/10 hover:border-primary/20 transition-all">
-                 <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-500 flex items-center justify-center font-black text-sm">4</div>
-                 <h4 className="font-black uppercase tracking-wider text-xs text-white">The Choice (Payouts)</h4>
-                 <p className="text-[10px] leading-relaxed text-muted-foreground font-medium">
-                   Both players secretly choose to <span className="text-yellow-500 font-bold">Split</span> or <span className="text-purple-500 font-bold">Steal</span>. You have 10 seconds, but your choice is locked in during the final 5 seconds.
+              <div className="space-y-3 p-5 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 hover:border-primary/30 transition-all">
+                 <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-500 flex items-center justify-center font-black text-sm">4</div>
+                 <h4 className="font-black uppercase tracking-wider text-xs text-slate-900 dark:text-white">The Choice (Payouts)</h4>
+                 <p className="text-[10px] leading-relaxed text-slate-600 dark:text-muted-foreground font-medium">
+                   Both players secretly choose to <span className="text-yellow-600 dark:text-yellow-500 font-bold">Split</span> or <span className="text-purple-600 dark:text-purple-500 font-bold">Steal</span>. You have 10 seconds, but your choice is locked in during the final 5 seconds.
                  </p>
               </div>
            </div>
 
            {/* Outcomes & Financial breakdown */}
-           <div className="pt-6 border-t border-white/5 grid grid-cols-1 lg:grid-cols-2 gap-8">
+           <div className="pt-6 border-t border-slate-200 dark:border-white/5 grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="space-y-4">
-                 <h3 className="text-xs font-black uppercase tracking-[0.2em] text-yellow-500 flex items-center gap-2">
+                 <h3 className="text-xs font-black uppercase tracking-[0.2em] text-yellow-600 dark:text-yellow-500 flex items-center gap-2">
                     <Coins className="w-4 h-4" /> Game Payout & Outcome Rules
                  </h3>
-                 <div className="space-y-3 text-[10px] font-medium text-muted-foreground leading-relaxed">
+                 <div className="space-y-3 text-[10px] font-medium text-slate-600 dark:text-muted-foreground leading-relaxed">
                     <div className="flex gap-3 items-start">
-                       <span className="font-black"><span className="text-yellow-500">Split</span> + <span className="text-yellow-500">Split</span> <span className="text-yellow-500">(Share):</span></span>
+                       <span className="font-black"><span className="text-yellow-600 dark:text-yellow-500">Split</span> + <span className="text-yellow-600 dark:text-yellow-500">Split</span> <span className="text-yellow-600 dark:text-yellow-500">(Share):</span></span>
                        <span>Both players split the prize pool for that round 50/50. Winnings are deposited immediately to your Game Wallet.</span>
                     </div>
                     <div className="flex gap-3 items-start">
-                        <span className="font-black"><span className="text-purple-400">Steal</span> + <span className="text-yellow-500">Split</span> <span className="text-purple-400">(Stealer Wins):</span></span>
+                        <span className="font-black"><span className="text-purple-600 dark:text-purple-400">Steal</span> + <span className="text-yellow-600 dark:text-yellow-500">Split</span> <span className="text-purple-600 dark:text-purple-400">(Stealer Wins):</span></span>
                        <span>The player who chose Steal wins 100% of the round's prize pool. The player who chose Split gets ₦0.</span>
                     </div>
                     <div className="flex gap-3 items-start">
-                        <span className="font-black"><span className="text-purple-400">Steal</span> + <span className="text-purple-400">Steal</span> <span className="text-rose-500">(No Winners):</span></span>
+                        <span className="font-black"><span className="text-purple-600 dark:text-purple-400">Steal</span> + <span className="text-purple-600 dark:text-purple-400">Steal</span> <span className="text-rose-600 dark:text-rose-500">(No Winners):</span></span>
                        <span>Both players choose Steal. Nobody gets any money; the prize pool for that round is forfeited back to the game platform.</span>
                     </div>
                  </div>
               </div>
 
               <div className="space-y-4">
-                 <h3 className="text-xs font-black uppercase tracking-[0.2em] text-purple-400 flex items-center gap-2">
+                 <h3 className="text-xs font-black uppercase tracking-[0.2em] text-purple-600 dark:text-purple-400 flex items-center gap-2">
                     <MessageSquare className="w-4 h-4" /> Host Earnings & Chat Control
                  </h3>
-                 <div className="space-y-3 text-[10px] font-medium text-muted-foreground leading-relaxed">
+                 <div className="space-y-3 text-[10px] font-medium text-slate-600 dark:text-muted-foreground leading-relaxed">
                     <div className="flex gap-3 items-start">
-                       <span className="text-white font-bold">Hosting Rewards:</span>
+                       <span className="text-slate-900 dark:text-white font-bold">Hosting Rewards:</span>
                        <span>Hosts earn 100% of the player entry fees collected in the room. This makes room hosting an extremely profitable activity.</span>
                     </div>
                     <div className="flex gap-3 items-start">
-                       <span className="text-white font-bold">Arena Chat Lockdown:</span>
+                       <span className="text-slate-900 dark:text-white font-bold">Arena Chat Lockdown:</span>
                        <span>During active rounds, only the two active contestants are allowed to write in the Arena chat. Spectators and waiting players are view-only.</span>
                     </div>
                     <div className="flex gap-3 items-start">
-                       <span className="text-white font-bold">Global Spectator Chat:</span>
+                       <span className="text-slate-900 dark:text-white font-bold">Global Spectator Chat:</span>
                        <span>Viewers can chat in the Global channel to analyze the match, which is invisible to active contestants to prevent outside interference.</span>
                     </div>
                  </div>
@@ -1009,64 +1009,64 @@ export default function Games() {
         <AnimatePresence>
           {isCreateModalOpen && (
             <div className="fixed inset-0 z-[5000] flex items-center justify-center p-4">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsCreateModalOpen(false)} className="absolute inset-0 bg-black/90 backdrop-blur-md" />
-              <motion.div initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }} className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto custom-scrollbar glass-card border-white/10 shadow-2xl">
-                 <div className="sticky top-0 bg-background/90 backdrop-blur-xl border-b border-white/10 p-6 flex justify-between items-center z-20">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsCreateModalOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+              <motion.div initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }} className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto custom-scrollbar glass-card bg-white dark:bg-slate-900 border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl sm:rounded-3xl">
+                 <div className="sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-b border-slate-200 dark:border-white/10 p-6 flex justify-between items-center z-20">
                     <div className="flex items-center gap-3">
                        <div className="w-10 h-10 rounded-xl bg-yellow-500/10 flex items-center justify-center border border-yellow-500/20">
                           <Gamepad2 className="w-5 h-5 text-yellow-500" />
                        </div>
                        <div>
-                         <h2 className="text-lg font-black uppercase tracking-tight">Host a Game</h2>
-                         <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-widest">Split or Steal Event</p>
+                         <h2 className="text-lg font-black uppercase tracking-tight text-slate-900 dark:text-white">Host a Game</h2>
+                         <p className="text-[9px] text-slate-500 dark:text-muted-foreground font-bold uppercase tracking-widest">Split or Steal Event</p>
                        </div>
                     </div>
-                    <button onClick={() => setIsCreateModalOpen(false)} className="p-2 rounded-full hover:bg-white/10"><X className="w-5 h-5" /></button>
+                    <button onClick={() => setIsCreateModalOpen(false)} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-white/10 text-slate-600 dark:text-white"><X className="w-5 h-5" /></button>
                  </div>
 
                  <form onSubmit={handleCreateGame} className="p-6 space-y-6">
                     <div className="space-y-4">
                        <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Room Name</label>
-                          <input type="text" required value={roomName} onChange={e => setRoomName(e.target.value)} placeholder="e.g. 100k Challenge" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-yellow-500/50" />
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Room Name</label>
+                          <input type="text" required value={roomName} onChange={e => setRoomName(e.target.value)} placeholder="e.g. 100k Challenge" className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-yellow-500/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60" />
                        </div>
 
                        <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Entry Fee per User (₦)</label>
-                          <input type="number" required value={entryFee} onChange={e => setEntryFee(e.target.value)} placeholder="e.g. 50" min="0" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-yellow-500/50" />
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Entry Fee per User (₦)</label>
+                          <input type="number" required value={entryFee} onChange={e => setEntryFee(e.target.value)} placeholder="e.g. 50" min="0" className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-yellow-500/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60" />
                        </div>
 
-                       <div className="space-y-4 pt-4 border-t border-white/10">
+                       <div className="space-y-4 pt-4 border-t border-slate-200 dark:border-white/10">
                           <div className="flex items-center justify-between">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Multiple Rounds?</label>
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-muted-foreground">Multiple Rounds?</label>
                             <input type="checkbox" checked={isMultipleRounds} onChange={e => setIsMultipleRounds(e.target.checked)} className="w-4 h-4 accent-yellow-500" />
                           </div>
                           <AnimatePresence>
                              {isMultipleRounds && (
                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-2 overflow-hidden">
-                                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Number of Rounds</label>
-                                  <input type="number" required={isMultipleRounds} value={numberOfRounds} onChange={e => setNumberOfRounds(e.target.value)} placeholder="e.g. 5" min="1" className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 px-4 text-sm font-bold outline-none focus:border-yellow-500/50" />
+                                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Number of Rounds</label>
+                                  <input type="number" required={isMultipleRounds} value={numberOfRounds} onChange={e => setNumberOfRounds(e.target.value)} placeholder="e.g. 5" min="1" className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-2.5 px-4 text-sm font-bold outline-none focus:border-yellow-500/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60" />
                                </motion.div>
                              )}
                           </AnimatePresence>
                        </div>
 
                        <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Prize Per Round (₦)</label>
-                          <input type="number" required value={prizePerRound} onChange={e => setPrizePerRound(e.target.value)} placeholder="e.g. 1000" min="0" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-yellow-500/50" />
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Prize Per Round (₦)</label>
+                          <input type="number" required value={prizePerRound} onChange={e => setPrizePerRound(e.target.value)} placeholder="e.g. 1000" min="0" className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-yellow-500/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60" />
                        </div>
 
-                       <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-4">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Start Condition</label>
+                       <div className="p-4 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 space-y-4">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Start Condition</label>
                           <div className="flex gap-2">
-                             <button type="button" onClick={() => setStartCondition('auto')} className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${startCondition === 'auto' ? 'bg-yellow-500 text-black shadow-lg' : 'bg-black/40 text-muted-foreground border border-white/10'}`}>Auto-Start</button>
-                             <button type="button" onClick={() => setStartCondition('manual')} className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${startCondition === 'manual' ? 'bg-yellow-500 text-black shadow-lg' : 'bg-black/40 text-muted-foreground border border-white/10'}`}>Manual Start</button>
+                             <button type="button" onClick={() => setStartCondition('auto')} className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${startCondition === 'auto' ? 'bg-yellow-500 text-black shadow-lg font-black' : 'bg-slate-200/70 dark:bg-black/40 text-slate-600 dark:text-muted-foreground border border-slate-300 dark:border-white/10'}`}>Auto-Start</button>
+                             <button type="button" onClick={() => setStartCondition('manual')} className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${startCondition === 'manual' ? 'bg-yellow-500 text-black shadow-lg font-black' : 'bg-slate-200/70 dark:bg-black/40 text-slate-600 dark:text-muted-foreground border border-slate-300 dark:border-white/10'}`}>Manual Start</button>
                           </div>
                           
                           {startCondition === 'auto' && (
                              <div className="space-y-2 pt-2">
-                               <label className="text-[9px] font-bold text-muted-foreground uppercase">When pool reaches:</label>
-                                <div className="p-3 bg-black/40 border border-white/10 rounded-xl text-[10px] font-bold text-yellow-500 uppercase tracking-widest text-center">
+                               <label className="text-[9px] font-bold text-slate-500 dark:text-muted-foreground uppercase">When pool reaches:</label>
+                                <div className="p-3 bg-white dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl text-[10px] font-black text-yellow-600 dark:text-yellow-500 uppercase tracking-widest text-center shadow-xs">
                                   {isMultipleRounds 
                                     ? (numberOfRounds && !isNaN(parseInt(numberOfRounds)) 
                                         ? `${parseInt(numberOfRounds) * 2} Players (Lobby Full)` 
@@ -1081,8 +1081,8 @@ export default function Games() {
                          <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/20 space-y-4">
                            <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
-                                <ShieldAlert className="w-4 h-4 text-purple-400" />
-                                <span className="text-[10px] font-black uppercase tracking-widest text-purple-400">Admin Bypass: Manual Pairing</span>
+                                <ShieldAlert className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                                <span className="text-[10px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-400">Admin Bypass: Manual Pairing</span>
                               </div>
                               <input type="checkbox" checked={isManualPairing} onChange={e => setIsManualPairing(e.target.checked)} className="w-4 h-4 accent-purple-500" />
                            </div>
@@ -1090,8 +1090,8 @@ export default function Games() {
                            <AnimatePresence>
                              {isManualPairing && (
                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-3 overflow-hidden">
-                                  <input type="text" value={playerAId} onChange={e => setPlayerAId(e.target.value)} placeholder="Player A Aura ID" className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 px-3 text-xs outline-none focus:border-purple-500/50" />
-                                  <input type="text" value={playerBId} onChange={e => setPlayerBId(e.target.value)} placeholder="Player B Aura ID" className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 px-3 text-xs outline-none focus:border-purple-500/50" />
+                                  <input type="text" value={playerAId} onChange={e => setPlayerAId(e.target.value)} placeholder="Player A Aura ID" className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-2.5 px-3 text-xs outline-none focus:border-purple-500/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60" />
+                                  <input type="text" value={playerBId} onChange={e => setPlayerBId(e.target.value)} placeholder="Player B Aura ID" className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-2.5 px-3 text-xs outline-none focus:border-purple-500/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60" />
                                </motion.div>
                              )}
                            </AnimatePresence>
@@ -1101,19 +1101,19 @@ export default function Games() {
                        <div className="flex gap-4">
                          <div className="flex-1 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 flex flex-col justify-center">
                             <div className="space-y-1">
-                              <p className="text-[10px] font-black uppercase text-yellow-500 tracking-widest">
+                              <p className="text-[10px] font-black uppercase text-yellow-600 dark:text-yellow-500 tracking-widest">
                                  Host Earnings ({isAdmin ? '100%' : '70%'})
                               </p>
-                              <p className="text-[9px] text-muted-foreground font-medium">From pool</p>
+                              <p className="text-[9px] text-slate-500 dark:text-muted-foreground font-medium">From pool</p>
                             </div>
-                            <p className="text-xl font-black text-white mt-2">₦{calculateHostEarnings().toLocaleString()}</p>
+                            <p className="text-xl font-black text-slate-900 dark:text-white mt-2">₦{calculateHostEarnings().toLocaleString()}</p>
                          </div>
                          <div className="flex-1 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 flex flex-col justify-center">
                             <div className="space-y-1">
-                              <p className="text-[10px] font-black uppercase text-rose-500 tracking-widest">Total Prize Cost</p>
-                              <p className="text-[9px] text-muted-foreground font-medium">Deducted from wallet</p>
+                              <p className="text-[10px] font-black uppercase text-rose-600 dark:text-rose-500 tracking-widest">Total Prize Cost</p>
+                              <p className="text-[9px] text-slate-500 dark:text-muted-foreground font-medium">Deducted from wallet</p>
                             </div>
-                            <p className="text-xl font-black text-white mt-2">₦{calculateTotalPrizeCost().toLocaleString()}</p>
+                            <p className="text-xl font-black text-slate-900 dark:text-white mt-2">₦{calculateTotalPrizeCost().toLocaleString()}</p>
                          </div>
                        </div>
                     </div>
@@ -1134,8 +1134,8 @@ export default function Games() {
         <AnimatePresence>
           {isWithdrawAmountModalOpen && (
             <div className="fixed inset-0 z-[6000] flex items-center justify-center p-4">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsWithdrawAmountModalOpen(false)} className="absolute inset-0 bg-black/95 backdrop-blur-md" />
-              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card border-slate-200 dark:border-white/10 shadow-2xl p-8 space-y-8 max-h-[85vh] overflow-y-auto custom-scrollbar">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsWithdrawAmountModalOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card bg-white dark:bg-slate-900 border-slate-200 dark:border-white/10 shadow-2xl p-8 space-y-8 max-h-[85vh] overflow-y-auto custom-scrollbar rounded-2xl sm:rounded-3xl">
                  <div className="text-center space-y-2">
                     <div className="w-16 h-16 rounded-3xl bg-yellow-500/10 flex items-center justify-center mx-auto mb-4 border border-yellow-500/20">
                        <ArrowUpRight className="w-8 h-8 text-yellow-500" />
@@ -1146,12 +1146,12 @@ export default function Games() {
 
                  <div className="space-y-6">
                     <div className="p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex justify-between items-center">
-                       <span className="text-[10px] font-black uppercase text-yellow-700 dark:text-yellow-500/60 tracking-widest font-black">Available</span>
+                       <span className="text-[10px] font-black uppercase text-yellow-700 dark:text-yellow-500/60 tracking-widest">Available</span>
                        <span className="text-xl font-black text-slate-900 dark:text-white">₦{gameWalletBalance.toLocaleString()}</span>
                     </div>
 
                     <div className="space-y-2">
-                       <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Amount to Withdraw (₦)</label>
+                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Amount to Withdraw (₦)</label>
                        <div className="relative">
                           <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 dark:text-white/40">₦</span>
                           <input 
@@ -1163,7 +1163,7 @@ export default function Games() {
                                setWithdrawAmountInput(val);
                              }} 
                             placeholder="0.00" 
-                            className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-10 pr-4 text-sm font-black outline-none focus:border-primary/50 text-slate-900 dark:text-white" 
+                            className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-10 pr-4 text-sm font-black outline-none focus:border-primary/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60" 
                           />
                        </div>
                     </div>
@@ -1192,20 +1192,20 @@ export default function Games() {
         <AnimatePresence>
           {isConfirmWithdrawModalOpen && (
             <div className="fixed inset-0 z-[7000] flex items-center justify-center p-4">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsConfirmWithdrawModalOpen(false)} className="absolute inset-0 bg-black/95 backdrop-blur-md" />
-              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card border-white/10 shadow-2xl p-8 space-y-6 text-center">
-                 <div className="w-16 h-16 rounded-full bg-yellow-500/10 text-yellow-500 flex items-center justify-center mx-auto border border-yellow-500/20">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsConfirmWithdrawModalOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card bg-white dark:bg-slate-900 border-slate-200 dark:border-white/10 shadow-2xl p-8 space-y-6 text-center rounded-2xl sm:rounded-3xl">
+                 <div className="w-16 h-16 rounded-full bg-yellow-500/10 text-yellow-600 dark:text-yellow-500 flex items-center justify-center mx-auto border border-yellow-500/20">
                     <ShieldAlert className="w-8 h-8" />
                  </div>
                  <div className="space-y-2">
-                    <h3 className="text-xl font-black uppercase text-white">Confirm Transfer</h3>
-                    <p className="text-xs text-muted-foreground font-medium uppercase leading-relaxed px-4">
+                    <h3 className="text-xl font-black uppercase text-slate-900 dark:text-white">Confirm Transfer</h3>
+                    <p className="text-xs text-slate-600 dark:text-muted-foreground font-medium uppercase leading-relaxed px-4">
                       Are you sure you want to move ₦{parseFloat(withdrawAmountInput).toLocaleString()} to your Main Earnings wallet?
                     </p>
                  </div>
                  <div className="flex flex-col gap-3">
                     <Button onClick={confirmWithdrawal} disabled={isWithdrawing} className="w-full h-12 gradient-bg rounded-xl font-black uppercase text-[10px]">Yes, Move Funds</Button>
-                    <Button variant="ghost" onClick={() => setIsConfirmWithdrawModalOpen(false)} className="text-[10px] font-black uppercase text-white/40 hover:text-white">Cancel</Button>
+                    <Button variant="ghost" onClick={() => setIsConfirmWithdrawModalOpen(false)} className="text-[10px] font-black uppercase text-slate-500 hover:text-slate-900 dark:text-white/40 dark:hover:text-white">Cancel</Button>
                  </div>
               </motion.div>
             </div>
@@ -1219,11 +1219,11 @@ export default function Games() {
         <AnimatePresence>
           {showJoinChoice && (
             <div className="fixed inset-0 z-[5001] flex items-center justify-center p-4">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowJoinChoice(false)} className="absolute inset-0 bg-black/95 backdrop-blur-md" />
-              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card border-white/10 shadow-2xl p-8 text-center space-y-8">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowJoinChoice(false)} className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card bg-white dark:bg-slate-900 border-slate-200 dark:border-white/10 shadow-2xl p-8 text-center space-y-8 rounded-2xl sm:rounded-3xl">
                  <div className="space-y-2">
-                    <h2 className="text-2xl font-black uppercase tracking-tight text-white">How do you want to join?</h2>
-                    <p className="text-xs text-muted-foreground font-bold uppercase tracking-widest">Room Fee: ₦{joiningGame?.entryFee || 0} <span className="text-yellow-500 opacity-60">(Paid from Game Wallet)</span></p>
+                    <h2 className="text-2xl font-black uppercase tracking-tight text-slate-900 dark:text-white">How do you want to join?</h2>
+                    <p className="text-xs text-slate-500 dark:text-muted-foreground font-bold uppercase tracking-widest">Room Fee: ₦{joiningGame?.entryFee || 0} <span className="text-yellow-600 dark:text-yellow-500 opacity-80 dark:opacity-60">(Paid from Game Wallet)</span></p>
                  </div>
 
                  <div className="grid grid-cols-1 gap-4">
@@ -1238,18 +1238,18 @@ export default function Games() {
                            onClick={() => handleSelectRole('player')}
                            className={`group p-6 rounded-2xl border transition-all text-left flex items-center gap-4 ${
                              isFull 
-                             ? 'opacity-40 cursor-not-allowed bg-red-500/5 border-red-500/20' 
-                             : 'bg-yellow-500/10 border-yellow-500/30 hover:bg-yellow-500 hover:text-black'
+                             ? 'opacity-40 cursor-not-allowed bg-red-500/5 border-red-500/20 text-slate-900 dark:text-white' 
+                             : 'bg-yellow-500/10 border-yellow-500/30 hover:bg-yellow-500 hover:text-black text-slate-900 dark:text-white'
                            }`}
                          >
                             <div className="w-12 h-12 rounded-xl bg-yellow-500/20 group-hover:bg-black/10 flex items-center justify-center shrink-0">
-                               <Swords className={`w-6 h-6 ${isFull ? 'text-red-400' : 'text-yellow-500 group-hover:text-black'}`} />
+                               <Swords className={`w-6 h-6 ${isFull ? 'text-red-400' : 'text-yellow-600 dark:text-yellow-500 group-hover:text-black'}`} />
                             </div>
                             <div>
                                <p className="font-black uppercase text-sm">
                                  {isFull ? 'Player Slots Full' : 'Join to Compete'}
                                </p>
-                               <p className="text-[10px] font-bold opacity-60">
+                               <p className="text-[10px] font-bold opacity-70">
                                  {isFull 
                                    ? `Limit of ${maxPlayers} players reached (${joiningGame?.numberOfRounds} rounds)`
                                    : `Pay fee and enter prize pool (${currentPlayers}/${maxPlayers} filled)`
@@ -1262,19 +1262,19 @@ export default function Games() {
 
                     <button 
                       onClick={() => handleSelectRole('viewer')}
-                      className="group p-6 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all text-left flex items-center gap-4"
+                      className="group p-6 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/10 transition-all text-left flex items-center gap-4 text-slate-900 dark:text-white"
                     >
-                       <div className="w-12 h-12 rounded-xl bg-white/5 group-hover:bg-white/10 flex items-center justify-center shrink-0">
-                          <Users className="w-6 h-6 text-muted-foreground group-hover:text-white" />
+                       <div className="w-12 h-12 rounded-xl bg-slate-200/50 dark:bg-white/5 group-hover:bg-slate-200 dark:group-hover:bg-white/10 flex items-center justify-center shrink-0">
+                          <Users className="w-6 h-6 text-slate-600 dark:text-muted-foreground group-hover:text-slate-900 dark:group-hover:text-white" />
                        </div>
                        <div>
                           <p className="font-black uppercase text-sm">Watch Only</p>
-                          <p className="text-[10px] font-bold opacity-60">Free entry. View only access.</p>
+                          <p className="text-[10px] font-bold opacity-70">Free entry. View only access.</p>
                        </div>
                     </button>
                  </div>
 
-                 <Button variant="ghost" onClick={() => setShowJoinChoice(false)} className="text-[10px] font-black uppercase tracking-widest opacity-40 hover:opacity-100">Cancel</Button>
+                 <Button variant="ghost" onClick={() => setShowJoinChoice(false)} className="text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 dark:text-white/40 dark:hover:text-white">Cancel</Button>
               </motion.div>
             </div>
           )}

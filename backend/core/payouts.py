@@ -17,11 +17,11 @@ def calculate_payout_split(host_uid: str, amount: float, db, transaction=None):
     host_base_rate = 0.70
     referral_rate_of_host = 0.10 # 10% of the 70%
     
-    platform_cut = amount * platform_rate
-    host_pool = amount * host_base_rate
+    platform_cut = round(amount * platform_rate, 2)
+    host_pool = round(amount * host_base_rate, 2)
     
     referrer_uid = None
-    referrer_cut = 0
+    referrer_cut = 0.0
     
     try:
         # Check if host was referred
@@ -50,8 +50,8 @@ def calculate_payout_split(host_uid: str, amount: float, db, transaction=None):
 
                 if (now - created_at_ts) < three_months_sec:
                     referrer_uid = referred_by
-                    referrer_cut = host_pool * referral_rate_of_host # 10% of the 70% (e.g. 700 from 7000)
-                    host_pool -= referrer_cut # Host keeps the rest (e.g. 6300)
+                    referrer_cut = round(host_pool * referral_rate_of_host, 2) # 10% of the 70%
+                    host_pool = round(host_pool - referrer_cut, 2) # Host keeps the rest
     except Exception as e:
         print(f"Payout calculation error: {str(e)}")
         pass

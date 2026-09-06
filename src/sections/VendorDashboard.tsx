@@ -135,28 +135,28 @@ const VendorFilterCustomDropdown: React.FC<VendorFilterDropdownProps> = ({
         onClick={() => setIsOpen(!isOpen)}
         className={`w-full flex items-center justify-between gap-2.5 px-3 py-2 sm:py-1.5 rounded-xl text-xs font-bold transition-all ${
           isGold
-            ? 'bg-black/70 hover:bg-black/90 border border-amber-500/40 text-amber-300 shadow-lg shadow-amber-500/5'
-            : 'bg-white/5 hover:bg-white/10 border border-white/15 text-white'
+            ? 'bg-amber-500/10 hover:bg-amber-500/20 dark:bg-black/70 dark:hover:bg-black/90 border border-amber-500/40 text-amber-900 dark:text-amber-300 shadow-lg shadow-amber-500/5'
+            : 'bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 border border-slate-200 dark:border-white/15 text-slate-900 dark:text-white'
         }`}
       >
         <div className="flex items-center gap-2 truncate">
-          <Store className={`w-3.5 h-3.5 shrink-0 ${isGold ? 'text-amber-400' : 'text-primary'}`} />
-          <span className="text-[9px] uppercase tracking-wider text-muted-foreground font-black hidden sm:inline">
+          <Store className={`w-3.5 h-3.5 shrink-0 ${isGold ? 'text-amber-600 dark:text-amber-400' : 'text-primary'}`} />
+          <span className="text-[9px] uppercase tracking-wider text-slate-500 dark:text-muted-foreground font-black hidden sm:inline">
             {labelPrefix}
           </span>
           <span className="truncate font-black">{selectedName}</span>
           {selectedVendor === 'all' && totalAllCount !== undefined && (
-            <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black shrink-0 ${isGold ? 'bg-amber-500/20 text-amber-300' : 'bg-white/10 text-white'}`}>
+            <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black shrink-0 ${isGold ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'bg-slate-200 dark:bg-white/10 text-slate-700 dark:text-white'}`}>
               {totalAllCount}
             </span>
           )}
           {selectedVendor !== 'all' && getItemCount && (
-            <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black shrink-0 ${isGold ? 'bg-amber-500/20 text-amber-300' : 'bg-white/10 text-white'}`}>
+            <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black shrink-0 ${isGold ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'bg-slate-200 dark:bg-white/10 text-slate-700 dark:text-white'}`}>
               {getItemCount(selectedVendor)}
             </span>
           )}
         </div>
-        <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''} ${isGold ? 'text-amber-400' : 'text-muted-foreground'}`} />
+        <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''} ${isGold ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-muted-foreground'}`} />
       </button>
 
       <AnimatePresence>
@@ -166,7 +166,7 @@ const VendorFilterCustomDropdown: React.FC<VendorFilterDropdownProps> = ({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 6, scale: 0.97 }}
             transition={{ duration: 0.15 }}
-            className="absolute z-[120] left-0 sm:left-auto right-0 top-full mt-2 w-full sm:w-72 max-h-72 overflow-y-auto bg-[#0b0f19] border border-amber-500/30 rounded-2xl shadow-2xl p-1.5 divide-y divide-white/5 backdrop-blur-2xl ring-1 ring-black/80 custom-scrollbar"
+            className="absolute z-[120] left-0 sm:left-auto right-0 top-full mt-2 w-full sm:w-72 max-h-72 overflow-y-auto bg-white dark:bg-[#0b0f19] border border-slate-200 dark:border-amber-500/30 rounded-2xl shadow-2xl p-1.5 divide-y divide-slate-100 dark:divide-white/5 backdrop-blur-2xl ring-1 ring-slate-900/5 dark:ring-black/80 custom-scrollbar"
           >
             {/* Option: All Vendors */}
             <div className="pb-1">
@@ -178,21 +178,21 @@ const VendorFilterCustomDropdown: React.FC<VendorFilterDropdownProps> = ({
                 }}
                 className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left text-xs font-bold transition-all ${
                   selectedVendor === 'all'
-                    ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                    : 'text-white hover:bg-white/5 hover:text-amber-200'
+                    ? 'bg-amber-500/15 text-amber-900 dark:text-amber-300 border border-amber-500/30'
+                    : 'text-slate-800 dark:text-white hover:bg-slate-100 dark:hover:bg-white/5 hover:text-amber-700 dark:hover:text-amber-200'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <div className="w-6 h-6 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+                  <div className="w-6 h-6 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
                     <Store className="w-3.5 h-3.5" />
                   </div>
                   <div>
                     <p className="font-bold">All Vendors</p>
-                    <p className="text-[9px] text-muted-foreground uppercase font-black">Aggregated Overview</p>
+                    <p className="text-[9px] text-slate-500 dark:text-muted-foreground uppercase font-black">Aggregated Overview</p>
                   </div>
                 </div>
                 {totalAllCount !== undefined && (
-                  <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-300 bg-amber-500/10 shrink-0">
+                  <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-800 dark:text-amber-300 bg-amber-500/10 shrink-0">
                     {totalAllCount} {countLabel}
                   </Badge>
                 )}
@@ -214,21 +214,21 @@ const VendorFilterCustomDropdown: React.FC<VendorFilterDropdownProps> = ({
                     }}
                     className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left text-xs font-bold transition-all ${
                       isSelected
-                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                        : 'text-white/90 hover:bg-white/5 hover:text-white'
+                        ? 'bg-amber-500/15 text-amber-900 dark:text-amber-300 border border-amber-500/30'
+                        : 'text-slate-800 dark:text-white/90 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 truncate">
-                      <div className="w-6 h-6 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-muted-foreground shrink-0 uppercase text-[10px] font-black">
+                      <div className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-600 dark:text-muted-foreground shrink-0 uppercase text-[10px] font-black">
                         {(v.name || v.id).substring(0, 2)}
                       </div>
                       <div className="truncate">
-                        <p className="font-bold truncate text-white">{v.name || v.id}</p>
-                        <p className="text-[8px] text-muted-foreground font-mono truncate">{v.id}</p>
+                        <p className="font-bold truncate text-slate-900 dark:text-white">{v.name || v.id}</p>
+                        <p className="text-[8px] text-slate-500 dark:text-muted-foreground font-mono truncate">{v.id}</p>
                       </div>
                     </div>
                     {count !== undefined && (
-                      <Badge variant="outline" className="text-[8px] border-white/10 bg-black/40 text-muted-foreground shrink-0 ml-2">
+                      <Badge variant="outline" className="text-[8px] border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-black/40 text-slate-600 dark:text-muted-foreground shrink-0 ml-2">
                         {count} {countLabel}
                       </Badge>
                     )}
@@ -249,14 +249,14 @@ const VendorFilterCustomDropdown: React.FC<VendorFilterDropdownProps> = ({
                   className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left text-xs font-bold transition-all ${
                     selectedVendor === currentUserId
                       ? 'bg-primary/15 text-primary border border-primary/30'
-                      : 'text-white/90 hover:bg-white/5'
+                      : 'text-slate-800 dark:text-white/90 hover:bg-slate-100 dark:hover:bg-white/5'
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
                     <UserCheck className="w-4 h-4 text-primary shrink-0" />
                     <div>
                       <p className="font-bold">My Personal Account</p>
-                      <p className="text-[8px] text-muted-foreground font-mono truncate">{currentUserId}</p>
+                      <p className="text-[8px] text-slate-500 dark:text-muted-foreground font-mono truncate">{currentUserId}</p>
                     </div>
                   </div>
                   {getItemCount && (
@@ -1189,10 +1189,10 @@ export const VendorDashboard: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-xl md:text-2xl font-black uppercase tracking-widest text-white flex items-center gap-3">
+          <h2 className="text-xl md:text-2xl font-black uppercase tracking-widest text-slate-900 dark:text-white flex items-center gap-3">
             <Store className="w-7 h-7 md:w-8 md:h-8 text-amber-500" /> Vendor Command Center
           </h2>
-          <p className="text-[9px] md:text-xs text-muted-foreground uppercase font-black tracking-widest mt-1">
+          <p className="text-[9px] md:text-xs text-slate-500 dark:text-muted-foreground uppercase font-black tracking-widest mt-1">
             Manage your ecommerce store, products, earnings, and payouts
           </p>
         </div>
@@ -1200,18 +1200,22 @@ export const VendorDashboard: React.FC = () => {
           <Button 
             onClick={() => setActiveSubTab('dashboard')} 
             variant={activeSubTab === 'dashboard' ? 'default' : 'outline'}
-            className="flex-1 md:flex-initial text-[10px] md:text-xs uppercase font-black tracking-widest px-2.5 py-1.5 h-9 md:h-10"
+            className={`flex-1 md:flex-initial text-[10px] md:text-xs uppercase font-black tracking-widest px-2.5 py-1.5 h-9 md:h-10 ${
+              activeSubTab !== 'dashboard' ? 'border-slate-200 dark:border-white/10 bg-white/70 dark:bg-white/5 text-slate-700 dark:text-white hover:bg-slate-100 dark:hover:bg-white/10' : ''
+            }`}
           >
             Dashboard
           </Button>
           <Button 
             onClick={() => setActiveSubTab('orders')} 
             variant={activeSubTab === 'orders' ? 'default' : 'outline'}
-            className="relative flex-1 md:flex-initial text-[10px] md:text-xs uppercase font-black tracking-widest px-2.5 py-1.5 h-9 md:h-10"
+            className={`relative flex-1 md:flex-initial text-[10px] md:text-xs uppercase font-black tracking-widest px-2.5 py-1.5 h-9 md:h-10 ${
+              activeSubTab !== 'orders' ? 'border-slate-200 dark:border-white/10 bg-white/70 dark:bg-white/5 text-slate-700 dark:text-white hover:bg-slate-100 dark:hover:bg-white/10' : ''
+            }`}
           >
             Orders ({allOrders.length})
             {allOrders.filter(o => o.status === 'pending' || !o.status).length > 0 && (
-              <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-amber-500 text-black text-[8px] sm:text-[9px] font-black animate-pulse">
+              <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[8px] sm:text-[9px] font-black animate-pulse">
                 {allOrders.filter(o => o.status === 'pending' || !o.status).length} new
               </span>
             )}
@@ -1219,21 +1223,27 @@ export const VendorDashboard: React.FC = () => {
           <Button 
             onClick={() => setActiveSubTab('products')} 
             variant={activeSubTab === 'products' ? 'default' : 'outline'}
-            className="flex-1 md:flex-initial text-[10px] md:text-xs uppercase font-black tracking-widest px-2.5 py-1.5 h-9 md:h-10"
+            className={`flex-1 md:flex-initial text-[10px] md:text-xs uppercase font-black tracking-widest px-2.5 py-1.5 h-9 md:h-10 ${
+              activeSubTab !== 'products' ? 'border-slate-200 dark:border-white/10 bg-white/70 dark:bg-white/5 text-slate-700 dark:text-white hover:bg-slate-100 dark:hover:bg-white/10' : ''
+            }`}
           >
             Products ({allProducts.length})
           </Button>
           <Button 
             onClick={() => setActiveSubTab('transactions')} 
             variant={activeSubTab === 'transactions' ? 'default' : 'outline'}
-            className="relative flex-1 md:flex-initial text-[10px] md:text-xs uppercase font-black tracking-widest px-2.5 py-1.5 h-9 md:h-10"
+            className={`relative flex-1 md:flex-initial text-[10px] md:text-xs uppercase font-black tracking-widest px-2.5 py-1.5 h-9 md:h-10 ${
+              activeSubTab !== 'transactions' ? 'border-slate-200 dark:border-white/10 bg-white/70 dark:bg-white/5 text-slate-700 dark:text-white hover:bg-slate-100 dark:hover:bg-white/10' : ''
+            }`}
           >
             <Receipt className="w-3.5 h-3.5 mr-1" /> Transactions ({history.length})
           </Button>
           <Button 
             onClick={() => setActiveSubTab('payout')} 
             variant={activeSubTab === 'payout' ? 'default' : 'outline'}
-            className="flex-1 md:flex-initial text-[10px] md:text-xs uppercase font-black tracking-widest px-2.5 py-1.5 h-9 md:h-10"
+            className={`flex-1 md:flex-initial text-[10px] md:text-xs uppercase font-black tracking-widest px-2.5 py-1.5 h-9 md:h-10 ${
+              activeSubTab !== 'payout' ? 'border-slate-200 dark:border-white/10 bg-white/70 dark:bg-white/5 text-slate-700 dark:text-white hover:bg-slate-100 dark:hover:bg-white/10' : ''
+            }`}
           >
             Payouts
           </Button>
@@ -1258,10 +1268,10 @@ export const VendorDashboard: React.FC = () => {
               {isUserAdmin && (
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 sm:p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="border-amber-500/40 text-amber-300 bg-black/40 text-[8px] font-black uppercase px-2 py-0.5">
+                    <Badge variant="outline" className="border-amber-500/40 text-amber-800 dark:text-amber-300 bg-amber-500/10 dark:bg-black/40 text-[8px] font-black uppercase px-2 py-0.5">
                       Admin Oversight
                     </Badge>
-                    <span className="text-xs font-bold text-white">Viewing Store Finances For:</span>
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">Viewing Store Finances For:</span>
                   </div>
                   <VendorFilterCustomDropdown
                     selectedVendor={selectedVendorFilter}
@@ -1280,83 +1290,83 @@ export const VendorDashboard: React.FC = () => {
               {/* Financial Stats Grid */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
                 {/* 1. Store Net Earnings (70%) */}
-                <Card className="glass-card p-4 md:p-6 border-white/5 flex flex-col justify-between space-y-3 md:space-y-4">
+                <Card className="glass-card p-4 md:p-6 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] shadow-sm flex flex-col justify-between space-y-3 md:space-y-4">
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-[8px] md:text-[10px] font-black uppercase text-muted-foreground tracking-widest">Store Net Earnings</span>
+                      <span className="text-[8px] md:text-[10px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest">Store Net Earnings</span>
                       <Percent className="w-4 h-4 md:w-5 md:h-5 text-amber-500" />
                     </div>
                     <div className="space-y-1">
-                      <h3 className="text-base sm:text-lg md:text-2xl font-black text-amber-500">
+                      <h3 className="text-base sm:text-lg md:text-2xl font-black text-amber-600 dark:text-amber-400">
                         ₦{computedStats.totalEarnings.toLocaleString()}
                       </h3>
-                      <p className="text-[8px] md:text-[9px] text-muted-foreground uppercase font-black">
+                      <p className="text-[8px] md:text-[9px] text-slate-500 dark:text-muted-foreground uppercase font-black">
                         70% Vendor Share Credited
                       </p>
                     </div>
                   </div>
-                  <div className="text-[8px] md:text-[9px] font-black uppercase flex justify-between bg-white/5 p-2 rounded-lg border border-white/5">
-                    <span className="text-muted-foreground">Orders</span>
-                    <span className="text-amber-400">{computedStats.ordersCount} Fulfilled</span>
+                  <div className="text-[8px] md:text-[9px] font-black uppercase flex justify-between bg-slate-100 dark:bg-white/5 p-2 rounded-lg border border-slate-200 dark:border-white/5">
+                    <span className="text-slate-500 dark:text-muted-foreground">Orders</span>
+                    <span className="text-amber-600 dark:text-amber-400 font-bold">{computedStats.ordersCount} Fulfilled</span>
                   </div>
                 </Card>
 
                 {/* 2. Total Gross Sales Revenue */}
-                <Card className="glass-card p-4 md:p-6 border-white/5 flex flex-col justify-between space-y-3 md:space-y-4">
+                <Card className="glass-card p-4 md:p-6 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] shadow-sm flex flex-col justify-between space-y-3 md:space-y-4">
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-[8px] md:text-[10px] font-black uppercase text-muted-foreground tracking-widest">Total Sales Revenue</span>
-                      <TrendingUp className="w-4 h-4 md:w-5 md:h-5 text-blue-400" />
+                      <span className="text-[8px] md:text-[10px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest">Total Sales Revenue</span>
+                      <TrendingUp className="w-4 h-4 md:w-5 md:h-5 text-blue-500 dark:text-blue-400" />
                     </div>
                     <div className="space-y-1">
-                      <h3 className="text-base sm:text-lg md:text-2xl font-black text-white">
+                      <h3 className="text-base sm:text-lg md:text-2xl font-black text-slate-900 dark:text-white">
                         ₦{computedStats.totalRevenue.toLocaleString()}
                       </h3>
-                      <p className="text-[8px] md:text-[9px] text-muted-foreground uppercase font-black">
+                      <p className="text-[8px] md:text-[9px] text-slate-500 dark:text-muted-foreground uppercase font-black">
                         100% Gross Customer Spend
                       </p>
                     </div>
                   </div>
-                  <div className="text-[8px] md:text-[9px] font-black uppercase flex justify-between bg-white/5 p-2 rounded-lg border border-white/5">
-                    <span className="text-muted-foreground">Items Sold</span>
-                    <span className="text-primary">{computedStats.totalUnits} Units</span>
+                  <div className="text-[8px] md:text-[9px] font-black uppercase flex justify-between bg-slate-100 dark:bg-white/5 p-2 rounded-lg border border-slate-200 dark:border-white/5">
+                    <span className="text-slate-500 dark:text-muted-foreground">Items Sold</span>
+                    <span className="text-primary font-bold">{computedStats.totalUnits} Units</span>
                   </div>
                 </Card>
 
                 {/* 3. Platform Commission (30%) */}
-                <Card className="glass-card p-4 md:p-6 border-white/5 flex flex-col justify-between space-y-3 md:space-y-4">
+                <Card className="glass-card p-4 md:p-6 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] shadow-sm flex flex-col justify-between space-y-3 md:space-y-4">
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-[8px] md:text-[10px] font-black uppercase text-muted-foreground tracking-widest">Platform Fee (30%)</span>
-                      <Building className="w-4 h-4 md:w-5 md:h-5 text-indigo-400" />
+                      <span className="text-[8px] md:text-[10px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest">Platform Fee (30%)</span>
+                      <Building className="w-4 h-4 md:w-5 md:h-5 text-indigo-500 dark:text-indigo-400" />
                     </div>
                     <div className="space-y-1">
-                      <h3 className="text-base sm:text-lg md:text-2xl font-black text-indigo-300">
+                      <h3 className="text-base sm:text-lg md:text-2xl font-black text-indigo-600 dark:text-indigo-300">
                         ₦{computedStats.totalFees.toLocaleString()}
                       </h3>
-                      <p className="text-[8px] md:text-[9px] text-muted-foreground uppercase font-black">
+                      <p className="text-[8px] md:text-[9px] text-slate-500 dark:text-muted-foreground uppercase font-black">
                         StreamAura service fee
                       </p>
                     </div>
                   </div>
-                  <div className="text-[8px] md:text-[9px] font-black uppercase flex justify-between bg-white/5 p-2 rounded-lg border border-white/5">
-                    <span className="text-muted-foreground">Platform Cut</span>
-                    <span className="text-indigo-400">30% of your sales</span>
+                  <div className="text-[8px] md:text-[9px] font-black uppercase flex justify-between bg-slate-100 dark:bg-white/5 p-2 rounded-lg border border-slate-200 dark:border-white/5">
+                    <span className="text-slate-500 dark:text-muted-foreground">Platform Cut</span>
+                    <span className="text-indigo-600 dark:text-indigo-400 font-bold">30% of sales</span>
                   </div>
                 </Card>
 
                 {/* 4. Available Withdrawable Balance */}
-                <Card className="glass-card p-4 md:p-6 border-white/5 flex flex-col justify-between space-y-3 md:space-y-4">
+                <Card className="glass-card p-4 md:p-6 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] shadow-sm flex flex-col justify-between space-y-3 md:space-y-4">
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-[8px] md:text-[10px] font-black uppercase text-muted-foreground tracking-widest">Store Withdrawable Balance</span>
-                      <DollarSign className="w-4 h-4 md:w-5 md:h-5 text-emerald-400" />
+                      <span className="text-[8px] md:text-[10px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest">Store Withdrawable Balance</span>
+                      <DollarSign className="w-4 h-4 md:w-5 md:h-5 text-emerald-500 dark:text-emerald-400" />
                     </div>
                     <div className="space-y-1">
-                      <h3 className="text-base sm:text-lg md:text-2xl font-black text-emerald-400">
+                      <h3 className="text-base sm:text-lg md:text-2xl font-black text-emerald-600 dark:text-emerald-400">
                         ₦{computedStats.availableBalance.toLocaleString()}
                       </h3>
-                      <p className="text-[8px] md:text-[9px] text-muted-foreground uppercase font-black">
+                      <p className="text-[8px] md:text-[9px] text-slate-500 dark:text-muted-foreground uppercase font-black">
                         Store Earnings • 0% withdrawal fee
                       </p>
                     </div>
@@ -1372,14 +1382,14 @@ export const VendorDashboard: React.FC = () => {
 
               {/* Fast links */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 md:gap-6">
-                <Card className="glass-card p-4 md:p-6 border-white/5 space-y-3 md:space-y-4">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Order Inflow</h3>
-                  <div className="flex flex-col gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
+                <Card className="glass-card p-4 md:p-6 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] shadow-sm space-y-3 md:space-y-4">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Order Inflow</h3>
+                  <div className="flex flex-col gap-3 p-3 bg-slate-50 dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/10">
                     <div className="flex items-center gap-3">
                       <Truck className="w-7 h-7 text-amber-500 flex-shrink-0" />
                       <div>
-                        <h4 className="text-xs sm:text-sm font-bold uppercase">{allOrders.length} Total Orders</h4>
-                        <p className="text-[9px] text-muted-foreground uppercase">
+                        <h4 className="text-xs sm:text-sm font-bold uppercase text-slate-900 dark:text-white">{allOrders.length} Total Orders</h4>
+                        <p className="text-[9px] text-slate-500 dark:text-muted-foreground uppercase">
                           {allOrders.filter(o => o.status === 'pending' || !o.status).length} Pending
                         </p>
                       </div>
@@ -1390,14 +1400,14 @@ export const VendorDashboard: React.FC = () => {
                   </div>
                 </Card>
 
-                <Card className="glass-card p-4 md:p-6 border-white/5 space-y-3 md:space-y-4">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Product Catalog</h3>
-                  <div className="flex flex-col gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
+                <Card className="glass-card p-4 md:p-6 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] shadow-sm space-y-3 md:space-y-4">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Product Catalog</h3>
+                  <div className="flex flex-col gap-3 p-3 bg-slate-50 dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/10">
                     <div className="flex items-center gap-3">
                       <ShoppingBag className="w-7 h-7 text-primary flex-shrink-0" />
                       <div>
-                        <h4 className="text-xs sm:text-sm font-bold uppercase">{allProducts.length} Live Items</h4>
-                        <p className="text-[9px] text-muted-foreground uppercase">In Cinema Snack Store</p>
+                        <h4 className="text-xs sm:text-sm font-bold uppercase text-slate-900 dark:text-white">{allProducts.length} Live Items</h4>
+                        <p className="text-[9px] text-slate-500 dark:text-muted-foreground uppercase">In Cinema Snack Store</p>
                       </div>
                     </div>
                     <Button onClick={() => openProductModal()} className="w-full px-3 py-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest h-8">
@@ -1406,35 +1416,35 @@ export const VendorDashboard: React.FC = () => {
                   </div>
                 </Card>
 
-                <Card className="glass-card p-4 md:p-6 border-white/5 space-y-3 md:space-y-4">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Financial Activity</h3>
-                  <div className="flex flex-col gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
+                <Card className="glass-card p-4 md:p-6 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] shadow-sm space-y-3 md:space-y-4">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Financial Activity</h3>
+                  <div className="flex flex-col gap-3 p-3 bg-slate-50 dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/10">
                     <div className="flex items-center gap-3">
-                      <Receipt className="w-7 h-7 text-emerald-400 flex-shrink-0" />
+                      <Receipt className="w-7 h-7 text-emerald-500 dark:text-emerald-400 flex-shrink-0" />
                       <div>
-                        <h4 className="text-xs sm:text-sm font-bold uppercase">{history.length} Transactions</h4>
-                        <p className="text-[9px] text-muted-foreground uppercase">Sales & Payout Logs</p>
+                        <h4 className="text-xs sm:text-sm font-bold uppercase text-slate-900 dark:text-white">{history.length} Transactions</h4>
+                        <p className="text-[9px] text-slate-500 dark:text-muted-foreground uppercase">Sales & Payout Logs</p>
                       </div>
                     </div>
-                    <Button onClick={() => setActiveSubTab('transactions')} variant="outline" className="w-full px-3 py-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest h-8 border-white/20">
+                    <Button onClick={() => setActiveSubTab('transactions')} variant="outline" className="w-full px-3 py-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest h-8 border-slate-300 dark:border-white/20 text-slate-700 dark:text-white hover:bg-slate-100 dark:hover:bg-white/10">
                       View Activity Log
                     </Button>
                   </div>
                 </Card>
 
-                <Card className="glass-card p-4 md:p-6 border-white/5 space-y-3 md:space-y-4">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Payout Destination</h3>
-                  <div className="flex flex-col gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
+                <Card className="glass-card p-4 md:p-6 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] shadow-sm space-y-3 md:space-y-4">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Payout Destination</h3>
+                  <div className="flex flex-col gap-3 p-3 bg-slate-50 dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/10">
                     <div className="flex items-center gap-3">
-                      <Building className="w-7 h-7 text-indigo-400 flex-shrink-0" />
+                      <Building className="w-7 h-7 text-indigo-500 dark:text-indigo-400 flex-shrink-0" />
                       <div className="truncate">
-                        <h4 className="text-xs sm:text-sm font-bold uppercase truncate">{bankDetails.bankName || 'Not Setup'}</h4>
-                        <p className="text-[9px] text-muted-foreground uppercase truncate">
+                        <h4 className="text-xs sm:text-sm font-bold uppercase truncate text-slate-900 dark:text-white">{bankDetails.bankName || 'Not Setup'}</h4>
+                        <p className="text-[9px] text-slate-500 dark:text-muted-foreground uppercase truncate">
                           {bankDetails.accountNumber ? `No. ${bankDetails.accountNumber}` : 'Configure Bank'}
                         </p>
                       </div>
                     </div>
-                    <Button onClick={() => setActiveSubTab('payout')} variant="outline" className="w-full px-3 py-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest h-8 border-white/20">
+                    <Button onClick={() => setActiveSubTab('payout')} variant="outline" className="w-full px-3 py-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest h-8 border-slate-300 dark:border-white/20 text-slate-700 dark:text-white hover:bg-slate-100 dark:hover:bg-white/10">
                       Payout Settings
                     </Button>
                   </div>
@@ -1454,19 +1464,19 @@ export const VendorDashboard: React.FC = () => {
               {/* Header bar with filters & search */}
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400">
                     <ShoppingBag className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="text-xs sm:text-sm font-black uppercase tracking-widest text-white flex items-center gap-2">
+                    <h3 className="text-xs sm:text-sm font-black uppercase tracking-widest text-slate-900 dark:text-white flex items-center gap-2">
                       {isUserAdmin ? 'Vendor Orders (Admin Oversight)' : 'Customer Orders & Fulfilment'}
                       {isUserAdmin && (
-                        <Badge variant="outline" className="border-amber-500/40 text-amber-400 bg-amber-500/10 text-[8px] font-black uppercase tracking-wider">
+                        <Badge variant="outline" className="border-amber-500/40 text-amber-800 dark:text-amber-400 bg-amber-500/10 text-[8px] font-black uppercase tracking-wider">
                           Admin
                         </Badge>
                       )}
                     </h3>
-                    <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
+                    <p className="text-[10px] text-slate-500 dark:text-muted-foreground uppercase font-bold tracking-wider">
                       Live order queue & dispatch management
                     </p>
                   </div>
@@ -1489,19 +1499,19 @@ export const VendorDashboard: React.FC = () => {
 
                   {/* Search box */}
                   <div className="relative flex-1 md:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 dark:text-muted-foreground" />
                     <input
                       type="text"
                       placeholder="Search order #, customer, phone..."
                       value={orderSearchQuery}
                       onChange={(e) => setOrderSearchQuery(e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-lg pl-8 pr-7 py-1.5 text-xs text-white placeholder:text-muted-foreground/60 outline-none focus:border-primary/50 font-medium"
+                      className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg pl-8 pr-7 py-1.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-primary/50 font-medium"
                     />
                     {orderSearchQuery && (
                       <button 
                         type="button" 
                         onClick={() => setOrderSearchQuery('')} 
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:text-muted-foreground dark:hover:text-white"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -1526,11 +1536,11 @@ export const VendorDashboard: React.FC = () => {
                     className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1.5 border ${
                       orderStatusFilter === tab.id
                         ? 'bg-primary text-black border-primary font-black shadow-lg shadow-primary/20'
-                        : 'bg-white/5 border-white/10 text-muted-foreground hover:text-white hover:bg-white/10'
+                        : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-white/10'
                     }`}
                   >
                     <span>{tab.label}</span>
-                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] ${orderStatusFilter === tab.id ? 'bg-black/20 text-black' : 'bg-white/10 text-white'}`}>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] ${orderStatusFilter === tab.id ? 'bg-black/20 text-black' : 'bg-slate-200 dark:bg-white/10 text-slate-700 dark:text-white'}`}>
                       {tab.count}
                     </span>
                   </button>
@@ -1538,19 +1548,19 @@ export const VendorDashboard: React.FC = () => {
               </div>
 
               {/* Dedicated View Controls & Summary Bar */}
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white/[0.02] border border-white/5 p-2.5 sm:px-3.5 sm:py-2 rounded-xl">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="font-bold text-white uppercase text-[11px]">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 p-2.5 sm:px-3.5 sm:py-2 rounded-xl">
+                <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-muted-foreground">
+                  <span className="font-bold text-slate-900 dark:text-white uppercase text-[11px]">
                     {displayedOrders.length} {displayedOrders.length === 1 ? 'Order' : 'Orders'}
                   </span>
                   {orderStatusFilter !== 'all' && (
-                    <Badge variant="outline" className="text-[9px] font-bold border-white/10 text-muted-foreground capitalize">
+                    <Badge variant="outline" className="text-[9px] font-bold border-slate-200 dark:border-white/10 text-slate-600 dark:text-muted-foreground capitalize">
                       Filter: {orderStatusFilter}
                     </Badge>
                   )}
                   {allOrders.filter(o => o.status === 'pending' || !o.status).length > 0 && (
-                    <span className="text-amber-400 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                    <span className="text-amber-800 dark:text-amber-400 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                       {allOrders.filter(o => o.status === 'pending' || !o.status).length} Action Required
                     </span>
                   )}
@@ -1558,14 +1568,14 @@ export const VendorDashboard: React.FC = () => {
 
                 {/* Clean View Toggle (Segmented Compact vs Expand All) */}
                 {displayedOrders.length > 0 && (
-                  <div className="flex items-center gap-1 bg-black/40 border border-white/10 p-1 rounded-lg w-full sm:w-auto justify-end">
+                  <div className="flex items-center gap-1 bg-slate-200/70 dark:bg-black/40 border border-slate-200 dark:border-white/10 p-1 rounded-lg w-full sm:w-auto justify-end">
                     <button
                       type="button"
                       onClick={collapseAllOrders}
                       className={`flex-1 sm:flex-initial px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
                         displayedOrders.filter(o => expandedOrderIds[o.id]).length === 0
-                          ? 'bg-white/15 text-white shadow-sm font-black'
-                          : 'text-muted-foreground hover:text-white'
+                          ? 'bg-white dark:bg-white/15 text-slate-900 dark:text-white shadow-sm font-black'
+                          : 'text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white'
                       }`}
                       title="Collapse all orders into compact list"
                     >
@@ -1578,15 +1588,15 @@ export const VendorDashboard: React.FC = () => {
                       onClick={expandAllOrders}
                       className={`flex-1 sm:flex-initial px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
                         displayedOrders.length > 0 && displayedOrders.every(o => expandedOrderIds[o.id])
-                          ? 'bg-amber-500 text-black font-black shadow-sm'
-                          : 'text-muted-foreground hover:text-white'
+                          ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                          : 'text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white'
                       }`}
                       title="Expand all orders to show full details"
                     >
                       <Maximize2 className="w-3 h-3" />
                       <span>Expand All</span>
                       {displayedOrders.filter(o => expandedOrderIds[o.id]).length > 0 && (
-                        <span className={`px-1.5 py-0.2 rounded-full text-[8px] font-black ${displayedOrders.every(o => expandedOrderIds[o.id]) ? 'bg-black/20 text-black' : 'bg-white/15 text-white'}`}>
+                        <span className={`px-1.5 py-0.2 rounded-full text-[8px] font-black ${displayedOrders.every(o => expandedOrderIds[o.id]) ? 'bg-black/20 text-slate-950' : 'bg-slate-300 dark:bg-white/15 text-slate-800 dark:text-white'}`}>
                           {displayedOrders.filter(o => expandedOrderIds[o.id]).length}/{displayedOrders.length}
                         </span>
                       )}
@@ -1612,14 +1622,14 @@ export const VendorDashboard: React.FC = () => {
                   return (
                     <Card 
                       key={order.id} 
-                      className={`glass-card border-white/10 overflow-hidden text-left transition-all hover:border-white/20 ${
-                        isExpanded ? 'ring-1 ring-amber-500/30 border-amber-500/20' : ''
+                      className={`glass-card border-slate-200 dark:border-white/10 bg-white/90 dark:bg-slate-900/60 shadow-sm overflow-hidden text-left transition-all hover:border-slate-300 dark:hover:border-white/20 ${
+                        isExpanded ? 'ring-1 ring-amber-500/40 border-amber-500/30' : ''
                       }`}
                     >
                       {/* Interactive Header Bar */}
                       <div 
                         onClick={() => toggleOrderExpand(order.id)}
-                        className="p-3.5 sm:p-4 cursor-pointer hover:bg-white/[0.02] transition-colors space-y-3"
+                        className="p-3.5 sm:p-4 cursor-pointer hover:bg-slate-50/80 dark:hover:bg-white/[0.02] transition-colors space-y-3"
                       >
                         {/* Top Line: Status Badge, Order Number, Time, Paid Amount, Details Toggle */}
                         <div className="flex flex-wrap items-center justify-between gap-2.5">
@@ -1627,34 +1637,34 @@ export const VendorDashboard: React.FC = () => {
                           <div className="flex flex-wrap items-center gap-2">
                             {/* Status Indicator */}
                             {status === 'pending' && (
-                              <Badge className="bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[9px] font-black uppercase tracking-widest animate-pulse">
+                              <Badge className="bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/40 text-[9px] font-black uppercase tracking-widest animate-pulse">
                                 Pending
                               </Badge>
                             )}
                             {status === 'accepted' && (
-                              <Badge className="bg-blue-500/20 text-blue-400 border border-blue-500/40 text-[9px] font-black uppercase tracking-widest">
+                              <Badge className="bg-blue-500/20 text-blue-700 dark:text-blue-400 border border-blue-500/40 text-[9px] font-black uppercase tracking-widest">
                                 In Kitchen
                               </Badge>
                             )}
                             {status === 'shipped' && (
-                              <Badge className="bg-purple-500/20 text-purple-400 border border-purple-500/40 text-[9px] font-black uppercase tracking-widest">
+                              <Badge className="bg-purple-500/20 text-purple-700 dark:text-purple-400 border border-purple-500/40 text-[9px] font-black uppercase tracking-widest">
                                 Out for Delivery
                               </Badge>
                             )}
                             {status === 'delivered' && (
-                              <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[9px] font-black uppercase tracking-widest">
+                              <Badge className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/40 text-[9px] font-black uppercase tracking-widest">
                                 Delivered
                               </Badge>
                             )}
                             {status === 'cancelled' && (
-                              <Badge className="bg-red-500/20 text-red-400 border border-red-500/40 text-[9px] font-black uppercase tracking-widest">
+                              <Badge className="bg-red-500/20 text-red-700 dark:text-red-400 border border-red-500/40 text-[9px] font-black uppercase tracking-widest">
                                 Cancelled
                               </Badge>
                             )}
 
                             {/* Order Number & Copy */}
-                            <div className="flex items-center gap-1 bg-white/5 border border-white/10 px-2 py-0.5 rounded-md">
-                              <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-400 font-mono">
+                            <div className="flex items-center gap-1 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 px-2 py-0.5 rounded-md">
+                              <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono">
                                 #{orderNum}
                               </span>
                               <button
@@ -1664,17 +1674,17 @@ export const VendorDashboard: React.FC = () => {
                                   navigator.clipboard.writeText(orderNum);
                                   toast.success(`Order #${orderNum} copied to clipboard!`);
                                 }}
-                                className="p-0.5 rounded hover:bg-white/10 text-muted-foreground hover:text-white transition-colors"
+                                className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-400 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white transition-colors"
                                 title="Copy Order Number"
                               >
                                 <Copy className="w-3 h-3" />
                               </button>
                             </div>
 
-                            <span className="text-[10px] text-muted-foreground">• {dateStr}</span>
+                            <span className="text-[10px] text-slate-500 dark:text-muted-foreground">• {dateStr}</span>
 
                             {isUserAdmin && order.vendorName && (
-                              <Badge variant="outline" className="text-[8px] font-black uppercase border-amber-500/30 text-amber-300 bg-amber-500/10">
+                              <Badge variant="outline" className="text-[8px] font-black uppercase border-amber-500/30 text-amber-800 dark:text-amber-300 bg-amber-500/10">
                                 Vendor: {order.vendorName}
                               </Badge>
                             )}
@@ -1683,7 +1693,7 @@ export const VendorDashboard: React.FC = () => {
                           {/* Right Group: Paid Amount & Explicit Details Toggle Button */}
                           <div className="flex items-center gap-2.5 ml-auto">
                             <div className="text-right">
-                              <span className="text-xs sm:text-base font-black text-emerald-400 font-mono">
+                              <span className="text-xs sm:text-base font-black text-emerald-600 dark:text-emerald-400 font-mono">
                                 ₦{grossAmount.toLocaleString()}
                               </span>
                             </div>
@@ -1696,8 +1706,8 @@ export const VendorDashboard: React.FC = () => {
                               }}
                               className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 border ${
                                 isExpanded
-                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                                  : 'bg-white/5 hover:bg-white/10 text-muted-foreground hover:text-white border-white/10'
+                                  ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-500/40'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 dark:text-muted-foreground dark:hover:text-white border-slate-200 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10'
                               }`}
                             >
                               <span>{isExpanded ? 'Less' : 'Details'}</span>
@@ -1707,10 +1717,10 @@ export const VendorDashboard: React.FC = () => {
                         </div>
 
                         {/* Middle Line: Customer info & Basket summary & Quick action */}
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2.5 pt-2 border-t border-white/5 text-[11px]">
-                          <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
-                            <span className="font-bold text-white uppercase flex items-center gap-1">
-                              <ChefHat className="w-3.5 h-3.5 text-amber-400" />
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2.5 pt-2 border-t border-slate-100 dark:border-white/5 text-[11px]">
+                          <div className="flex flex-wrap items-center gap-2 text-slate-500 dark:text-muted-foreground">
+                            <span className="font-bold text-slate-900 dark:text-white uppercase flex items-center gap-1">
+                              <ChefHat className="w-3.5 h-3.5 text-amber-500" />
                               {order.userName || 'Guest Customer'}
                             </span>
 
@@ -1718,14 +1728,14 @@ export const VendorDashboard: React.FC = () => {
                               <a
                                 href={`tel:${order.userPhone}`}
                                 onClick={(e) => e.stopPropagation()}
-                                className="flex items-center gap-1 font-mono text-emerald-400 hover:underline text-[10px] bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20"
+                                className="flex items-center gap-1 font-mono text-emerald-600 dark:text-emerald-400 hover:underline text-[10px] bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20"
                               >
                                 <Phone className="w-2.5 h-2.5" /> {order.userPhone}
                               </a>
                             )}
 
                             <span>•</span>
-                            <span className="truncate max-w-xs sm:max-w-md text-white/80 font-medium">
+                            <span className="truncate max-w-xs sm:max-w-md text-slate-600 dark:text-white/80 font-medium">
                               {itemsCount} {itemsCount === 1 ? 'item' : 'items'} ({itemsSummary})
                             </span>
                           </div>
@@ -1771,40 +1781,40 @@ export const VendorDashboard: React.FC = () => {
                             animate={{ opacity: 1, height: 'auto' }}
                             exit={{ opacity: 0, height: 0 }}
                             transition={{ duration: 0.25, ease: 'easeInOut' }}
-                            className="overflow-hidden border-t border-white/10 bg-black/40"
+                            className="overflow-hidden border-t border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-black/40"
                           >
                             <div className="p-4 sm:p-5 space-y-4">
                               {/* Customer & Delivery Information Cards */}
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-white/[0.02] border border-white/5 p-3.5 rounded-xl">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 p-3.5 rounded-xl shadow-sm">
                                 <div className="space-y-1.5">
-                                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground flex items-center gap-1.5">
                                     <ChefHat className="w-3.5 h-3.5 text-primary" /> Customer Contact
                                   </p>
-                                  <p className="text-xs font-bold text-white uppercase">{order.userName || 'Guest Customer'}</p>
+                                  <p className="text-xs font-bold text-slate-900 dark:text-white uppercase">{order.userName || 'Guest Customer'}</p>
                                   {order.userPhone ? (
                                     <div className="flex items-center gap-2 text-xs">
-                                      <Phone className="w-3 h-3 text-emerald-400" />
-                                      <a href={`tel:${order.userPhone}`} className="text-emerald-400 hover:underline font-mono font-bold">
+                                      <Phone className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                      <a href={`tel:${order.userPhone}`} className="text-emerald-600 dark:text-emerald-400 hover:underline font-mono font-bold">
                                         {order.userPhone}
                                       </a>
                                     </div>
                                   ) : (
-                                    <p className="text-[10px] text-muted-foreground italic">No phone provided</p>
+                                    <p className="text-[10px] text-slate-400 dark:text-muted-foreground italic">No phone provided</p>
                                   )}
                                   {order.userEmail && (
-                                    <p className="text-[10px] text-muted-foreground">{order.userEmail}</p>
+                                    <p className="text-[10px] text-slate-500 dark:text-muted-foreground">{order.userEmail}</p>
                                   )}
                                 </div>
 
                                 <div className="space-y-1.5">
-                                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground flex items-center gap-1.5">
                                     <MapPin className="w-3.5 h-3.5 text-amber-500" /> Delivery Address / Seat Notes
                                   </p>
-                                  <p className="text-xs text-white/90 font-medium leading-relaxed">
+                                  <p className="text-xs text-slate-700 dark:text-white/90 font-medium leading-relaxed">
                                     {order.deliveryAddress || 'Standard Delivery / In-Cinema Pick-Up'}
                                   </p>
                                   {order.estimatedDeliveryTime && (
-                                    <div className="flex items-center gap-1.5 text-[10px] font-black uppercase text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-md w-fit mt-1">
+                                    <div className="flex items-center gap-1.5 text-[10px] font-black uppercase text-purple-700 dark:text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-md w-fit mt-1">
                                       <Clock className="w-3 h-3" /> ETA: {order.estimatedDeliveryTime}
                                     </div>
                                   )}
@@ -1813,29 +1823,29 @@ export const VendorDashboard: React.FC = () => {
 
                               {/* Items Ordered Breakdown */}
                               <div className="space-y-2">
-                                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">
                                   Order Items ({order.items?.length || 0})
                                 </p>
-                                <div className="divide-y divide-white/5 border border-white/5 rounded-xl overflow-hidden bg-black/40">
+                                <div className="divide-y divide-slate-100 dark:divide-white/5 border border-slate-200 dark:border-white/5 rounded-xl overflow-hidden bg-white dark:bg-black/40 shadow-sm">
                                   {order.items?.map((item: any, idx: number) => (
                                     <div key={idx} className="p-2.5 sm:p-3 flex items-center justify-between gap-3 text-xs">
                                       <div className="flex items-center gap-3">
                                         {item.image ? (
-                                          <img src={item.image} alt={item.name} className="w-10 h-10 rounded-lg object-cover bg-white/5 flex-shrink-0" />
+                                          <img src={item.image} alt={item.name} className="w-10 h-10 rounded-lg object-cover bg-slate-100 dark:bg-white/5 flex-shrink-0" />
                                         ) : (
-                                          <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
-                                            <ShoppingBag className="w-4 h-4 text-muted-foreground" />
+                                          <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-white/5 flex items-center justify-center flex-shrink-0">
+                                            <ShoppingBag className="w-4 h-4 text-slate-400 dark:text-muted-foreground" />
                                           </div>
                                         )}
                                         <div>
-                                          <p className="font-bold text-white uppercase">{item.name}</p>
-                                          <p className="text-[10px] text-muted-foreground font-mono">
+                                          <p className="font-bold text-slate-900 dark:text-white uppercase">{item.name}</p>
+                                          <p className="text-[10px] text-slate-500 dark:text-muted-foreground font-mono">
                                             ₦{(item.price || 0).toLocaleString()} × {item.quantity || 1}
                                           </p>
                                         </div>
                                       </div>
                                       <div className="text-right">
-                                        <span className="font-black text-white font-mono">
+                                        <span className="font-black text-slate-900 dark:text-white font-mono">
                                           ₦{((item.price || 0) * (item.quantity || 1)).toLocaleString()}
                                         </span>
                                       </div>
@@ -1845,39 +1855,39 @@ export const VendorDashboard: React.FC = () => {
                               </div>
 
                               {/* Revenue Share Split Breakdown Card */}
-                              <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl grid grid-cols-3 gap-2 text-center text-xs">
+                              <div className="p-3 bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 rounded-xl grid grid-cols-3 gap-2 text-center text-xs shadow-sm">
                                 <div className="space-y-0.5">
-                                  <span className="text-[9px] font-black uppercase text-muted-foreground tracking-wider">Gross Total</span>
-                                  <p className="font-mono font-bold text-white">₦{grossAmount.toLocaleString()}</p>
+                                  <span className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-wider">Gross Total</span>
+                                  <p className="font-mono font-bold text-slate-900 dark:text-white">₦{grossAmount.toLocaleString()}</p>
                                 </div>
-                                <div className="space-y-0.5 border-x border-white/5">
-                                  <span className="text-[9px] font-black uppercase text-emerald-400 tracking-wider">Store Net (70%)</span>
-                                  <p className="font-mono font-bold text-emerald-400">₦{netVendorEarnings.toLocaleString()}</p>
+                                <div className="space-y-0.5 border-x border-slate-200 dark:border-white/5">
+                                  <span className="text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-400 tracking-wider">Store Net (70%)</span>
+                                  <p className="font-mono font-bold text-emerald-600 dark:text-emerald-400">₦{netVendorEarnings.toLocaleString()}</p>
                                 </div>
                                 <div className="space-y-0.5">
-                                  <span className="text-[9px] font-black uppercase text-indigo-400 tracking-wider">Fee (30%)</span>
-                                  <p className="font-mono font-bold text-indigo-300">₦{platformFee.toLocaleString()}</p>
+                                  <span className="text-[9px] font-black uppercase text-indigo-600 dark:text-indigo-400 tracking-wider">Fee (30%)</span>
+                                  <p className="font-mono font-bold text-indigo-600 dark:text-indigo-300">₦{platformFee.toLocaleString()}</p>
                                 </div>
                               </div>
 
                               {/* Rating & Review (if rated) */}
                               {order.rated && order.rating && (
                                 <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl space-y-1">
-                                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
+                                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-400">
                                     <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
                                     <span>Customer Rating: {order.rating} / 5 Stars</span>
                                   </div>
                                   {order.review && (
-                                    <p className="text-xs text-muted-foreground italic">"{order.review}"</p>
+                                    <p className="text-xs text-slate-600 dark:text-muted-foreground italic">"{order.review}"</p>
                                   )}
                                 </div>
                               )}
 
                               {/* Action Footer & Order Status Bar */}
-                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pt-3 border-t border-white/5">
+                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pt-3 border-t border-slate-200 dark:border-white/5">
                                 <div className="flex flex-col">
-                                  <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Order Total:</span>
-                                  <span className="text-base sm:text-lg font-black text-emerald-400 font-mono">
+                                  <span className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest">Order Total:</span>
+                                  <span className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">
                                     ₦{grossAmount.toLocaleString()}
                                   </span>
                                 </div>
@@ -1895,7 +1905,7 @@ export const VendorDashboard: React.FC = () => {
                                       <Button
                                         onClick={() => handleCancelOrder(order)}
                                         variant="outline"
-                                        className="h-9 px-3 text-[10px] font-black uppercase tracking-wider text-red-400 border-red-500/30 hover:bg-red-500/10"
+                                        className="h-9 px-3 text-[10px] font-black uppercase tracking-wider text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/10"
                                       >
                                         <XCircle className="w-3.5 h-3.5 mr-1" /> Cancel Order
                                       </Button>
@@ -1913,7 +1923,7 @@ export const VendorDashboard: React.FC = () => {
                                       <Button
                                         onClick={() => handleCancelOrder(order)}
                                         variant="outline"
-                                        className="h-9 px-3 text-[10px] font-black uppercase tracking-wider text-red-400 border-red-500/30 hover:bg-red-500/10"
+                                        className="h-9 px-3 text-[10px] font-black uppercase tracking-wider text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/10"
                                       >
                                         <XCircle className="w-3.5 h-3.5 mr-1" /> Cancel
                                       </Button>
@@ -1931,7 +1941,7 @@ export const VendorDashboard: React.FC = () => {
                                       <Button
                                         onClick={() => handleOpenShipModal(order)}
                                         variant="outline"
-                                        className="h-9 px-3 text-[10px] font-black uppercase tracking-wider border-white/20 hover:bg-white/10 text-purple-300"
+                                        className="h-9 px-3 text-[10px] font-black uppercase tracking-wider border-slate-300 dark:border-white/20 hover:bg-slate-100 dark:hover:bg-white/10 text-purple-700 dark:text-purple-300"
                                       >
                                         <Clock className="w-3.5 h-3.5 mr-1" /> Update ETA
                                       </Button>
@@ -1939,13 +1949,13 @@ export const VendorDashboard: React.FC = () => {
                                   )}
 
                                   {status === 'delivered' && (
-                                    <div className="flex items-center gap-1.5 text-xs font-black text-emerald-400 uppercase py-1.5 px-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                                    <div className="flex items-center gap-1.5 text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase py-1.5 px-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
                                       <CheckCircle2 className="w-4 h-4" /> Delivered & Completed
                                     </div>
                                   )}
 
                                   {status === 'cancelled' && (
-                                    <div className="flex items-center gap-1.5 text-xs font-black text-red-400 uppercase py-1.5 px-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                                    <div className="flex items-center gap-1.5 text-xs font-black text-red-600 dark:text-red-400 uppercase py-1.5 px-3 bg-red-500/10 border border-red-500/20 rounded-lg">
                                       <XCircle className="w-4 h-4" /> Order Cancelled
                                     </div>
                                   )}
@@ -1954,7 +1964,7 @@ export const VendorDashboard: React.FC = () => {
                                     onClick={() => toggleOrderExpand(order.id)}
                                     variant="ghost"
                                     size="sm"
-                                    className="h-9 px-3 text-[10px] font-black uppercase tracking-wider text-muted-foreground hover:text-white"
+                                    className="h-9 px-3 text-[10px] font-black uppercase tracking-wider text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-white"
                                   >
                                     <ChevronUp className="w-3.5 h-3.5 mr-1" /> Close Drawer
                                   </Button>
@@ -1969,10 +1979,10 @@ export const VendorDashboard: React.FC = () => {
                 })}
 
                 {displayedOrders.length === 0 && (
-                  <div className="glass-card p-12 text-center border-white/5 space-y-3">
-                    <Truck className="w-12 h-12 text-muted-foreground mx-auto opacity-30" />
-                    <p className="text-sm font-bold uppercase text-white">No Orders Found</p>
-                    <p className="text-xs text-muted-foreground">
+                  <div className="glass-card p-12 text-center border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.02] space-y-3">
+                    <Truck className="w-12 h-12 text-slate-400 dark:text-muted-foreground mx-auto opacity-30" />
+                    <p className="text-sm font-bold uppercase text-slate-900 dark:text-white">No Orders Found</p>
+                    <p className="text-xs text-slate-500 dark:text-muted-foreground">
                       {orderSearchQuery || orderStatusFilter !== 'all'
                         ? 'No orders matched your active filters or search criteria.'
                         : 'New customer snack orders will appear here in real-time.'}
@@ -2005,11 +2015,11 @@ export const VendorDashboard: React.FC = () => {
             >
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">
                     {isUserAdmin ? 'Vendor Products (Admin View)' : 'My Live Products List'}
                   </h3>
                   {isUserAdmin && (
-                    <Badge variant="outline" className="border-amber-500/40 text-amber-400 bg-amber-500/10 text-[8px] font-black uppercase tracking-wider">
+                    <Badge variant="outline" className="border-amber-500/40 text-amber-800 dark:text-amber-400 bg-amber-500/10 text-[8px] font-black uppercase tracking-wider">
                       Admin
                     </Badge>
                   )}
@@ -2035,16 +2045,16 @@ export const VendorDashboard: React.FC = () => {
 
               <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-6">
                 {displayedProducts.map(p => (
-                  <Card key={p.id} className="glass-card border-white/10 overflow-hidden group flex flex-col h-full">
-                    <div className="relative aspect-video bg-black/40 overflow-hidden flex items-center justify-center border-b border-white/10">
+                  <Card key={p.id} className="glass-card border-slate-200 dark:border-white/10 bg-white/90 dark:bg-slate-900/60 shadow-sm overflow-hidden group flex flex-col h-full">
+                    <div className="relative aspect-video bg-slate-100 dark:bg-black/40 overflow-hidden flex items-center justify-center border-b border-slate-200 dark:border-white/10">
                       {p.image ? (
                         <img src={p.image} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt={p.name} />
                       ) : (
-                        <Store className="w-10 h-10 text-muted-foreground opacity-50" />
+                        <Store className="w-10 h-10 text-slate-400 dark:text-muted-foreground opacity-50" />
                       )}
                       <div className="absolute top-2 right-2 flex flex-col gap-1 items-end sm:flex-row sm:top-3 sm:right-3">
                         {isUserAdmin && (
-                          <Badge variant="outline" className="text-[7px] sm:text-[8px] font-black uppercase tracking-wider border-amber-500/30 text-amber-300 bg-black/70 backdrop-blur-md px-1 py-0.5">
+                          <Badge variant="outline" className="text-[7px] sm:text-[8px] font-black uppercase tracking-wider border-amber-500/30 text-amber-800 dark:text-amber-300 bg-white/80 dark:bg-black/70 backdrop-blur-md px-1 py-0.5">
                             {adminVendors.find(v => v.id === p.vendorId)?.name || p.vendorId}
                           </Badge>
                         )}
@@ -2054,34 +2064,34 @@ export const VendorDashboard: React.FC = () => {
                         >
                           {p.stockStatus === 'in_stock' || (p.stockStatus === undefined && p.available !== false) ? 'In Stock' : p.stockStatus === 'restocking' ? 'Restocking' : 'Out'}
                         </Badge>
-                        <Badge variant="outline" className="text-[7px] sm:text-[8px] font-black uppercase tracking-wider border-white/10 bg-black/60 backdrop-blur-md px-1 py-0.5">
+                        <Badge variant="outline" className="text-[7px] sm:text-[8px] font-black uppercase tracking-wider border-slate-200 dark:border-white/10 bg-white/80 dark:bg-black/60 text-slate-800 dark:text-white backdrop-blur-md px-1 py-0.5">
                           {p.category}
                         </Badge>
                       </div>
                     </div>
                     <div className="p-3 md:p-4 flex-1 flex flex-col justify-between space-y-3">
                       <div>
-                        <h4 className="text-xs md:text-sm font-bold text-white truncate uppercase tracking-tight">{p.name}</h4>
-                        <p className="text-[10px] md:text-xs text-muted-foreground line-clamp-2 mt-1 h-6 md:h-8">{p.description || 'No description available.'}</p>
+                        <h4 className="text-xs md:text-sm font-bold text-slate-900 dark:text-white truncate uppercase tracking-tight">{p.name}</h4>
+                        <p className="text-[10px] md:text-xs text-slate-500 dark:text-muted-foreground line-clamp-2 mt-1 h-6 md:h-8">{p.description || 'No description available.'}</p>
                       </div>
                       <div className="flex flex-col gap-2.5">
                         <div className="flex flex-col">
-                          <span className="text-sm md:text-base lg:text-lg font-black text-emerald-400">₦{p.price.toLocaleString()}</span>
+                          <span className="text-sm md:text-base lg:text-lg font-black text-emerald-600 dark:text-emerald-400">₦{p.price.toLocaleString()}</span>
                           {p.slashPrice && (
-                            <span className="text-[9px] md:text-[10px] text-muted-foreground line-through">₦{p.slashPrice.toLocaleString()}</span>
+                            <span className="text-[9px] md:text-[10px] text-slate-400 dark:text-muted-foreground line-through">₦{p.slashPrice.toLocaleString()}</span>
                           )}
                         </div>
                         <div className="flex gap-1.5 w-full">
                           <button 
                             onClick={() => openProductModal(p)}
-                            className="flex-1 p-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all text-white active:scale-95 flex items-center justify-center"
+                            className="flex-1 p-2 rounded-lg bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 hover:bg-slate-200 dark:hover:bg-white/10 hover:border-slate-300 dark:hover:border-white/20 transition-all text-slate-700 dark:text-white active:scale-95 flex items-center justify-center"
                             title="Edit"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
                           <button 
                             onClick={() => promptDeleteProduct(p.id, p.name, p.image)}
-                            className="flex-1 p-2 rounded-lg bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-all text-red-400 active:scale-95 flex items-center justify-center"
+                            className="flex-1 p-2 rounded-lg bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-all text-red-600 dark:text-red-400 active:scale-95 flex items-center justify-center"
                             title="Delete Product"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -2093,11 +2103,11 @@ export const VendorDashboard: React.FC = () => {
                 ))}
                 {displayedProducts.length === 0 && (
                   <div className="col-span-full py-16 text-center space-y-2">
-                    <Store className="w-12 h-12 text-muted-foreground mx-auto opacity-30" />
-                    <p className="text-sm font-bold uppercase text-muted-foreground">
+                    <Store className="w-12 h-12 text-slate-400 dark:text-muted-foreground mx-auto opacity-30" />
+                    <p className="text-sm font-bold uppercase text-slate-500 dark:text-muted-foreground">
                       {selectedVendorFilter !== 'all' ? 'No Products For This Vendor' : 'No Products Uploaded'}
                     </p>
-                    <p className="text-xs text-muted-foreground opacity-60">Upload products so they can show in the Cinema store.</p>
+                    <p className="text-xs text-slate-400 dark:text-muted-foreground opacity-60">Upload products so they can show in the Cinema store.</p>
                   </div>
                 )}
               </div>
@@ -2116,10 +2126,10 @@ export const VendorDashboard: React.FC = () => {
               {/* Header & Controls */}
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-widest text-white flex items-center gap-2">
-                    <Receipt className="w-4 h-4 text-emerald-400" /> Store Sales & Financial Activity Log
+                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-widest text-slate-900 dark:text-white flex items-center gap-2">
+                    <Receipt className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> Store Sales & Financial Activity Log
                   </h3>
-                  <p className="text-[9px] sm:text-xs text-muted-foreground uppercase font-medium mt-0.5">
+                  <p className="text-[9px] sm:text-xs text-slate-500 dark:text-muted-foreground uppercase font-medium mt-0.5">
                     Real-time ledger of incoming store sales, customer orders, platform commission, and payout settlements
                   </p>
                 </div>
@@ -2141,19 +2151,19 @@ export const VendorDashboard: React.FC = () => {
 
                   {/* Search box */}
                   <div className="relative flex-1 md:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 dark:text-muted-foreground" />
                     <input
                       type="text"
                       placeholder="Search order #, customer, ID..."
                       value={txSearchQuery}
                       onChange={(e) => setTxSearchQuery(e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-lg pl-8 pr-7 py-1.5 text-xs text-white placeholder:text-muted-foreground/60 outline-none focus:border-primary/50 font-medium"
+                      className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg pl-8 pr-7 py-1.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-primary/50 font-medium"
                     />
                     {txSearchQuery && (
                       <button 
                         type="button" 
                         onClick={() => setTxSearchQuery('')} 
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:text-muted-foreground dark:hover:text-white"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -2164,38 +2174,38 @@ export const VendorDashboard: React.FC = () => {
 
               {/* Transactions Metrics Banner */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <Card className="glass-card p-3.5 border-white/5 space-y-1">
-                  <span className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-wider flex items-center gap-1">
-                    <ArrowDownLeft className="w-3 h-3 text-emerald-400" /> Sales Volume (Gross)
+                <Card className="glass-card p-3.5 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] shadow-sm space-y-1">
+                  <span className="text-[8px] sm:text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-wider flex items-center gap-1">
+                    <ArrowDownLeft className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> Sales Volume (Gross)
                   </span>
-                  <p className="text-sm sm:text-base font-black text-white">₦{computedStats.totalRevenue.toLocaleString()}</p>
-                  <p className="text-[8px] text-muted-foreground uppercase font-mono">100% total sales</p>
+                  <p className="text-sm sm:text-base font-black text-slate-900 dark:text-white">₦{computedStats.totalRevenue.toLocaleString()}</p>
+                  <p className="text-[8px] text-slate-500 dark:text-muted-foreground uppercase font-mono">100% total sales</p>
                 </Card>
 
-                <Card className="glass-card p-3.5 border-white/5 space-y-1">
-                  <span className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-wider flex items-center gap-1">
-                    <Percent className="w-3 h-3 text-amber-400" /> Net Credited (70%)
+                <Card className="glass-card p-3.5 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] shadow-sm space-y-1">
+                  <span className="text-[8px] sm:text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-wider flex items-center gap-1">
+                    <Percent className="w-3 h-3 text-amber-600 dark:text-amber-400" /> Net Credited (70%)
                   </span>
-                  <p className="text-sm sm:text-base font-black text-amber-400">₦{computedStats.totalEarnings.toLocaleString()}</p>
-                  <p className="text-[8px] text-muted-foreground uppercase font-mono">Credited to wallet</p>
+                  <p className="text-sm sm:text-base font-black text-amber-600 dark:text-amber-400">₦{computedStats.totalEarnings.toLocaleString()}</p>
+                  <p className="text-[8px] text-slate-500 dark:text-muted-foreground uppercase font-mono">Credited to wallet</p>
                 </Card>
 
-                <Card className="glass-card p-3.5 border-white/5 space-y-1">
-                  <span className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-wider flex items-center gap-1">
-                    <Building className="w-3 h-3 text-indigo-400" /> Platform Fee (30%)
+                <Card className="glass-card p-3.5 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] shadow-sm space-y-1">
+                  <span className="text-[8px] sm:text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-wider flex items-center gap-1">
+                    <Building className="w-3 h-3 text-indigo-500 dark:text-indigo-400" /> Platform Fee (30%)
                   </span>
-                  <p className="text-sm sm:text-base font-black text-indigo-300">₦{computedStats.totalFees.toLocaleString()}</p>
-                  <p className="text-[8px] text-muted-foreground uppercase font-mono">StreamAura fee cut</p>
+                  <p className="text-sm sm:text-base font-black text-indigo-600 dark:text-indigo-300">₦{computedStats.totalFees.toLocaleString()}</p>
+                  <p className="text-[8px] text-slate-500 dark:text-muted-foreground uppercase font-mono">StreamAura fee cut</p>
                 </Card>
 
-                <Card className="glass-card p-3.5 border-white/5 space-y-1">
-                  <span className="text-[8px] sm:text-[9px] font-black uppercase text-muted-foreground tracking-wider flex items-center gap-1">
-                    <ArrowUpRight className="w-3 h-3 text-orange-400" /> Total Cash Outs
+                <Card className="glass-card p-3.5 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] shadow-sm space-y-1">
+                  <span className="text-[8px] sm:text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-wider flex items-center gap-1">
+                    <ArrowUpRight className="w-3 h-3 text-orange-500 dark:text-orange-400" /> Total Cash Outs
                   </span>
-                  <p className="text-sm sm:text-base font-black text-orange-400">
+                  <p className="text-sm sm:text-base font-black text-orange-600 dark:text-orange-400">
                     ₦{payouts.reduce((sum, p) => sum + (p.amount || 0), 0).toLocaleString()}
                   </p>
-                  <p className="text-[8px] text-muted-foreground uppercase font-mono">{payouts.length} payout requests</p>
+                  <p className="text-[8px] text-slate-500 dark:text-muted-foreground uppercase font-mono">{payouts.length} payout requests</p>
                 </Card>
               </div>
 
@@ -2212,11 +2222,11 @@ export const VendorDashboard: React.FC = () => {
                     className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1.5 border ${
                       txTypeFilter === tab.id
                         ? 'bg-primary text-black border-primary font-black shadow-lg shadow-primary/20'
-                        : 'bg-white/5 border-white/10 text-muted-foreground hover:text-white hover:bg-white/10'
+                        : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-white/10'
                     }`}
                   >
                     <span>{tab.label}</span>
-                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] ${txTypeFilter === tab.id ? 'bg-black/20 text-black' : 'bg-white/10 text-white'}`}>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] ${txTypeFilter === tab.id ? 'bg-black/20 text-black' : 'bg-slate-200 dark:bg-white/10 text-slate-700 dark:text-white'}`}>
                       {tab.count}
                     </span>
                   </button>
@@ -2224,11 +2234,11 @@ export const VendorDashboard: React.FC = () => {
               </div>
 
               {/* Desktop Table View */}
-              <div className="glass-card overflow-hidden border-white/5 hidden md:block">
+              <div className="glass-card overflow-hidden border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm hidden md:block">
                 <div className="p-4 overflow-x-auto">
                   <table className="w-full border-collapse text-left">
                     <thead>
-                      <tr className="border-b border-white/10 text-[9px] uppercase font-black text-muted-foreground tracking-widest">
+                      <tr className="border-b border-slate-200 dark:border-white/10 text-[9px] uppercase font-black text-slate-500 dark:text-muted-foreground tracking-widest bg-slate-50/50 dark:bg-transparent">
                         <th className="py-3 px-4">Ref / Order #</th>
                         <th className="py-3 px-4">Type</th>
                         <th className="py-3 px-4">Net Amount</th>
@@ -2239,15 +2249,15 @@ export const VendorDashboard: React.FC = () => {
                         <th className="py-3 px-4 text-right">Action</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/5">
+                    <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                       {displayedTransactions.map((item) => {
                         const isSale = item.type === 'sale';
                         const refCode = item.orderNumber ? `#${item.orderNumber}` : item.id.substring(0, 10).toUpperCase();
 
                         return (
-                          <tr key={item.id} className="hover:bg-white/[0.02] text-xs font-bold uppercase tracking-tight transition-colors">
+                          <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.02] text-xs font-bold uppercase tracking-tight transition-colors">
                             <td className="py-3.5 px-4">
-                              <div className="flex items-center gap-1.5 font-mono text-[11px] text-amber-400">
+                              <div className="flex items-center gap-1.5 font-mono text-[11px] text-amber-700 dark:text-amber-400">
                                 <span>{refCode}</span>
                                 <button
                                   type="button"
@@ -2256,7 +2266,7 @@ export const VendorDashboard: React.FC = () => {
                                     navigator.clipboard.writeText(item.orderNumber || item.id);
                                     toast.success(`Copied ${refCode}`);
                                   }}
-                                  className="p-0.5 rounded hover:bg-white/10 text-muted-foreground hover:text-white"
+                                  className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-400 hover:text-slate-700 dark:text-muted-foreground dark:hover:text-white transition-colors"
                                   title="Copy"
                                 >
                                   <Copy className="w-3 h-3" />
@@ -2267,33 +2277,33 @@ export const VendorDashboard: React.FC = () => {
                             <td className="py-3.5 px-4">
                               <Badge 
                                 variant={isSale ? 'default' : 'secondary'} 
-                                className={`text-[8px] font-black uppercase tracking-widest ${isSale ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-orange-500/20 text-orange-400 border-orange-500/30'}`}
+                                className={`text-[8px] font-black uppercase tracking-widest ${isSale ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30' : 'bg-orange-500/20 text-orange-700 dark:text-orange-400 border-orange-500/30'}`}
                               >
                                 {isSale ? 'Sale Earning (70%)' : 'Settlement Payout'}
                               </Badge>
                             </td>
 
-                            <td className={`py-3.5 px-4 font-black font-mono text-sm ${isSale ? 'text-emerald-400' : 'text-orange-400'}`}>
+                            <td className={`py-3.5 px-4 font-black font-mono text-sm ${isSale ? 'text-emerald-600 dark:text-emerald-400' : 'text-orange-600 dark:text-orange-400'}`}>
                               {isSale ? `+₦${item.amount.toLocaleString()}` : `-₦${item.amount.toLocaleString()}`}
                             </td>
 
-                            <td className="py-3.5 px-4 text-[10px] font-mono text-muted-foreground">
+                            <td className="py-3.5 px-4 text-[10px] font-mono text-slate-500 dark:text-muted-foreground">
                               {isSale ? (
                                 <div className="space-y-0.5">
-                                  <div>Gross: <span className="text-white font-bold">₦{(item.grossAmount || item.amount).toLocaleString()}</span></div>
-                                  <div>Fee (30%): <span className="text-indigo-300">-₦{(item.platformFee || 0).toLocaleString()}</span></div>
+                                  <div>Gross: <span className="text-slate-900 dark:text-white font-bold">₦{(item.grossAmount || item.amount).toLocaleString()}</span></div>
+                                  <div>Fee (30%): <span className="text-indigo-600 dark:text-indigo-300 font-bold">-₦{(item.platformFee || 0).toLocaleString()}</span></div>
                                 </div>
                               ) : (
-                                <div>Fee: <span className="text-muted-foreground">₦{(item.feeAmount || 0).toLocaleString()}</span></div>
+                                <div>Fee: <span className="text-slate-500 dark:text-muted-foreground">₦{(item.feeAmount || 0).toLocaleString()}</span></div>
                               )}
                             </td>
 
-                            <td className="py-3.5 px-4 max-w-xs truncate text-muted-foreground text-[11px]">
-                              {item.customerName && <span className="text-white font-bold block truncate">{item.customerName}</span>}
+                            <td className="py-3.5 px-4 max-w-xs truncate text-slate-500 dark:text-muted-foreground text-[11px]">
+                              {item.customerName && <span className="text-slate-900 dark:text-white font-bold block truncate">{item.customerName}</span>}
                               <span className="truncate block">{item.description}</span>
                             </td>
 
-                            <td className="py-3.5 px-4 text-muted-foreground text-[10px] font-mono whitespace-nowrap">
+                            <td className="py-3.5 px-4 text-slate-500 dark:text-muted-foreground text-[10px] font-mono whitespace-nowrap">
                               {item.date.toLocaleString()}
                             </td>
 
@@ -2323,9 +2333,9 @@ export const VendorDashboard: React.FC = () => {
                       {displayedTransactions.length === 0 && (
                         <tr>
                           <td colSpan={8} className="py-16 text-center space-y-2">
-                            <Receipt className="w-10 h-10 text-muted-foreground mx-auto opacity-30" />
-                            <p className="text-xs uppercase font-bold text-muted-foreground">No transaction records found</p>
-                            <p className="text-[10px] text-muted-foreground/60">
+                            <Receipt className="w-10 h-10 text-slate-400 dark:text-muted-foreground mx-auto opacity-30" />
+                            <p className="text-xs uppercase font-bold text-slate-500 dark:text-muted-foreground">No transaction records found</p>
+                            <p className="text-[10px] text-slate-400 dark:text-muted-foreground/60">
                               {txSearchQuery || txTypeFilter !== 'all' ? 'Try clearing your search filters' : 'Incoming snack store sales will automatically show here.'}
                             </p>
                           </td>
@@ -2346,14 +2356,14 @@ export const VendorDashboard: React.FC = () => {
                     <Card 
                       key={item.id} 
                       onClick={() => setSelectedTxDetail(item)}
-                      className="glass-card p-4 border-white/5 space-y-3 text-left active:scale-[0.99] transition-transform cursor-pointer"
+                      className="glass-card p-4 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm space-y-3 text-left active:scale-[0.99] transition-transform cursor-pointer"
                     >
                       <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-1.5 font-mono text-[10px] text-amber-400">
+                        <div className="flex items-center gap-1.5 font-mono text-[10px] text-amber-700 dark:text-amber-400">
                           <span>{refCode}</span>
                           <Badge 
                             variant={isSale ? 'default' : 'secondary'} 
-                            className={`text-[7px] font-black uppercase tracking-widest px-1 py-0.2 ${isSale ? 'bg-emerald-500/20 text-emerald-400' : 'bg-orange-500/20 text-orange-400'}`}
+                            className={`text-[7px] font-black uppercase tracking-widest px-1 py-0.2 ${isSale ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400' : 'bg-orange-500/20 text-orange-700 dark:text-orange-400'}`}
                           >
                             {isSale ? '70% Sale' : 'Payout'}
                           </Badge>
@@ -2368,17 +2378,17 @@ export const VendorDashboard: React.FC = () => {
 
                       <div className="space-y-1">
                         {item.customerName && (
-                          <p className="text-xs font-bold text-white uppercase">{item.customerName}</p>
+                          <p className="text-xs font-bold text-slate-900 dark:text-white uppercase">{item.customerName}</p>
                         )}
-                        <p className="text-[11px] text-white/90 leading-tight line-clamp-2">{item.description}</p>
-                        <p className="text-[9px] text-muted-foreground font-mono">{item.date.toLocaleString()}</p>
+                        <p className="text-[11px] text-slate-700 dark:text-white/90 leading-tight line-clamp-2">{item.description}</p>
+                        <p className="text-[9px] text-slate-500 dark:text-muted-foreground font-mono">{item.date.toLocaleString()}</p>
                       </div>
 
-                      <div className="flex justify-between items-center pt-2 border-t border-white/5 text-[10px]">
-                        <div className="text-muted-foreground font-mono">
+                      <div className="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-white/5 text-[10px]">
+                        <div className="text-slate-500 dark:text-muted-foreground font-mono">
                           {isSale ? `Gross: ₦${(item.grossAmount || item.amount).toLocaleString()}` : (item.bankName || 'Bank')}
                         </div>
-                        <div className={`text-sm font-black font-mono ${isSale ? 'text-emerald-400' : 'text-orange-400'}`}>
+                        <div className={`text-sm font-black font-mono ${isSale ? 'text-emerald-600 dark:text-emerald-400' : 'text-orange-600 dark:text-orange-400'}`}>
                           {isSale ? `+₦${item.amount.toLocaleString()}` : `-₦${item.amount.toLocaleString()}`}
                         </div>
                       </div>
@@ -2387,9 +2397,9 @@ export const VendorDashboard: React.FC = () => {
                 })}
 
                 {displayedTransactions.length === 0 && (
-                  <div className="p-8 text-center space-y-2 glass-card border-white/5">
-                    <Receipt className="w-10 h-10 text-muted-foreground mx-auto opacity-30" />
-                    <p className="text-xs uppercase font-bold text-muted-foreground">No transactions found</p>
+                  <div className="p-8 text-center space-y-2 glass-card border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.02]">
+                    <Receipt className="w-10 h-10 text-slate-400 dark:text-muted-foreground mx-auto opacity-30" />
+                    <p className="text-xs uppercase font-bold text-slate-500 dark:text-muted-foreground">No transactions found</p>
                   </div>
                 )}
               </div>
@@ -2406,10 +2416,10 @@ export const VendorDashboard: React.FC = () => {
             >
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
-                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-widest text-white">
+                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-widest text-slate-900 dark:text-white">
                     Vendor Payouts & Settlement Account
                   </h3>
-                  <p className="text-[9px] sm:text-xs text-muted-foreground uppercase font-black mt-0.5">
+                  <p className="text-[9px] sm:text-xs text-slate-500 dark:text-muted-foreground uppercase font-black mt-0.5">
                     Configure your bank account and withdraw earned store revenue
                   </p>
                 </div>
@@ -2420,10 +2430,10 @@ export const VendorDashboard: React.FC = () => {
 
               {/* Payout Destination Bank Card */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                <Card className="glass-card p-5 border-white/5 space-y-4">
-                  <div className="flex justify-between items-center border-b border-white/5 pb-3">
-                    <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-1.5">
-                      <Building className="w-4 h-4 text-indigo-400" /> Configured Payout Destination
+                <Card className="glass-card p-5 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm space-y-4">
+                  <div className="flex justify-between items-center border-b border-slate-100 dark:border-white/5 pb-3">
+                    <span className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest flex items-center gap-1.5">
+                      <Building className="w-4 h-4 text-indigo-500 dark:text-indigo-400" /> Configured Payout Destination
                     </span>
                     <button
                       type="button"
@@ -2447,24 +2457,24 @@ export const VendorDashboard: React.FC = () => {
                   {bankDetails.accountNumber ? (
                     <div className="space-y-2">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">
+                        <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold">
                           <Building className="w-5 h-5" />
                         </div>
                         <div>
-                          <h4 className="text-sm font-bold text-white uppercase">{bankDetails.bankName}</h4>
-                          <p className="text-xs font-mono text-muted-foreground">Account: {bankDetails.accountNumber}</p>
+                          <h4 className="text-sm font-bold text-slate-900 dark:text-white uppercase">{bankDetails.bankName}</h4>
+                          <p className="text-xs font-mono text-slate-500 dark:text-muted-foreground">Account: {bankDetails.accountNumber}</p>
                         </div>
                       </div>
-                      <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase">
+                      <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center gap-2 text-emerald-700 dark:text-emerald-400 text-xs font-bold uppercase">
                         <UserCheck className="w-4 h-4 flex-shrink-0" />
                         <span className="truncate">{bankDetails.accountName}</span>
                       </div>
                     </div>
                   ) : (
                     <div className="py-6 text-center space-y-2">
-                      <AlertCircle className="w-8 h-8 text-amber-400 mx-auto opacity-70" />
-                      <p className="text-xs font-bold uppercase text-white">No Bank Account Configured</p>
-                      <p className="text-[10px] text-muted-foreground">Add your Nigerian bank details to receive automated earnings withdrawals.</p>
+                      <AlertCircle className="w-8 h-8 text-amber-500 dark:text-amber-400 mx-auto opacity-70" />
+                      <p className="text-xs font-bold uppercase text-slate-900 dark:text-white">No Bank Account Configured</p>
+                      <p className="text-[10px] text-slate-500 dark:text-muted-foreground">Add your Nigerian bank details to receive automated earnings withdrawals.</p>
                       <Button
                         onClick={() => {
                           setIsEditingBank(true);
@@ -2478,15 +2488,15 @@ export const VendorDashboard: React.FC = () => {
                   )}
                 </Card>
 
-                <Card className="glass-card p-5 border-white/5 flex flex-col justify-between space-y-4">
+                <Card className="glass-card p-5 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm flex flex-col justify-between space-y-4">
                   <div className="space-y-2">
-                    <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-1.5">
-                      <DollarSign className="w-4 h-4 text-emerald-400" /> Store Withdrawable Balance
+                    <span className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest flex items-center gap-1.5">
+                      <DollarSign className="w-4 h-4 text-emerald-500 dark:text-emerald-400" /> Store Withdrawable Balance
                     </span>
-                    <h3 className="text-2xl sm:text-3xl font-black text-emerald-400">
+                    <h3 className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400">
                       ₦{computedStats.availableBalance.toLocaleString()}
                     </h3>
-                    <p className="text-[10px] text-muted-foreground uppercase font-black">
+                    <p className="text-[10px] text-slate-500 dark:text-muted-foreground uppercase font-black">
                       Store sales earnings • 0% withdrawal fee
                     </p>
                   </div>
@@ -2502,15 +2512,15 @@ export const VendorDashboard: React.FC = () => {
 
               {/* Payouts History */}
               <div className="space-y-3">
-                <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">
+                <h4 className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">
                   Withdrawal History ({payouts.length})
                 </h4>
 
-                <div className="glass-card overflow-hidden border-white/5 hidden md:block">
+                <div className="glass-card overflow-hidden border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm hidden md:block">
                   <div className="p-4 overflow-x-auto">
                     <table className="w-full border-collapse text-left">
                       <thead>
-                        <tr className="border-b border-white/10 text-[9px] uppercase font-black text-muted-foreground tracking-widest">
+                        <tr className="border-b border-slate-200 dark:border-white/10 text-[9px] uppercase font-black text-slate-500 dark:text-muted-foreground tracking-widest bg-slate-50/50 dark:bg-transparent">
                           <th className="py-3 px-4">Request ID</th>
                           <th className="py-3 px-4">Requested Amount</th>
                           <th className="py-3 px-4">Fee (0%)</th>
@@ -2520,17 +2530,17 @@ export const VendorDashboard: React.FC = () => {
                           <th className="py-3 px-4 text-right">Status</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-white/5">
+                      <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                         {payouts.map(p => (
-                          <tr key={p.id} className="hover:bg-white/[0.01] text-xs font-bold uppercase tracking-tight">
-                            <td className="py-3.5 px-4 font-mono text-[10px] text-muted-foreground">{p.id.substring(0, 10)}...</td>
-                            <td className="py-3.5 px-4 font-black text-white">₦{p.amount.toLocaleString()}</td>
-                            <td className="py-3.5 px-4 text-muted-foreground font-mono text-[11px]">₦{(p.fee_amount !== undefined ? p.fee_amount : (p.type === 'vendor' ? 0 : p.amount * 0.05)).toLocaleString()}</td>
-                            <td className="py-3.5 px-4 font-black text-emerald-400">₦{(p.payout_amount !== undefined ? p.payout_amount : (p.type === 'vendor' ? p.amount : p.amount * 0.95)).toLocaleString()}</td>
-                            <td className="py-3.5 px-4 text-muted-foreground text-[11px]">
+                          <tr key={p.id} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.01] text-xs font-bold uppercase tracking-tight">
+                            <td className="py-3.5 px-4 font-mono text-[10px] text-slate-500 dark:text-muted-foreground">{p.id.substring(0, 10)}...</td>
+                            <td className="py-3.5 px-4 font-black text-slate-900 dark:text-white">₦{p.amount.toLocaleString()}</td>
+                            <td className="py-3.5 px-4 text-slate-500 dark:text-muted-foreground font-mono text-[11px]">₦{(p.fee_amount !== undefined ? p.fee_amount : (p.type === 'vendor' ? 0 : p.amount * 0.05)).toLocaleString()}</td>
+                            <td className="py-3.5 px-4 font-black text-emerald-600 dark:text-emerald-400">₦{(p.payout_amount !== undefined ? p.payout_amount : (p.type === 'vendor' ? p.amount : p.amount * 0.95)).toLocaleString()}</td>
+                            <td className="py-3.5 px-4 text-slate-500 dark:text-muted-foreground text-[11px]">
                               {p.bank_name} • {p.account_number}
                             </td>
-                            <td className="py-3.5 px-4 text-muted-foreground text-[10px] font-mono">
+                            <td className="py-3.5 px-4 text-slate-500 dark:text-muted-foreground text-[10px] font-mono">
                               {p.created_at?.toDate ? p.created_at.toDate().toLocaleString() : 'Recent'}
                             </td>
                             <td className="py-3.5 px-4 text-right">
@@ -2545,7 +2555,7 @@ export const VendorDashboard: React.FC = () => {
                         ))}
                         {payouts.length === 0 && (
                           <tr>
-                            <td colSpan={7} className="py-12 text-center text-muted-foreground italic">
+                            <td colSpan={7} className="py-12 text-center text-slate-500 dark:text-muted-foreground italic">
                               No withdrawal requests submitted yet.
                             </td>
                           </tr>
@@ -2557,9 +2567,9 @@ export const VendorDashboard: React.FC = () => {
 
                 <div className="space-y-3 md:hidden">
                   {payouts.map(p => (
-                    <Card key={p.id} className="glass-card p-4 border-white/5 space-y-2 text-left">
+                    <Card key={p.id} className="glass-card p-4 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm space-y-2 text-left">
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-mono text-muted-foreground">ID: {p.id.substring(0, 10)}...</span>
+                        <span className="text-[10px] font-mono text-slate-500 dark:text-muted-foreground">ID: {p.id.substring(0, 10)}...</span>
                         <Badge 
                           variant={p.status === 'completed' || p.status === 'approved' ? 'default' : p.status === 'pending' ? 'secondary' : 'destructive'} 
                           className="text-[8px] font-black uppercase"
@@ -2569,21 +2579,21 @@ export const VendorDashboard: React.FC = () => {
                       </div>
                       <div className="flex justify-between items-end">
                         <div>
-                          <p className="text-xs font-bold text-white uppercase">{p.bank_name}</p>
-                          <p className="text-[10px] text-muted-foreground font-mono">No. {p.account_number}</p>
-                          <p className="text-[9px] text-muted-foreground font-mono mt-1">
+                          <p className="text-xs font-bold text-slate-900 dark:text-white uppercase">{p.bank_name}</p>
+                          <p className="text-[10px] text-slate-500 dark:text-muted-foreground font-mono">No. {p.account_number}</p>
+                          <p className="text-[9px] text-slate-500 dark:text-muted-foreground font-mono mt-1">
                             {p.created_at?.toDate ? p.created_at.toDate().toLocaleString() : 'Recent'}
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-black text-emerald-400 font-mono">₦{p.amount.toLocaleString()}</p>
-                          <p className="text-[8px] text-muted-foreground">Fee: ₦{(p.fee_amount !== undefined ? p.fee_amount : (p.type === 'vendor' ? 0 : p.amount * 0.05)).toLocaleString()}</p>
+                          <p className="text-sm font-black text-emerald-600 dark:text-emerald-400 font-mono">₦{p.amount.toLocaleString()}</p>
+                          <p className="text-[8px] text-slate-500 dark:text-muted-foreground">Fee: ₦{(p.fee_amount !== undefined ? p.fee_amount : (p.type === 'vendor' ? 0 : p.amount * 0.05)).toLocaleString()}</p>
                         </div>
                       </div>
                     </Card>
                   ))}
                   {payouts.length === 0 && (
-                    <p className="text-xs text-muted-foreground italic text-center py-6">
+                    <p className="text-xs text-slate-500 dark:text-muted-foreground italic text-center py-6">
                       No withdrawal requests submitted yet.
                     </p>
                   )}
@@ -2605,14 +2615,17 @@ export const VendorDashboard: React.FC = () => {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-lg glass-card border-white/15 p-4 sm:p-6 space-y-4 sm:space-y-6 max-h-[90vh] overflow-y-auto custom-scrollbar"
+              className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/15 p-4 sm:p-6 space-y-4 sm:space-y-6 max-h-[90vh] overflow-y-auto custom-scrollbar shadow-2xl rounded-2xl sm:rounded-3xl text-slate-900 dark:text-white"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex justify-between items-center border-b border-white/5 pb-3 sm:pb-4">
-                <h3 className="text-sm sm:text-base font-black uppercase tracking-widest text-white">
+              <div className="flex justify-between items-center border-b border-slate-200 dark:border-white/10 pb-3 sm:pb-4">
+                <h3 className="text-sm sm:text-base font-black uppercase tracking-widest text-slate-900 dark:text-white">
                   {editingProduct ? 'Edit Product details' : 'Upload New Product'}
                 </h3>
-                <button onClick={() => setIsProductModalOpen(false)} className="p-1 rounded-lg hover:bg-white/5 text-muted-foreground hover:text-white transition-colors">
+                <button 
+                  onClick={() => setIsProductModalOpen(false)} 
+                  className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-400 hover:text-slate-700 dark:text-muted-foreground dark:hover:text-white transition-colors"
+                >
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -2620,18 +2633,18 @@ export const VendorDashboard: React.FC = () => {
               <form onSubmit={handleSaveProduct} className="space-y-3 sm:space-y-4 text-left">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest ml-1">Product Name</label>
+                    <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">Product Name</label>
                     <input 
                       required
                       type="text"
                       placeholder="e.g. Caramel Popcorn"
-                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-xs text-white outline-none focus:border-primary/50"
+                      className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-primary/50 transition-colors"
                       value={productForm.name}
                       onChange={e => setProductForm({ ...productForm, name: e.target.value })}
                     />
                   </div>
                   <div className="space-y-1.5 sm:col-span-2">
-                    <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest ml-1">Category</label>
+                    <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">Category</label>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                       {[
                         { id: 'snack', label: '🍿 Popcorn & Snacks' },
@@ -2645,8 +2658,8 @@ export const VendorDashboard: React.FC = () => {
                           onClick={() => setProductForm({ ...productForm, category: cat.id })}
                           className={`p-2 sm:p-2.5 rounded-xl text-[10px] sm:text-[11px] font-bold text-center transition-all border ${
                             productForm.category === cat.id
-                              ? 'bg-primary/20 text-primary border-primary/50 shadow-md font-black'
-                              : 'bg-white/5 border-white/10 text-muted-foreground hover:text-white hover:bg-white/10'
+                              ? 'bg-primary/15 text-primary border-primary/40 shadow-sm font-black ring-1 ring-primary/30'
+                              : 'bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10'
                           }`}
                         >
                           {cat.label}
@@ -2658,22 +2671,22 @@ export const VendorDashboard: React.FC = () => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest ml-1">Price (₦)</label>
+                    <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">Price (₦)</label>
                     <input 
                       required
                       type="number"
                       placeholder="e.g. 2500"
-                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-xs text-white outline-none focus:border-primary/50"
+                      className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-primary/50 transition-colors"
                       value={productForm.price}
                       onChange={e => setProductForm({ ...productForm, price: e.target.value })}
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest ml-1">Slash Price (₦ - Optional)</label>
+                    <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">Slash Price (₦ - Optional)</label>
                     <input 
                       type="number"
                       placeholder="e.g. 3500"
-                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-xs text-white outline-none focus:border-primary/50"
+                      className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-primary/50 transition-colors"
                       value={productForm.slashPrice}
                       onChange={e => setProductForm({ ...productForm, slashPrice: e.target.value })}
                     />
@@ -2681,10 +2694,10 @@ export const VendorDashboard: React.FC = () => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest ml-1">Product Description</label>
+                  <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">Product Description</label>
                   <textarea 
                     placeholder="Provide short details about packaging, size, flavor..."
-                    className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-xs text-white outline-none focus:border-primary/50 h-20 resize-none"
+                    className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-primary/50 h-20 resize-none transition-colors"
                     value={productForm.description}
                     onChange={e => setProductForm({ ...productForm, description: e.target.value })}
                   />
@@ -2693,14 +2706,14 @@ export const VendorDashboard: React.FC = () => {
                 {/* Cover Image Upload & Remove */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest ml-1">
+                    <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">
                       Product Picture / Image
                     </label>
                     {productForm.image && (
                       <button
                         type="button"
                         onClick={handleRemoveProductImage}
-                        className="text-[9px] font-black uppercase text-rose-400 hover:text-rose-300 flex items-center gap-1 transition-colors px-2 py-0.5 rounded-md hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20"
+                        className="text-[9px] font-black uppercase text-rose-500 hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300 flex items-center gap-1 transition-colors px-2 py-0.5 rounded-md hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20"
                       >
                         <Trash2 className="w-3 h-3" /> Remove Picture
                       </button>
@@ -2708,8 +2721,8 @@ export const VendorDashboard: React.FC = () => {
                   </div>
 
                   {productForm.image ? (
-                    <div className="relative rounded-2xl border border-white/10 overflow-hidden bg-black/40 p-2.5 flex items-center gap-3.5 group">
-                      <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-black/60 border border-white/10 flex-shrink-0">
+                    <div className="relative rounded-2xl border border-slate-200 dark:border-white/10 overflow-hidden bg-slate-50 dark:bg-black/40 p-2.5 flex items-center gap-3.5 group">
+                      <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-slate-200 dark:bg-black/60 border border-slate-200 dark:border-white/10 flex-shrink-0">
                         <img 
                           src={productForm.image} 
                           alt="Product preview" 
@@ -2726,16 +2739,16 @@ export const VendorDashboard: React.FC = () => {
                       </div>
 
                       <div className="flex-1 min-w-0 space-y-1.5">
-                        <div className="flex items-center gap-1.5 text-emerald-400 text-[10px] font-black uppercase tracking-wider">
+                        <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 text-[10px] font-black uppercase tracking-wider">
                           <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
                           <span>Image Attached</span>
                         </div>
-                        <p className="text-[10px] text-muted-foreground truncate font-mono">
+                        <p className="text-[10px] text-slate-500 dark:text-muted-foreground truncate font-mono">
                           {productForm.image.split('/').pop() || 'product_image.jpg'}
                         </p>
                         <div className="flex items-center gap-2 pt-0.5">
                           <label 
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-[10px] font-black uppercase tracking-wider cursor-pointer border border-white/10 transition-all active:scale-95"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-200/80 dark:bg-white/10 hover:bg-slate-300/80 dark:hover:bg-white/15 text-slate-700 dark:text-white text-[10px] font-black uppercase tracking-wider cursor-pointer border border-slate-300 dark:border-white/10 transition-all active:scale-95"
                           >
                             <Upload className="w-3 h-3" />
                             <span>Change Picture</span>
@@ -2751,7 +2764,7 @@ export const VendorDashboard: React.FC = () => {
                           <button
                             type="button"
                             onClick={handleRemoveProductImage}
-                            className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-[10px] font-black uppercase tracking-wider transition-all"
+                            className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 dark:text-rose-400 border border-rose-500/20 text-[10px] font-black uppercase tracking-wider transition-all"
                           >
                             Remove
                           </button>
@@ -2759,7 +2772,7 @@ export const VendorDashboard: React.FC = () => {
                       </div>
                     </div>
                   ) : (
-                    <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-white/10 hover:border-primary/50 rounded-2xl cursor-pointer hover:bg-white/[0.02] transition-all group">
+                    <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-300 dark:border-white/10 hover:border-primary/50 rounded-2xl cursor-pointer bg-slate-50/50 hover:bg-slate-50 dark:bg-transparent dark:hover:bg-white/[0.02] transition-all group">
                       <div className="flex flex-col items-center justify-center text-center space-y-2">
                         {isUploadingImage ? (
                           <div className="flex flex-col items-center gap-2 py-2">
@@ -2768,12 +2781,12 @@ export const VendorDashboard: React.FC = () => {
                           </div>
                         ) : (
                           <>
-                            <div className="w-10 h-10 rounded-xl bg-white/5 group-hover:bg-primary/10 text-muted-foreground group-hover:text-primary flex items-center justify-center border border-white/10 transition-colors">
+                            <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/5 group-hover:bg-primary/10 text-slate-500 dark:text-muted-foreground group-hover:text-primary flex items-center justify-center border border-slate-200 dark:border-white/10 transition-colors">
                               <Upload className="w-5 h-5" />
                             </div>
                             <div>
-                              <p className="text-xs font-black uppercase tracking-wide text-white">Click to upload product image</p>
-                              <p className="text-[9px] text-muted-foreground mt-0.5">Supports PNG, JPG, WEBP (Max 5MB)</p>
+                              <p className="text-xs font-black uppercase tracking-wide text-slate-900 dark:text-white">Click to upload product image</p>
+                              <p className="text-[9px] text-slate-500 dark:text-muted-foreground mt-0.5">Supports PNG, JPG, WEBP (Max 5MB)</p>
                             </div>
                           </>
                         )}
@@ -2791,12 +2804,12 @@ export const VendorDashboard: React.FC = () => {
                 </div>
 
                 <div className="space-y-1.5 py-1">
-                  <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest ml-1">Stock Status</label>
+                  <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">Stock Status</label>
                   <div className="grid grid-cols-3 gap-2">
                     {[
-                      { id: 'in_stock', label: 'In Stock', activeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 ring-1 ring-emerald-500/30' },
-                      { id: 'restocking', label: 'Restocking', activeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40 ring-1 ring-amber-500/30' },
-                      { id: 'out_of_stock', label: 'Out of Stock', activeClass: 'bg-red-500/20 text-red-300 border-red-500/40 ring-1 ring-red-500/30' }
+                      { id: 'in_stock', label: 'In Stock', activeClass: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/40 ring-1 ring-emerald-500/30' },
+                      { id: 'restocking', label: 'Restocking', activeClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-300 border-amber-500/40 ring-1 ring-amber-500/30' },
+                      { id: 'out_of_stock', label: 'Out of Stock', activeClass: 'bg-red-500/15 text-red-600 dark:text-red-300 border-red-500/40 ring-1 ring-red-500/30' }
                     ].map(st => (
                       <button
                         key={st.id}
@@ -2805,7 +2818,7 @@ export const VendorDashboard: React.FC = () => {
                         className={`py-2.5 px-2 rounded-xl text-[10px] font-black uppercase tracking-wider text-center transition-all border ${
                           productForm.stockStatus === st.id
                             ? `${st.activeClass} shadow-md`
-                            : 'bg-white/5 border-white/10 text-muted-foreground hover:text-white hover:bg-white/10'
+                            : 'bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10'
                         }`}
                       >
                         {st.label}
@@ -2814,11 +2827,11 @@ export const VendorDashboard: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex gap-3 pt-3 sm:pt-4 border-t border-white/5">
+                <div className="flex gap-3 pt-3 sm:pt-4 border-t border-slate-200 dark:border-white/10">
                   <Button 
                     type="button" 
                     variant="outline" 
-                    className="flex-1 h-10 sm:h-12 rounded-xl text-[10px] sm:text-xs font-black uppercase"
+                    className="flex-1 h-10 sm:h-12 rounded-xl text-[10px] sm:text-xs font-black uppercase border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5"
                     onClick={() => setIsProductModalOpen(false)}
                   >
                     Cancel
@@ -2826,7 +2839,7 @@ export const VendorDashboard: React.FC = () => {
                   <Button 
                     type="submit" 
                     disabled={isSavingProduct || isUploadingImage}
-                    className="flex-1 h-10 sm:h-12 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest gradient-bg"
+                    className="flex-1 h-10 sm:h-12 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest gradient-bg shadow-md"
                   >
                     {isSavingProduct ? <Loader2 className="w-4.5 h-4.5 animate-spin mx-auto" /> : editingProduct ? 'Save' : 'Upload'}
                   </Button>
@@ -2848,27 +2861,30 @@ export const VendorDashboard: React.FC = () => {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-sm glass-card border-white/15 p-4 sm:p-6 space-y-4 sm:space-y-6"
+              className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/15 p-4 sm:p-6 space-y-4 sm:space-y-6 shadow-2xl rounded-2xl sm:rounded-3xl text-slate-900 dark:text-white"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex justify-between items-center border-b border-white/5 pb-3 sm:pb-4">
-                <h3 className="text-sm sm:text-base font-black uppercase tracking-widest text-white flex items-center gap-2">
-                  <Banknote className="w-5 h-5 text-emerald-400" /> Request Settlement
+              <div className="flex justify-between items-center border-b border-slate-200 dark:border-white/10 pb-3 sm:pb-4">
+                <h3 className="text-sm sm:text-base font-black uppercase tracking-widest text-slate-900 dark:text-white flex items-center gap-2">
+                  <Banknote className="w-5 h-5 text-emerald-500 dark:text-emerald-400" /> Request Settlement
                 </h3>
-                <button onClick={handleCloseWithdrawModal} className="p-1 rounded-lg hover:bg-white/5 text-muted-foreground hover:text-white transition-colors">
+                <button 
+                  onClick={handleCloseWithdrawModal} 
+                  className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-400 hover:text-slate-700 dark:text-muted-foreground dark:hover:text-white transition-colors"
+                >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               {(!bankDetails.accountNumber || isEditingBank) ? (
-                <div className="p-3.5 sm:p-4 bg-white/5 border border-white/10 rounded-2xl text-left space-y-3.5">
+                <div className="p-3.5 sm:p-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl text-left space-y-3.5">
                   <div className="flex justify-between items-center">
                     <p className="text-[10px] font-black uppercase text-primary tracking-widest">Configure Bank Account</p>
                     {bankDetails.accountNumber && (
                       <button 
                         type="button" 
                         onClick={handleCancelBankEdit}
-                        className="text-[9px] font-black uppercase text-muted-foreground hover:text-white"
+                        className="text-[9px] font-black uppercase text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-white"
                       >
                         Cancel
                       </button>
@@ -2876,9 +2892,9 @@ export const VendorDashboard: React.FC = () => {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Account Number (10 Digits)</label>
+                    <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest">Account Number (10 Digits)</label>
                     <div className="relative">
-                      <CreditCard className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <CreditCard className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-muted-foreground" />
                       <input 
                         type="text"
                         inputMode="numeric"
@@ -2892,7 +2908,7 @@ export const VendorDashboard: React.FC = () => {
                             name: val.length !== 10 || val !== prev.account ? '' : prev.name
                           }));
                         }}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-10 pr-10 text-xs font-bold text-white outline-none focus:border-primary/50"
+                        className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-2.5 pl-10 pr-10 text-xs font-bold text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-primary/50 transition-colors"
                       />
                       {isResolvingBank && (
                         <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -2903,9 +2919,9 @@ export const VendorDashboard: React.FC = () => {
                   </div>
 
                   <div className="space-y-1.5 relative" ref={bankDropdownRef}>
-                    <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Select Bank</label>
+                    <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest">Select Bank</label>
                     <div className="relative">
-                      <Building className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Building className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-muted-foreground" />
                       <input 
                         type="text"
                         placeholder="Search bank name..."
@@ -2916,7 +2932,7 @@ export const VendorDashboard: React.FC = () => {
                           setTempBankDetails(prev => ({ ...prev, bankName: e.target.value, bankCode: '', name: '' }));
                           setShowBankDropdown(true);
                         }}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-10 pr-12 text-xs font-bold text-white outline-none focus:border-primary/50"
+                        className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-2.5 pl-10 pr-12 text-xs font-bold text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-primary/50 transition-colors"
                       />
                       <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
                         {(bankSearch || tempBankDetails.bankName) && (
@@ -2927,7 +2943,7 @@ export const VendorDashboard: React.FC = () => {
                               setBankSearch('');
                               setTempBankDetails(prev => ({ ...prev, bankName: '', bankCode: '', name: '' }));
                             }}
-                            className="p-1 hover:bg-white/10 rounded-full text-muted-foreground hover:text-white transition-colors"
+                            className="p-1 hover:bg-slate-200 dark:hover:bg-white/10 rounded-full text-slate-400 hover:text-slate-700 dark:text-muted-foreground dark:hover:text-white transition-colors"
                           >
                             <X className="w-3.5 h-3.5" />
                           </button>
@@ -2938,7 +2954,7 @@ export const VendorDashboard: React.FC = () => {
                             e.stopPropagation();
                             setShowBankDropdown(!showBankDropdown);
                           }}
-                          className="p-1 hover:bg-white/10 rounded-full text-muted-foreground hover:text-white transition-colors"
+                          className="p-1 hover:bg-slate-200 dark:hover:bg-white/10 rounded-full text-slate-400 hover:text-slate-700 dark:text-muted-foreground dark:hover:text-white transition-colors"
                         >
                           <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showBankDropdown ? 'rotate-180' : ''}`} />
                         </button>
@@ -2946,15 +2962,15 @@ export const VendorDashboard: React.FC = () => {
                     </div>
                     <AnimatePresence>
                       {showBankDropdown && (
-                        <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute z-[110] left-0 right-0 top-full mt-1.5 max-h-44 overflow-y-auto bg-[#0f172a] border border-white/10 rounded-xl shadow-2xl custom-scrollbar">
+                        <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute z-[110] left-0 right-0 top-full mt-1.5 max-h-44 overflow-y-auto bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl custom-scrollbar">
                           {filteredBanks.map((bank, i) => (
                             <button 
                               key={`${bank.code}-${i}`} 
                               type="button"
                               onClick={() => handleSelectBank(bank)} 
-                              className="w-full text-left px-3.5 py-2.5 text-xs font-bold text-white/90 hover:bg-primary/10 hover:text-primary transition-colors border-b border-white/5 last:border-0 flex items-center gap-2.5"
+                              className="w-full text-left px-3.5 py-2.5 text-xs font-bold text-slate-700 dark:text-white/90 hover:bg-primary/10 hover:text-primary transition-colors border-b border-slate-100 dark:border-white/5 last:border-0 flex items-center gap-2.5"
                             >
-                              <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-[8px] font-black uppercase shrink-0 overflow-hidden">
+                              <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-white/10 flex items-center justify-center text-[8px] font-black uppercase shrink-0 overflow-hidden text-slate-600 dark:text-slate-300">
                                 {bank.slug ? (
                                   <img src={`https://raw.githubusercontent.com/iam-kevin/nigerian-banks-logos/master/logos/${bank.slug}.png`} alt="" onError={(e) => (e.target as any).style.display='none'} />
                                 ) : bank.name.substring(0, 2)}
@@ -2962,23 +2978,23 @@ export const VendorDashboard: React.FC = () => {
                               <span className="truncate">{bank.name}</span>
                             </button>
                           ))}
-                          {filteredBanks.length === 0 && <div className="p-3 text-center text-[9px] font-black text-white/30 uppercase tracking-widest">No banks found</div>}
+                          {filteredBanks.length === 0 && <div className="p-3 text-center text-[9px] font-black text-slate-400 dark:text-white/30 uppercase tracking-widest">No banks found</div>}
                         </motion.div>
                       )}
                     </AnimatePresence>
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Account Name</label>
+                    <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest">Account Name</label>
                     <div className="relative">
                       <input 
                         readOnly 
                         placeholder={isResolvingBank ? 'Verifying account...' : 'Account holder name'}
                         value={tempBankDetails.name}
-                        className="w-full bg-white/[0.02] border border-white/10 rounded-xl py-2.5 pl-3.5 pr-9 text-xs font-black uppercase text-emerald-400 cursor-not-allowed"
+                        className="w-full bg-slate-100/70 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 rounded-xl py-2.5 pl-3.5 pr-9 text-xs font-black uppercase text-emerald-600 dark:text-emerald-400 cursor-not-allowed"
                       />
                       {tempBankDetails.name && !isResolvingBank && (
-                        <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-400" />
+                        <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                       )}
                     </div>
                   </div>
@@ -2987,15 +3003,15 @@ export const VendorDashboard: React.FC = () => {
                     type="button"
                     onClick={handleSaveBankDetails}
                     disabled={isSavingBankSettings || !tempBankDetails.name || !tempBankDetails.bankName || !tempBankDetails.bankCode || tempBankDetails.account.length !== 10 || isResolvingBank}
-                    className="w-full h-10 rounded-xl text-[10px] font-black uppercase tracking-widest gradient-bg disabled:opacity-50"
+                    className="w-full h-10 rounded-xl text-[10px] font-black uppercase tracking-widest gradient-bg shadow-md disabled:opacity-50"
                   >
                     {isSavingBankSettings ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Save & Verify Bank'}
                   </Button>
                 </div>
               ) : (
-                <div className="p-3 sm:p-4 bg-white/5 border border-white/5 rounded-xl text-left space-y-2">
+                <div className="p-3 sm:p-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-xl text-left space-y-2">
                   <div className="flex justify-between items-center">
-                    <p className="text-[9px] sm:text-[10px] font-black uppercase text-muted-foreground">Payout Destination</p>
+                    <p className="text-[9px] sm:text-[10px] font-black uppercase text-slate-500 dark:text-muted-foreground">Payout Destination</p>
                     <button 
                       type="button" 
                       onClick={() => {
@@ -3014,9 +3030,9 @@ export const VendorDashboard: React.FC = () => {
                     </button>
                   </div>
                   <div className="space-y-1">
-                    <p className="text-xs font-bold text-white uppercase">{bankDetails.bankName}</p>
-                    <p className="text-[9px] text-muted-foreground uppercase font-black">No. {bankDetails.accountNumber}</p>
-                    <p className="text-[9px] text-emerald-400 font-bold uppercase">{bankDetails.accountName}</p>
+                    <p className="text-xs font-bold text-slate-900 dark:text-white uppercase">{bankDetails.bankName}</p>
+                    <p className="text-[9px] text-slate-500 dark:text-muted-foreground uppercase font-black">No. {bankDetails.accountNumber}</p>
+                    <p className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold uppercase">{bankDetails.accountName}</p>
                   </div>
                 </div>
               )}
@@ -3024,17 +3040,17 @@ export const VendorDashboard: React.FC = () => {
               <form onSubmit={handleRequestWithdrawal} className="space-y-3 sm:space-y-4 text-left">
                 <div className="space-y-1">
                   <div className="flex justify-between items-center px-1">
-                    <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Amount to Withdraw</label>
+                    <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest">Amount to Withdraw</label>
                     <span className="text-[9px] text-primary font-black uppercase">Max: ₦{computedStats.availableBalance.toLocaleString()}</span>
                   </div>
                   <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-black text-white">₦</span>
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-black text-slate-900 dark:text-white">₦</span>
                     <input 
                       required
                       type="text"
                       inputMode="numeric"
                       placeholder="0"
-                      className="w-full bg-white/5 border border-white/10 rounded-xl py-3 sm:py-3.5 pl-9 pr-4 text-base sm:text-lg font-black text-white outline-none focus:border-primary/50"
+                      className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3 sm:py-3.5 pl-9 pr-4 text-base sm:text-lg font-black text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-primary/50 transition-colors"
                       value={withdrawAmount}
                       onChange={e => setWithdrawAmount(e.target.value.replace(/[^0-9.]/g, ''))}
                     />
@@ -3043,20 +3059,20 @@ export const VendorDashboard: React.FC = () => {
 
                 {/* 0% Fee Guarantee Banner */}
                 <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-start gap-2.5 text-left">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
                   <div className="space-y-0.5">
-                    <p className="text-[10px] font-black uppercase text-emerald-300 tracking-wider">0% Additional Fee</p>
-                    <p className="text-[8.5px] text-muted-foreground uppercase font-bold leading-tight">
+                    <p className="text-[10px] font-black uppercase text-emerald-700 dark:text-emerald-300 tracking-wider">0% Additional Fee</p>
+                    <p className="text-[8.5px] text-slate-600 dark:text-muted-foreground uppercase font-bold leading-tight">
                       You receive 100% of your withdrawn amount. Platform fee (30%) was already settled on purchase.
                     </p>
                   </div>
                 </div>
 
-                <div className="flex gap-3 pt-3 sm:pt-4 border-t border-white/5">
+                <div className="flex gap-3 pt-3 sm:pt-4 border-t border-slate-200 dark:border-white/10">
                   <Button 
                     type="button" 
                     variant="outline" 
-                    className="flex-1 h-10 sm:h-12 rounded-xl text-[10px] sm:text-xs font-black uppercase"
+                    className="flex-1 h-10 sm:h-12 rounded-xl text-[10px] sm:text-xs font-black uppercase border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5"
                     onClick={handleCloseWithdrawModal}
                   >
                     Cancel
@@ -3064,7 +3080,7 @@ export const VendorDashboard: React.FC = () => {
                   <Button 
                     type="submit" 
                     disabled={isSubmittingWithdrawal || !bankDetails.accountNumber || !bankDetails.bankName || !bankDetails.accountName || !bankDetails.bankCode || bankDetails.accountNumber.length !== 10}
-                    className="flex-1 h-10 sm:h-12 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest gradient-bg disabled:opacity-50"
+                    className="flex-1 h-10 sm:h-12 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest gradient-bg shadow-md disabled:opacity-50"
                   >
                     {isSubmittingWithdrawal ? <Loader2 className="w-4.5 h-4.5 animate-spin mx-auto" /> : 'Confirm'}
                   </Button>
@@ -3086,19 +3102,19 @@ export const VendorDashboard: React.FC = () => {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-sm glass-card border-white/15 p-5 sm:p-6 space-y-5 text-center shadow-2xl"
+              className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/15 p-5 sm:p-6 space-y-5 text-center shadow-2xl rounded-2xl sm:rounded-3xl text-slate-900 dark:text-white"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto text-red-400">
+              <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto text-red-500 dark:text-red-400">
                 <Trash2 className="w-6 h-6" />
               </div>
 
               <div className="space-y-2">
-                <h3 className="text-base sm:text-lg font-black uppercase text-white tracking-wide">
+                <h3 className="text-base sm:text-lg font-black uppercase text-slate-900 dark:text-white tracking-wide">
                   Delete Product
                 </h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Are you sure you want to permanently delete <span className="font-bold text-white">"{deleteModalState.productName}"</span>? This will remove it from the Cinema Snack Store and Cloudflare storage.
+                <p className="text-xs text-slate-500 dark:text-muted-foreground leading-relaxed">
+                  Are you sure you want to permanently delete <span className="font-bold text-slate-900 dark:text-white">"{deleteModalState.productName}"</span>? This will remove it from the Cinema Snack Store and Cloudflare storage.
                 </p>
               </div>
 
@@ -3107,7 +3123,7 @@ export const VendorDashboard: React.FC = () => {
                   type="button" 
                   variant="outline" 
                   disabled={isDeletingProduct}
-                  className="flex-1 h-10 sm:h-11 rounded-xl text-[10px] sm:text-xs font-black uppercase"
+                  className="flex-1 h-10 sm:h-11 rounded-xl text-[10px] sm:text-xs font-black uppercase border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5"
                   onClick={() => setDeleteModalState(prev => ({ ...prev, isOpen: false }))}
                 >
                   Cancel
@@ -3116,7 +3132,7 @@ export const VendorDashboard: React.FC = () => {
                   type="button" 
                   disabled={isDeletingProduct}
                   onClick={handleConfirmDeleteProduct}
-                  className="flex-1 h-10 sm:h-11 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider bg-red-600 hover:bg-red-700 text-white font-black"
+                  className="flex-1 h-10 sm:h-11 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider bg-red-600 hover:bg-red-700 text-white font-black shadow-md"
                 >
                   {isDeletingProduct ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Delete'}
                 </Button>
@@ -3137,26 +3153,26 @@ export const VendorDashboard: React.FC = () => {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-md glass-card border-white/15 p-5 sm:p-6 space-y-5 text-left shadow-2xl"
+              className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/15 p-5 sm:p-6 space-y-5 text-left shadow-2xl rounded-2xl sm:rounded-3xl text-slate-900 dark:text-white"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex justify-between items-center border-b border-white/5 pb-3">
+              <div className="flex justify-between items-center border-b border-slate-200 dark:border-white/10 pb-3">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                  <div className="w-9 h-9 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-600 dark:text-purple-400">
                     <Truck className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-white">
+                    <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-slate-900 dark:text-white">
                       Dispatch Order #{shippingModal.orderNumber}
                     </h3>
-                    <p className="text-[9px] text-muted-foreground uppercase font-black">
+                    <p className="text-[9px] text-slate-500 dark:text-muted-foreground uppercase font-black">
                       Set delivery arrival estimate for customer
                     </p>
                   </div>
                 </div>
                 <button 
                   onClick={() => !shippingModal.isSubmitting && setShippingModal(prev => ({ ...prev, isOpen: false }))} 
-                  className="p-1 rounded-lg hover:bg-white/5 text-muted-foreground hover:text-white transition-colors"
+                  className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-400 hover:text-slate-700 dark:text-muted-foreground dark:hover:text-white transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -3165,7 +3181,7 @@ export const VendorDashboard: React.FC = () => {
               <form onSubmit={handleConfirmShipOrder} className="space-y-4">
                 {/* Quick Presets */}
                 <div className="space-y-2">
-                  <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">
+                  <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest">
                     Quick Delivery Presets
                   </label>
                   <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
@@ -3176,8 +3192,8 @@ export const VendorDashboard: React.FC = () => {
                         onClick={() => setShippingModal(prev => ({ ...prev, eta: preset }))}
                         className={`py-2 px-1 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
                           shippingModal.eta === preset
-                            ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-600/30'
-                            : 'bg-white/5 border-white/10 text-muted-foreground hover:text-white hover:bg-white/10'
+                            ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-600/30 font-black'
+                            : 'bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10'
                         }`}
                       >
                         {preset}
@@ -3188,24 +3204,24 @@ export const VendorDashboard: React.FC = () => {
 
                 {/* Custom ETA input */}
                 <div className="space-y-1.5">
-                  <label className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">
+                  <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest">
                     Custom Arrival Estimate
                   </label>
                   <div className="relative">
-                    <Clock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-purple-400" />
+                    <Clock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-purple-600 dark:text-purple-400" />
                     <input
                       type="text"
                       placeholder="e.g. 20-30 mins, Today by 5:30 PM..."
                       value={shippingModal.eta}
                       onChange={e => setShippingModal(prev => ({ ...prev, eta: e.target.value }))}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-xs font-bold text-white outline-none focus:border-purple-500/50"
+                      className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3 pl-10 pr-4 text-xs font-bold text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-purple-500/50 transition-colors"
                       required
                     />
                   </div>
                 </div>
 
-                <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-xl text-[10px] text-purple-300/90 leading-relaxed">
-                  💡 When confirmed, this order will be marked <span className="font-bold text-white">Out for Delivery</span>. The customer will receive an immediate in-app notification with this ETA, and the Telegram bot group will be synchronized.
+                <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-xl text-[10px] text-purple-800 dark:text-purple-300/90 leading-relaxed font-medium">
+                  💡 When confirmed, this order will be marked <span className="font-bold text-purple-950 dark:text-white">Out for Delivery</span>. The customer will receive an immediate in-app notification with this ETA, and the Telegram bot group will be synchronized.
                 </div>
 
                 <div className="flex gap-3 pt-2">
@@ -3213,7 +3229,7 @@ export const VendorDashboard: React.FC = () => {
                     type="button" 
                     variant="outline" 
                     disabled={shippingModal.isSubmitting}
-                    className="flex-1 h-10 sm:h-11 rounded-xl text-[10px] sm:text-xs font-black uppercase"
+                    className="flex-1 h-10 sm:h-11 rounded-xl text-[10px] sm:text-xs font-black uppercase border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5"
                     onClick={() => setShippingModal(prev => ({ ...prev, isOpen: false }))}
                   >
                     Cancel
@@ -3221,7 +3237,7 @@ export const VendorDashboard: React.FC = () => {
                   <Button 
                     type="submit" 
                     disabled={shippingModal.isSubmitting || !shippingModal.eta.trim()}
-                    className="flex-1 h-10 sm:h-11 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider bg-purple-600 hover:bg-purple-500 text-white font-black"
+                    className="flex-1 h-10 sm:h-11 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider bg-purple-600 hover:bg-purple-500 text-white font-black shadow-md"
                   >
                     {shippingModal.isSubmitting ? (
                       <Loader2 className="w-4 h-4 animate-spin mx-auto" />
@@ -3247,39 +3263,39 @@ export const VendorDashboard: React.FC = () => {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-lg glass-card border-white/15 p-5 sm:p-6 space-y-5 text-left shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar"
+              className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/15 p-5 sm:p-6 space-y-5 text-left shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar rounded-2xl sm:rounded-3xl text-slate-900 dark:text-white"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header */}
-              <div className="flex justify-between items-center border-b border-white/5 pb-3">
+              <div className="flex justify-between items-center border-b border-slate-200 dark:border-white/10 pb-3">
                 <div className="flex items-center gap-2.5">
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${selectedTxDetail.type === 'sale' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-orange-500/10 text-orange-400 border border-orange-500/20'}`}>
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${selectedTxDetail.type === 'sale' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20'}`}>
                     <Receipt className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-white">
+                    <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-slate-900 dark:text-white">
                       {selectedTxDetail.type === 'sale' ? 'Store Sales Receipt' : 'Payout Settlement'}
                     </h3>
-                    <p className="text-[9px] text-muted-foreground uppercase font-mono">
+                    <p className="text-[9px] text-slate-500 dark:text-muted-foreground uppercase font-mono">
                       Ref: {selectedTxDetail.orderNumber ? `#${selectedTxDetail.orderNumber}` : selectedTxDetail.id}
                     </p>
                   </div>
                 </div>
                 <button 
                   onClick={() => setSelectedTxDetail(null)} 
-                  className="p-1 rounded-lg hover:bg-white/5 text-muted-foreground hover:text-white transition-colors"
+                  className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-400 hover:text-slate-700 dark:text-muted-foreground dark:hover:text-white transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               {/* Amount Highlight */}
-              <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl flex justify-between items-center">
+              <div className="p-4 bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 rounded-2xl flex justify-between items-center">
                 <div>
-                  <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest block">
+                  <span className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest block">
                     {selectedTxDetail.type === 'sale' ? 'Net Vendor Share Credited' : 'Withdrawal Amount'}
                   </span>
-                  <p className={`text-2xl sm:text-3xl font-black font-mono mt-0.5 ${selectedTxDetail.type === 'sale' ? 'text-emerald-400' : 'text-orange-400'}`}>
+                  <p className={`text-2xl sm:text-3xl font-black font-mono mt-0.5 ${selectedTxDetail.type === 'sale' ? 'text-emerald-600 dark:text-emerald-400' : 'text-orange-600 dark:text-orange-400'}`}>
                     {selectedTxDetail.type === 'sale' ? `+₦${selectedTxDetail.amount.toLocaleString()}` : `-₦${selectedTxDetail.amount.toLocaleString()}`}
                   </p>
                 </div>
@@ -3294,19 +3310,19 @@ export const VendorDashboard: React.FC = () => {
               {/* Financial Breakdown (Sales) */}
               {selectedTxDetail.type === 'sale' && (
                 <div className="space-y-3">
-                  <h4 className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                  <h4 className="text-[9px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">
                     Revenue & Commission Split
                   </h4>
-                  <div className="p-3.5 bg-black/40 border border-white/5 rounded-xl space-y-2 text-xs">
-                    <div className="flex justify-between items-center text-white">
-                      <span className="text-muted-foreground uppercase text-[10px]">Gross Order Total (100%):</span>
+                  <div className="p-3.5 bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/5 rounded-xl space-y-2 text-xs">
+                    <div className="flex justify-between items-center text-slate-900 dark:text-white">
+                      <span className="text-slate-500 dark:text-muted-foreground uppercase text-[10px]">Gross Order Total (100%):</span>
                       <span className="font-bold font-mono">₦{(selectedTxDetail.grossAmount || selectedTxDetail.amount).toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between items-center text-indigo-300">
+                    <div className="flex justify-between items-center text-indigo-600 dark:text-indigo-300">
                       <span className="uppercase text-[10px]">StreamAura Platform Commission (30%):</span>
                       <span className="font-bold font-mono">-₦{(selectedTxDetail.platformFee || ((selectedTxDetail.grossAmount || selectedTxDetail.amount) * 0.3)).toLocaleString()}</span>
                     </div>
-                    <div className="border-t border-white/5 pt-2 flex justify-between items-center text-emerald-400 font-bold">
+                    <div className="border-t border-slate-200 dark:border-white/5 pt-2 flex justify-between items-center text-emerald-600 dark:text-emerald-400 font-bold">
                       <span className="uppercase text-[10px]">Net Credited to Vendor (70%):</span>
                       <span className="font-black font-mono">₦{selectedTxDetail.amount.toLocaleString()}</span>
                     </div>
@@ -3317,18 +3333,18 @@ export const VendorDashboard: React.FC = () => {
               {/* Order Items (Sales) */}
               {selectedTxDetail.items && selectedTxDetail.items.length > 0 && (
                 <div className="space-y-2">
-                  <h4 className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                  <h4 className="text-[9px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">
                     Ordered Snack Items ({selectedTxDetail.items.length})
                   </h4>
-                  <div className="divide-y divide-white/5 border border-white/5 rounded-xl overflow-hidden bg-black/20 text-xs">
+                  <div className="divide-y divide-slate-200 dark:divide-white/5 border border-slate-200 dark:border-white/5 rounded-xl overflow-hidden bg-slate-50 dark:bg-black/20 text-xs">
                     {selectedTxDetail.items.map((it: any, idx: number) => (
                       <div key={idx} className="p-2.5 flex justify-between items-center">
                         <div className="flex items-center gap-2.5">
                           <ShoppingBag className="w-3.5 h-3.5 text-amber-500" />
-                          <span className="font-bold text-white uppercase">{it.name || it.productName}</span>
-                          <span className="text-[10px] text-muted-foreground font-mono">× {it.quantity || 1}</span>
+                          <span className="font-bold text-slate-900 dark:text-white uppercase">{it.name || it.productName}</span>
+                          <span className="text-[10px] text-slate-500 dark:text-muted-foreground font-mono">× {it.quantity || 1}</span>
                         </div>
-                        <span className="font-mono text-white font-bold">
+                        <span className="font-mono text-slate-900 dark:text-white font-bold">
                           ₦{((it.price || 0) * (it.quantity || 1)).toLocaleString()}
                         </span>
                       </div>
@@ -3339,45 +3355,45 @@ export const VendorDashboard: React.FC = () => {
 
               {/* Customer / Destination Info */}
               {selectedTxDetail.type === 'sale' ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-white/[0.02] border border-white/5 rounded-xl text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 rounded-xl text-xs">
                   <div>
-                    <span className="text-[8px] font-black uppercase tracking-wider text-muted-foreground block">Customer Name</span>
-                    <span className="font-bold text-white uppercase">{selectedTxDetail.customerName || 'Customer'}</span>
+                    <span className="text-[8px] font-black uppercase tracking-wider text-slate-500 dark:text-muted-foreground block">Customer Name</span>
+                    <span className="font-bold text-slate-900 dark:text-white uppercase">{selectedTxDetail.customerName || 'Customer'}</span>
                   </div>
                   {selectedTxDetail.customerPhone && (
                     <div>
-                      <span className="text-[8px] font-black uppercase tracking-wider text-muted-foreground block">Phone</span>
-                      <span className="font-mono text-emerald-400 font-bold">{selectedTxDetail.customerPhone}</span>
+                      <span className="text-[8px] font-black uppercase tracking-wider text-slate-500 dark:text-muted-foreground block">Phone</span>
+                      <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">{selectedTxDetail.customerPhone}</span>
                     </div>
                   )}
                   {selectedTxDetail.customerAddress && (
                     <div className="col-span-full">
-                      <span className="text-[8px] font-black uppercase tracking-wider text-muted-foreground block">Delivery Address</span>
-                      <span className="text-white/90">{selectedTxDetail.customerAddress}</span>
+                      <span className="text-[8px] font-black uppercase tracking-wider text-slate-500 dark:text-muted-foreground block">Delivery Address</span>
+                      <span className="text-slate-800 dark:text-white/90">{selectedTxDetail.customerAddress}</span>
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="p-3.5 bg-white/[0.02] border border-white/5 rounded-xl space-y-2 text-xs">
+                <div className="p-3.5 bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 rounded-xl space-y-2 text-xs">
                   <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground text-[10px] uppercase">Destination Bank:</span>
-                    <span className="font-bold text-white uppercase">{selectedTxDetail.bankName || 'Bank'}</span>
+                    <span className="text-slate-500 dark:text-muted-foreground text-[10px] uppercase">Destination Bank:</span>
+                    <span className="font-bold text-slate-900 dark:text-white uppercase">{selectedTxDetail.bankName || 'Bank'}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground text-[10px] uppercase">Account Number:</span>
-                    <span className="font-mono font-bold text-white">{selectedTxDetail.accountNumber}</span>
+                    <span className="text-slate-500 dark:text-muted-foreground text-[10px] uppercase">Account Number:</span>
+                    <span className="font-mono font-bold text-slate-900 dark:text-white">{selectedTxDetail.accountNumber}</span>
                   </div>
                   {selectedTxDetail.accountName && (
                     <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground text-[10px] uppercase">Account Holder:</span>
-                      <span className="font-bold text-emerald-400 uppercase">{selectedTxDetail.accountName}</span>
+                      <span className="text-slate-500 dark:text-muted-foreground text-[10px] uppercase">Account Holder:</span>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400 uppercase">{selectedTxDetail.accountName}</span>
                     </div>
                   )}
                 </div>
               )}
 
               {/* Timestamp */}
-              <div className="flex justify-between items-center text-[10px] text-muted-foreground font-mono pt-1">
+              <div className="flex justify-between items-center text-[10px] text-slate-500 dark:text-muted-foreground font-mono pt-1">
                 <span>Timestamp:</span>
                 <span>{selectedTxDetail.date.toLocaleString()}</span>
               </div>
@@ -3386,7 +3402,7 @@ export const VendorDashboard: React.FC = () => {
               <Button
                 type="button"
                 onClick={() => setSelectedTxDetail(null)}
-                className="w-full h-10 rounded-xl text-xs font-black uppercase tracking-wider"
+                className="w-full h-10 rounded-xl text-xs font-black uppercase tracking-wider border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5"
                 variant="outline"
               >
                 Close Receipt

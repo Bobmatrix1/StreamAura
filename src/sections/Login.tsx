@@ -117,9 +117,9 @@ const Login: React.FC<LoginProps> = ({ onToggleView, isModal, onBack }) => {
             {onBack && (
               <button 
                 onClick={onBack}
-                className="absolute top-0 left-0 p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all group"
+                className="absolute top-0 left-0 p-2 rounded-xl bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 transition-all group"
               >
-                <ArrowLeft className="w-4 h-4 text-muted-foreground group-hover:text-white" />
+                <ArrowLeft className="w-4 h-4 text-slate-600 dark:text-muted-foreground group-hover:text-slate-900 dark:group-hover:text-white" />
               </button>
             )}
 

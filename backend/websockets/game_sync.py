@@ -49,6 +49,34 @@ async def run_game_loop(game_id: str):
         
         db = firestore.client()
         room_ref = db.collection("game_rooms").document(game_id)
+        host_uid = state.get("hostUid")
+        room_name = state.get("roomName", "Game")
+        host_name = state.get("hostName", "Host")
+
+        # Process entry fees for human players selected in this round
+        entry_fee = float(state.get("entryFee", 0) or 0)
+        if entry_fee > 0 and host_uid:
+            human_players = sum(1 for p in [state.get("playerA"), state.get("playerB")] if p and not p.get("isBot"))
+            round_entry_pool = round(entry_fee * human_players, 2)
+            if round_entry_pool > 0:
+                platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, round_entry_pool, db)
+                if host_final > 0:
+                    db.collection("game_wallets").document(host_uid).set({"balance": firestore.Increment(host_final)}, merge=True)
+                    db.collection("game_wallets").document(host_uid).collection("activity").add({
+                        "type": "entry_earnings",
+                        "amount": host_final,
+                        "desc": f"Earnings from {room_name} Round {state.get('currentRound', 1)} entry fees",
+                        "timestamp": firestore.SERVER_TIMESTAMP
+                    })
+                if referrer_uid and referrer_cut > 0:
+                    ref_user_ref = db.collection("users").document(referrer_uid)
+                    ref_user_ref.update({"referralBalance": firestore.Increment(referrer_cut)})
+                    db.collection("game_wallets").document(referrer_uid).collection("activity").add({
+                        "type": "referral_earning",
+                        "amount": referrer_cut,
+                        "desc": f"10% commission from {host_name}'s game entry fees",
+                        "timestamp": firestore.SERVER_TIMESTAMP
+                    })
 
         # 1. Convincing Phase (60s)
         print(f"Game {game_id}: Entering convincing phase")
@@ -122,15 +150,12 @@ async def run_game_loop(game_id: str):
         choice_b = state.get("choices", {}).get(uid_b) if uid_b else None # "split", "steal", or None
         
         result = "none"
-        prize_amount = float(state.get("prizeAmount", 0))
-        host_uid = state.get("hostUid")
-        room_name = state.get("roomName", "Game")
-        host_name = state.get("hostName", "Host")
+        prize_amount = round(float(state.get("prizeAmount", 0)), 2)
+        half_prize = round(prize_amount / 2, 2)
         
         # Scenario 1: Both Split -> 50% to Player A, 50% to Player B
         if choice_a == "split" and choice_b == "split":
             result = "share"
-            half_prize = prize_amount / 2
             for p in [state.get("playerA"), state.get("playerB")]:
                 if p and not p.get("isBot"):
                     db.collection("game_wallets").document(p["uid"]).set({"balance": firestore.Increment(half_prize)}, merge=True)
@@ -141,7 +166,6 @@ async def run_game_loop(game_id: str):
         # Scenario 2: Player A Split & Player B AFK -> 50% to Player A, 50% burned to Host
         elif choice_a == "split" and not choice_b:
             result = "afk_split_a"
-            half_prize = prize_amount / 2
             if state.get("playerA") and not state["playerA"].get("isBot"):
                 db.collection("game_wallets").document(state["playerA"]["uid"]).set({"balance": firestore.Increment(half_prize)}, merge=True)
                 db.collection("game_wallets").document(state["playerA"]["uid"]).collection("activity").add({
@@ -364,25 +388,33 @@ async def start_periodic_cleanup():
 
 @router.websocket("/{game_id}/ws")
 async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str = None):
-    print(f"WS CONNECTION REQUEST: game_id={game_id}, token={'present' if token else 'none'}")
     from firebase_admin import auth
     
     uid = None
     is_admin = False
     
-    if token:
-        try:
-            decoded_token = auth.verify_id_token(token)
-            uid = decoded_token.get("uid")
-            is_admin = bool(decoded_token.get("admin") or decoded_token.get("isAdmin", False))
-            if not is_admin and uid:
-                db = firestore.client()
-                user_doc = db.collection("users").document(uid).get()
-                if user_doc.exists:
-                    u_data = user_doc.to_dict() or {}
-                    is_admin = bool(u_data.get("isAdmin", False) or u_data.get("role") == "admin" or u_data.get("is_admin", False))
-        except Exception as e:
-            print(f"WS Auth Token Verification Note: {str(e)}")
+    if not token:
+        await websocket.close(code=4001, reason="Authentication token required")
+        return
+        
+    try:
+        decoded_token = auth.verify_id_token(token)
+        uid = decoded_token.get("uid")
+        if not uid:
+            await websocket.close(code=4002, reason="Invalid token UID")
+            return
+            
+        is_admin = bool(decoded_token.get("admin") or decoded_token.get("isAdmin", False))
+        if not is_admin:
+            db = firestore.client()
+            user_doc = db.collection("users").document(uid).get()
+            if user_doc.exists:
+                u_data = user_doc.to_dict() or {}
+                is_admin = bool(u_data.get("isAdmin", False) or u_data.get("role") == "admin" or u_data.get("is_admin", False))
+    except Exception as e:
+        print(f"WS Auth Token Verification Failed: {str(e)}")
+        await websocket.close(code=4002, reason="Invalid authentication token")
+        return
             
     try:
         await manager.connect(websocket, game_id)
@@ -411,7 +443,8 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                         "numberOfRounds": data.get("numberOfRounds", 1),
                         "isMultipleRounds": data.get("isMultipleRounds", False),
                         "prizeAmount": data.get("prizeAmount", 0),
-                        "hostUid": data.get("hostUid")
+                        "hostUid": data.get("hostUid"),
+                        "entryFee": data.get("entryFee", 0)
                     }
                 else:
                     print(f"Room {game_id} not found in Firestore, using default state")
@@ -443,21 +476,9 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                 msg = json.loads(data)
                 action = msg.get("type")
                 state = manager.game_states[game_id]
-                
-                # Check user identity & admin status dynamically from msg if needed
-                client_uid = msg.get("uid") or uid
-                if client_uid and not uid:
-                    uid = client_uid
-                    
-                if not is_admin and client_uid:
-                    db = firestore.client()
-                    user_doc = db.collection("users").document(client_uid).get()
-                    if user_doc.exists:
-                        u_data = user_doc.to_dict() or {}
-                        is_admin = bool(u_data.get("isAdmin", False) or u_data.get("role") == "admin" or u_data.get("is_admin", False))
 
                 if action == "join":
-                    user_info = {"uid": uid or f"anon_{uuid.uuid4().hex[:6]}", "displayName": msg.get("name", "User"), "photoURL": msg.get("photo"), "isBot": False}
+                    user_info = {"uid": uid, "displayName": msg.get("name", "User"), "photoURL": msg.get("photo"), "isBot": False}
                     if "viewers" not in state: state["viewers"] = []
                     if not any(v["uid"] == user_info["uid"] for v in state["viewers"]):
                         state["viewers"].append(user_info)
@@ -467,7 +488,7 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                     channel = msg.get("channel", "viewer")
                     message = {
                         "id": f"msg_{uuid.uuid4().hex[:8]}",
-                        "uid": uid or client_uid,
+                        "uid": uid,
                         "userName": msg.get("name", "User"),
                         "text": msg.get("text"),
                         "timestamp": time.time(),
@@ -498,10 +519,10 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                             for _ in range(bots_to_add):
                                 bot_uid = f"bot_{uuid.uuid4().hex[:6]}"
                                 new_bots.append({
-                                    "uid": bot_uid,
-                                    "displayName": f"Bot {random.randint(100, 999)}",
-                                    "photoURL": f"https://api.dicebear.com/7.x/bottts/svg?seed={bot_uid}",
-                                    "isBot": True
+                                     "uid": bot_uid,
+                                     "displayName": f"Bot {random.randint(100, 999)}",
+                                     "photoURL": f"https://api.dicebear.com/7.x/bottts/svg?seed={bot_uid}",
+                                     "isBot": True
                                 })
                             state["participants"].extend(new_bots)
                             room_ref.update({"participants": state["participants"]})
@@ -512,11 +533,14 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                         "type": "chat_reaction",
                         "messageId": msg.get("messageId"),
                         "emoji": msg.get("emoji"),
-                        "uid": uid or client_uid
+                        "uid": uid
                     }, game_id)
 
                 elif action == "pick_random_players":
-                    is_admin_action = is_admin or (uid and uid == state.get("hostUid")) or (client_uid and client_uid == state.get("hostUid")) or msg.get("isAdmin")
+                    is_admin_action = is_admin or (uid == state.get("hostUid"))
+                    if not is_admin_action:
+                        continue
+                        
                     state["status"] = "selecting"
                     state["choices"] = {}
                     state["revealResult"] = None
@@ -594,12 +618,46 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
 
                 elif action == "delete_room":
                     # Only Host or Admin can delete
-                    is_admin_action = is_admin
-                    is_host_action = uid == state.get("hostUid")
+                    is_admin_action = is_admin or (uid == state.get("hostUid"))
                     
-                    if is_admin_action or is_host_action:
+                    if is_admin_action:
                         print(f"MANUAL DELETE: Room {game_id} by {uid}")
                         try:
+                            # Refund unspent prize and unplayed participant entry fees
+                            room_doc = room_ref.get()
+                            if room_doc.exists:
+                                r_data = room_doc.to_dict()
+                                if r_data.get("status") in ["waiting", "selecting", "convincing", "choosing", "sudden_death", "revealing", "round_finished"]:
+                                    h_uid = r_data.get("hostUid")
+                                    tot_rounds = r_data.get("numberOfRounds", 1) if r_data.get("isMultipleRounds") else 1
+                                    pz_amount = float(r_data.get("prizeAmount", 0) or 0)
+                                    ply_users = set(r_data.get("playedUsers", []))
+                                    rounds_comp = len(ply_users) // 2
+                                    rem_rounds = max(0, tot_rounds - rounds_comp)
+                                    unspent_pz = round(pz_amount * rem_rounds, 2)
+                                    
+                                    if unspent_pz > 0 and h_uid:
+                                        db.collection("game_wallets").document(h_uid).set({"balance": firestore.Increment(unspent_pz)}, merge=True)
+                                        db.collection("game_wallets").document(h_uid).collection("activity").add({
+                                            "type": "room_cancelled_refund",
+                                            "amount": unspent_pz,
+                                            "desc": f"Refunded unspent prize from cancelled room: {r_data.get('roomName', 'Game')}",
+                                            "timestamp": firestore.SERVER_TIMESTAMP
+                                        })
+
+                                    e_fee = float(r_data.get("entryFee", 0) or 0)
+                                    parts = r_data.get("participants", [])
+                                    for p in parts:
+                                        p_id = p.get("uid")
+                                        if not p.get("isBot") and p_id and p_id not in ply_users and e_fee > 0:
+                                            db.collection("game_wallets").document(p_id).set({"balance": firestore.Increment(e_fee)}, merge=True)
+                                            db.collection("game_wallets").document(p_id).collection("activity").add({
+                                                "type": "pool_cancelled_refund",
+                                                "amount": e_fee,
+                                                "desc": f"Refunded entry fee from cancelled room: {r_data.get('roomName', 'Game')}",
+                                                "timestamp": firestore.SERVER_TIMESTAMP
+                                            })
+                            
                             # 1. Inform remaining users
                             await manager.broadcast({
                                 "type": "game_update", 
@@ -607,7 +665,7 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                             }, game_id)
                             
                             # 2. Delete from Firestore
-                            db.collection("game_rooms").document(game_id).delete()
+                            room_ref.delete()
                             
                             # 3. Close all active WebSockets
                             if game_id in manager.active_connections:

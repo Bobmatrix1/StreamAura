@@ -21,6 +21,41 @@ import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { LoginRequired } from '../components/LoginRequired';
 
+const HistoryThumbnail: React.FC<{ 
+  thumbnail?: string; 
+  title: string; 
+  platform: string; 
+  mediaType: string;
+}> = ({ thumbnail, title, platform, mediaType }) => {
+  const [hasError, setHasError] = useState(false);
+
+  if (!thumbnail || hasError) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 dark:bg-black/40 text-slate-800 dark:text-white p-2 text-center select-none border border-slate-200 dark:border-white/5">
+        {mediaType === 'music' ? (
+          <FileAudio className="w-6 h-6 text-orange-500 mb-1" />
+        ) : (
+          <FileVideo className="w-6 h-6 text-blue-500 mb-1" />
+        )}
+        <span className="text-[8px] font-black uppercase tracking-wider text-slate-600 dark:text-white/60 truncate max-w-full">
+          {platform || 'Media'}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={thumbnail}
+      alt={title}
+      referrerPolicy="no-referrer"
+      loading="lazy"
+      onError={() => setHasError(true)}
+      className="w-full h-full object-cover"
+    />
+  );
+};
+
 const History: React.FC = () => {
   const { isAuthenticated } = useAuth();
   const { history, removeFromHistory, clearHistory } = useDownload();
@@ -155,11 +190,12 @@ const History: React.FC = () => {
               >
                 <div className="flex items-center gap-4 relative z-10">
                   {/* Thumbnail */}
-                  <div className="w-16 h-16 md:w-20 md:h-20 rounded-xl overflow-hidden bg-black/30 flex-shrink-0 border border-white/5">
-                    <img
-                      src={item.thumbnail}
-                      alt={item.title}
-                      className="w-full h-full object-cover"
+                  <div className="w-16 h-16 md:w-20 md:h-20 rounded-xl overflow-hidden bg-slate-100 dark:bg-black/30 flex-shrink-0 border border-slate-200 dark:border-white/5">
+                    <HistoryThumbnail
+                      thumbnail={item.thumbnail}
+                      title={item.title}
+                      platform={item.platform}
+                      mediaType={item.mediaType}
                     />
                   </div>
 

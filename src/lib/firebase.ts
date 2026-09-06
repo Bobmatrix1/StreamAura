@@ -1268,9 +1268,13 @@ export const updateOrderStatus = async (
   // 2. Sync to Backend to update Telegram group message & buttons
   try {
     const API_URL = import.meta.env.VITE_API_URL || '';
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
     await fetch(`${API_URL}/api/store/order/status`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         orderId,
         status,
@@ -1423,9 +1427,13 @@ export const rateVendorOrder = async (
   // 2. Call backend API for synchronization
   try {
     const API_URL = import.meta.env.VITE_API_URL || '';
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
     await fetch(`${API_URL}/api/store/rate-vendor`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         orderId,
         vendorId: resolvedVendorId,
