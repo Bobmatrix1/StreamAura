@@ -45,22 +45,6 @@ const TikTokLogo: React.FC<{ className?: string }> = ({ className = "w-6 h-6" })
   </svg>
 );
 
-const InstagramLogo: React.FC<{ className?: string }> = ({ className = "w-6 h-6" }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="ig-grad-real" x1="100%" y1="100%" x2="0%" y2="0%">
-        <stop offset="0%" stopColor="#833ab4" />
-        <stop offset="50%" stopColor="#fd1d1d" />
-        <stop offset="100%" stopColor="#fcb045" />
-      </linearGradient>
-    </defs>
-    <rect width="24" height="24" rx="6" fill="url(#ig-grad-real)" />
-    <rect x="5.5" y="5.5" width="13" height="13" rx="3.5" stroke="#FFFFFF" strokeWidth="1.6" fill="none" />
-    <circle cx="12" cy="12" r="3.2" stroke="#FFFFFF" strokeWidth="1.6" fill="none" />
-    <circle cx="15.8" cy="8.2" r="0.9" fill="#FFFFFF" />
-  </svg>
-);
-
 const FacebookLogo: React.FC<{ className?: string }> = ({ className = "w-6 h-6" }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
     <circle cx="12" cy="12" r="12" fill="#1877F2" />
@@ -100,14 +84,6 @@ const SUPPORTED_PLATFORMS: SupportedPlatform[] = [
     accent: 'text-cyan-400',
     description: 'HD Video without watermark + MP3 audio',
     icon: <TikTokLogo className="w-6 h-6" />
-  },
-  {
-    id: 'instagram',
-    name: 'Instagram',
-    badge: 'Reels, Posts & Stories',
-    accent: 'text-pink-400',
-    description: '1080p Reels, Videos, Stories & Posts',
-    icon: <InstagramLogo className="w-6 h-6" />
   },
   {
     id: 'facebook',
@@ -320,16 +296,16 @@ const VideoDownloader: React.FC = () => {
             <span>Fast Social Video Downloader</span>
           </div>
           <h2 className="text-3xl sm:text-4xl font-extrabold text-foreground tracking-tight">
-            YouTube, TikTok, Instagram & Facebook <span className="gradient-text">Downloader</span>
+            YouTube, TikTok & Facebook <span className="gradient-text">Downloader</span>
           </h2>
           <p className="text-muted-foreground text-sm sm:text-base max-w-xl mx-auto px-4">
-            Download high-definition videos from <strong className="text-foreground">YouTube</strong> (4K, 1080p & Shorts), <strong className="text-foreground">TikTok</strong> (No Watermark), <strong className="text-foreground">Instagram</strong> (Reels, Posts & Stories), <strong className="text-foreground">Facebook</strong> (Watch, Reels & Stories), and <strong className="text-foreground">X / Twitter</strong> with zero quality loss.
+            Download high-definition videos from <strong className="text-foreground">YouTube</strong> (4K, 1080p & Shorts), <strong className="text-foreground">TikTok</strong> (No Watermark), <strong className="text-foreground">Facebook</strong> (Watch, Reels & Stories), and <strong className="text-foreground">X / Twitter</strong> with zero quality loss.
           </p>
         </div>
       </div>
 
       {/* Supported Platforms Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4">
         {SUPPORTED_PLATFORMS.map((platform) => {
           const isDetected = detectedPlatform === platform.id;
           return (
@@ -365,7 +341,7 @@ const VideoDownloader: React.FC = () => {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               onPaste={handlePaste}
-              placeholder="Paste YouTube, TikTok, Instagram, Facebook, or Twitter link..."
+              placeholder="Paste YouTube, TikTok, Facebook, or Twitter link..."
               className="w-full glass-input pl-12 pr-20 py-4 rounded-xl outline-none text-foreground placeholder:text-muted-foreground text-sm sm:text-base font-medium transition-all"
             />
             <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
@@ -624,7 +600,7 @@ const VideoDownloader: React.FC = () => {
           <div className="space-y-2 max-w-md mx-auto">
             <h3 className="text-xl font-bold text-foreground">How to Download</h3>
             <p className="text-muted-foreground text-sm leading-relaxed">
-              Copy any video or audio link from <strong className="text-foreground">YouTube</strong>, <strong className="text-foreground">TikTok</strong>, <strong className="text-foreground">Instagram</strong>, <strong className="text-foreground">Facebook</strong>, or <strong className="text-foreground">Twitter</strong> and paste it above to download in full HD/4K without watermarks.
+              Copy any video or audio link from <strong className="text-foreground">YouTube</strong>, <strong className="text-foreground">TikTok</strong>, <strong className="text-foreground">Facebook</strong>, or <strong className="text-foreground">Twitter</strong> and paste it above to download in full HD/4K without watermarks.
             </p>
           </div>
 
@@ -658,7 +634,7 @@ const VideoDownloader: React.FC = () => {
       <div className="p-4 rounded-2xl bg-foreground/5 border border-border/40 flex items-start gap-3">
         <AlertCircle className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
         <p className="text-xs text-muted-foreground leading-relaxed">
-          <strong className="text-foreground">High-Speed Cloud Engine:</strong> All YouTube, TikTok, Instagram Reels, and Facebook downloads are processed with dedicated high-speed extraction engines to ensure lightning speed and watermarks are stripped automatically.
+          <strong className="text-foreground">High-Speed Cloud Engine:</strong> All YouTube, TikTok, Facebook, and Twitter downloads are processed with dedicated high-speed extraction engines to ensure lightning speed and watermarks are stripped automatically.
         </p>
       </div>
     </div>

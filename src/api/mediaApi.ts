@@ -22,6 +22,7 @@ export const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 export const detectPlatform = (url: string): Platform => {
   const lowerUrl = url.toLowerCase().trim();
   
+  if (lowerUrl.includes('music.youtube.com')) return 'youtube-music';
   if (lowerUrl.includes('youtube.com') || lowerUrl.includes('youtu.be')) return 'youtube';
   if (lowerUrl.includes('tiktok.com') || lowerUrl.includes('vt.tiktok') || lowerUrl.includes('vm.tiktok') || lowerUrl.includes('tikwm')) return 'tiktok';
   if (lowerUrl.includes('instagram.com') || lowerUrl.includes('instagr.am')) return 'instagram';
@@ -30,6 +31,7 @@ export const detectPlatform = (url: string): Platform => {
   if (lowerUrl.includes('spotify.com')) return 'spotify';
   if (lowerUrl.includes('soundcloud.com')) return 'soundcloud';
   if (lowerUrl.includes('music.apple') || lowerUrl.includes('itunes')) return 'apple-music';
+  if (lowerUrl.includes('audiomack.com')) return 'audiomack';
   if (lowerUrl.includes('deezer.com')) return 'deezer';
   if (lowerUrl.includes('moviebox')) return 'moviebox';
   
@@ -41,8 +43,8 @@ export const detectPlatform = (url: string): Platform => {
  */
 export const isPlatformSupported = (platform: Platform): boolean => {
   const supportedPlatforms: Platform[] = [
-    'youtube', 'tiktok', 'instagram', 'facebook', 'twitter',
-    'spotify', 'soundcloud', 'apple-music', 'deezer', 'moviebox'
+    'youtube', 'youtube-music', 'tiktok', 'instagram', 'facebook', 'twitter',
+    'spotify', 'soundcloud', 'apple-music', 'audiomack', 'deezer', 'moviebox'
   ];
   return supportedPlatforms.includes(platform);
 };
@@ -86,15 +88,18 @@ export const extractVideoInfo = async (
 /**
  * Extract music information
  */
-export const extractMusicInfo = async (url: string): Promise<ApiResponse<MusicInfo>> => {
-  const result = await extractVideoInfo(url);
+export const extractMusicInfo = async (
+  url: string,
+  signal?: AbortSignal
+): Promise<ApiResponse<MusicInfo> & { cancelled?: boolean }> => {
+  const result = await extractVideoInfo(url, signal);
   if (result.success && result.data) {
     return {
       success: true,
       data: result.data as unknown as MusicInfo
     };
   }
-  return result as unknown as ApiResponse<MusicInfo>;
+  return result as unknown as ApiResponse<MusicInfo> & { cancelled?: boolean };
 };
 
 /**

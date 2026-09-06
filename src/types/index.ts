@@ -163,6 +163,7 @@ export interface AppState {
 // Platform detection
 export type Platform = 
   | 'youtube' 
+  | 'youtube-music'
   | 'tiktok' 
   | 'instagram' 
   | 'facebook' 
@@ -170,6 +171,7 @@ export type Platform =
   | 'spotify' 
   | 'soundcloud' 
   | 'apple-music'
+  | 'audiomack'
   | 'deezer'
   | 'moviebox'
   | 'unknown';

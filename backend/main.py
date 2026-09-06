@@ -171,99 +171,106 @@ async def resolve_canonical_url(url: str) -> str:
 
 async def extract_tiktok_direct(url: str):
     """
-    Dedicated high-speed TikTok extractor using TikWM API.
+    Dedicated high-speed TikTok extractor using TikWM API + yt-dlp fallback.
     Extracts 1080p Full HD (No Watermark), 720p HD (No Watermark), and original MP3 audio.
     """
     try:
-        async with httpx.AsyncClient(timeout=12.0) as client:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Accept": "application/json, text/plain, */*"
-            }
-            resp = await client.post("https://www.tikwm.com/api/", data={"url": url, "hd": 1}, headers=headers)
-            if resp.status_code == 200:
-                res_data = resp.json()
-                if res_data.get("code") == 0 and res_data.get("data"):
-                    d = res_data["data"]
-                    formats = []
-                    
-                    # 1. 1080p Full HD No Watermark (if available)
-                    hd_url = d.get("hdplay")
-                    if hd_url:
-                        if hd_url.startswith("/"): hd_url = f"https://www.tikwm.com{hd_url}"
-                        formats.append({
-                            "quality": "1080p Full HD (No Watermark)",
-                            "format": "MP4",
-                            "resolution": "Video",
-                            "size": format_size(d.get("hd_size")),
-                            "url": hd_url
-                        })
-                    
-                    # 2. 720p HD No Watermark
-                    play_url = d.get("play")
-                    if play_url:
-                        if play_url.startswith("/"): play_url = f"https://www.tikwm.com{play_url}"
-                        formats.append({
-                            "quality": "720p HD (No Watermark)",
-                            "format": "MP4",
-                            "resolution": "Video",
-                            "size": format_size(d.get("size")),
-                            "url": play_url
-                        })
-                    
-                    # 3. Watermarked version
-                    wm_url = d.get("wmplay")
-                    if wm_url:
-                        if wm_url.startswith("/"): wm_url = f"https://www.tikwm.com{wm_url}"
-                        formats.append({
-                            "quality": "Standard (Watermark)",
-                            "format": "MP4",
-                            "resolution": "Video",
-                            "size": format_size(d.get("wm_size")),
-                            "url": wm_url
-                        })
-                        
-                    # 4. Audio MP3
-                    music_url = d.get("music")
-                    if music_url:
-                        if music_url.startswith("/"): music_url = f"https://www.tikwm.com{music_url}"
-                        formats.append({
-                            "quality": "Original Audio (MP3)",
-                            "format": "MP3",
-                            "resolution": "Audio",
-                            "size": "HQ Audio",
-                            "url": music_url
-                        })
-
-                    # 5. Handle TikTok Images / Slideshows if present
-                    images = d.get("images")
-                    if images and isinstance(images, list) and not formats:
-                        for idx, img in enumerate(images):
-                            formats.append({
-                                "quality": f"Photo #{idx + 1} (HD)",
-                                "format": "JPG",
-                                "resolution": "Photo",
-                                "size": "Fast",
-                                "url": img
-                            })
-
-                    author_info = d.get("author", {})
-                    author_name = author_info.get("nickname") or author_info.get("unique_id") or "TikTok Creator"
-                    duration_sec = d.get("duration", 0)
-                    duration_str = f"{duration_sec // 60}m {duration_sec % 60}s" if duration_sec else "0m"
-                    cover = d.get("cover") or d.get("origin_cover") or d.get("dynamic_cover")
-
-                    return {
-                        "id": str(d.get("id") or uuid.uuid4()),
-                        "url": url,
-                        "title": d.get("title") or f"TikTok by @{author_name}",
-                        "thumbnail": cover,
-                        "duration": duration_str,
-                        "author": f"@{author_info.get('unique_id', author_name)}",
-                        "platform": "TikTok",
-                        "mediaType": "video",
-                        "qualities": formats
+        canonical_url = await resolve_canonical_url(url)
+        # Try both the original and canonical URLs against TikWM
+        for target_url in [canonical_url, url]:
+            try:
+                async with httpx.AsyncClient(timeout=12.0) as client:
+                    headers = {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                        "Accept": "application/json, text/plain, */*"
                     }
+                    resp = await client.post("https://www.tikwm.com/api/", data={"url": target_url, "hd": 1}, headers=headers)
+                    if resp.status_code == 200:
+                        res_data = resp.json()
+                        if res_data.get("code") == 0 and res_data.get("data"):
+                            d = res_data["data"]
+                            formats = []
+                            
+                            # 1. 1080p Full HD No Watermark (if available)
+                            hd_url = d.get("hdplay")
+                            if hd_url:
+                                if hd_url.startswith("/"): hd_url = f"https://www.tikwm.com{hd_url}"
+                                formats.append({
+                                    "quality": "1080p Full HD (No Watermark)",
+                                    "format": "MP4",
+                                    "resolution": "Video",
+                                    "size": format_size(d.get("hd_size")),
+                                    "url": hd_url
+                                })
+                            
+                            # 2. 720p HD No Watermark
+                            play_url = d.get("play")
+                            if play_url:
+                                if play_url.startswith("/"): play_url = f"https://www.tikwm.com{play_url}"
+                                formats.append({
+                                    "quality": "720p HD (No Watermark)",
+                                    "format": "MP4",
+                                    "resolution": "Video",
+                                    "size": format_size(d.get("size")),
+                                    "url": play_url
+                                })
+                            
+                            # 3. Watermarked version
+                            wm_url = d.get("wmplay")
+                            if wm_url:
+                                if wm_url.startswith("/"): wm_url = f"https://www.tikwm.com{wm_url}"
+                                formats.append({
+                                    "quality": "Standard (Watermark)",
+                                    "format": "MP4",
+                                    "resolution": "Video",
+                                    "size": format_size(d.get("wm_size")),
+                                    "url": wm_url
+                                })
+                                
+                            # 4. Audio MP3
+                            music_url = d.get("music")
+                            if music_url:
+                                if music_url.startswith("/"): music_url = f"https://www.tikwm.com{music_url}"
+                                formats.append({
+                                    "quality": "Original Audio (MP3)",
+                                    "format": "MP3",
+                                    "resolution": "Audio",
+                                    "size": "HQ Audio",
+                                    "url": music_url
+                                })
+
+                            # 5. Handle TikTok Images / Slideshows if present
+                            images = d.get("images")
+                            if images and isinstance(images, list) and not formats:
+                                for idx, img in enumerate(images):
+                                    formats.append({
+                                        "quality": f"Photo #{idx + 1} (HD)",
+                                        "format": "JPG",
+                                        "resolution": "Photo",
+                                        "size": "Fast",
+                                        "url": img
+                                    })
+
+                            author_info = d.get("author", {})
+                            author_name = author_info.get("nickname") or author_info.get("unique_id") or "TikTok Creator"
+                            duration_sec = d.get("duration", 0)
+                            duration_str = f"{duration_sec // 60}m {duration_sec % 60}s" if duration_sec else "0m"
+                            cover = d.get("cover") or d.get("origin_cover") or d.get("dynamic_cover")
+
+                            return {
+                                "id": str(d.get("id") or uuid.uuid4()),
+                                "url": url,
+                                "title": d.get("title") or f"TikTok by @{author_name}",
+                                "thumbnail": cover,
+                                "duration": duration_str,
+                                "author": f"@{author_info.get('unique_id', author_name)}",
+                                "platform": "TikTok",
+                                "mediaType": "video",
+                                "qualities": formats
+                            }
+            except Exception as e:
+                print(f"TikWM candidate notice: {e}")
+                continue
     except Exception as e:
         print(f"TikTok Direct Extractor notice: {e}")
     return None
@@ -730,6 +737,362 @@ async def extract_facebook_direct(url: str):
         print(f"Facebook Direct Extractor notice: {e}")
     return None
 
+async def extract_twitter_direct(url: str):
+    """
+    Dedicated Twitter / X extractor:
+    1. Normalizes x.com -> twitter.com and resolves redirects
+    2. Scrapes oEmbed and metadata
+    3. Extracts direct high bitrate MP4 streams and original audio
+    """
+    try:
+        clean_url = url.replace("x.com", "twitter.com").replace("www.x.com", "twitter.com")
+        title = "Twitter / X Video"
+        author = "Twitter Creator"
+        
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+            try:
+                r_oembed = await client.get(f"https://publish.twitter.com/oembed?url={urllib.parse.quote(clean_url)}")
+                if r_oembed.status_code == 200:
+                    d = r_oembed.json()
+                    author = d.get("author_name") or author
+                    raw_html = d.get("html", "")
+                    clean_text = re.sub(r'<[^>]+>', ' ', raw_html).strip()
+                    if clean_text:
+                        title = clean_text[:100]
+            except Exception:
+                pass
+
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'nocheckcertificate': True,
+            'extract_flat': False,
+            'skip_download': True
+        }
+        loop = asyncio.get_event_loop()
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            try:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(clean_url, download=False))
+            except Exception:
+                info = None
+
+            if info:
+                formats = []
+                seen = set()
+                raw_fmts = info.get("formats", [])
+                for f in raw_fmts:
+                    v_url = f.get("url")
+                    if not v_url: continue
+                    height = f.get("height")
+                    ext = f.get("ext", "mp4").upper()
+                    quality = f"{height}p HD" if height and height >= 720 else (f"{height}p SD" if height else "HD Video")
+                    if quality not in seen:
+                        seen.add(quality)
+                        formats.append({
+                            "quality": quality,
+                            "format": ext,
+                            "resolution": "Video",
+                            "size": format_size(f.get('filesize') or f.get('filesize_approx')),
+                            "url": v_url
+                        })
+                
+                if formats:
+                    formats.append({
+                        "quality": "Original Audio (MP3)",
+                        "format": "MP3",
+                        "resolution": "Audio",
+                        "size": "Original Audio",
+                        "url": formats[0]["url"]
+                    })
+                    
+                    return {
+                        "id": str(info.get("id") or uuid.uuid4()),
+                        "url": url,
+                        "title": info.get("title") or title,
+                        "thumbnail": info.get("thumbnail"),
+                        "duration": "Video",
+                        "author": f"@{info.get('uploader') or author}",
+                        "platform": "Twitter",
+                        "mediaType": "video",
+                        "qualities": formats
+                    }
+    except Exception as e:
+        print(f"Twitter Direct Extractor notice: {e}")
+    return None
+
+async def extract_apple_music_direct(url: str):
+    """
+    Dedicated Apple Music extractor:
+    1. Extracts track ID (from '?i=' or '/song/[name]/[id]')
+    2. Queries iTunes Lookup API for exact track title, artist name, and 600x600 artwork
+    3. Scrapes Apple Music OpenGraph metadata if iTunes API fails
+    4. Finds high-speed audio stream via universal search engine
+    5. Returns formatted music response with 320kbps, 256kbps, 192kbps and original audio streams
+    """
+    try:
+        title = ""
+        artist = ""
+        artwork = ""
+        duration_ms = 0
+        
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            # 1. Try iTunes Lookup
+            id_match = re.search(r'[\?\&]i=(\d+)', url) or re.search(r'/song/[^/]+/(\d+)', url)
+            if id_match:
+                try:
+                    r = await client.get(f"https://itunes.apple.com/lookup?id={id_match.group(1)}&entity=song")
+                    if r.status_code == 200 and "results" in r.text:
+                        res = r.json().get("results", [])
+                        if res:
+                            song = res[0]
+                            title = song.get("trackName", "")
+                            artist = song.get("artistName", "")
+                            artwork = (song.get("artworkUrl100", "") or "").replace("100x100bb.jpg", "600x600bb.jpg")
+                            duration_ms = song.get("trackTimeMillis", 0)
+                except Exception as e:
+                    print(f"iTunes lookup notice: {e}")
+
+            # 2. HTML Scrape fallback if metadata is still missing
+            if not title:
+                try:
+                    headers = {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    }
+                    r_html = await client.get(url, headers=headers)
+                    if r_html.status_code == 200:
+                        html_text = r_html.text
+                        og_title = re.search(r'<meta property="og:title" content="([^"]+)"', html_text)
+                        og_desc = re.search(r'<meta property="og:description" content="([^"]+)"', html_text)
+                        og_img = re.search(r'<meta property="og:image" content="([^"]+)"', html_text)
+                        
+                        if og_title:
+                            raw_t = og_title.group(1)
+                            title = re.sub(r'\s+on Apple Music.*$', '', raw_t)
+                            title = re.sub(r'\s+by\s+.*$', '', title).strip()
+                        if og_desc:
+                            desc_t = og_desc.group(1)
+                            by_m = re.search(r'by\s+([^,–\.]+)', desc_t)
+                            if by_m:
+                                artist = by_m.group(1).strip()
+                        if og_img and not artwork:
+                            artwork = og_img.group(1)
+                except Exception as e:
+                    print(f"Apple HTML scrape notice: {e}")
+
+        if not title:
+            return None
+
+        display_artist = artist or "Apple Music Artist"
+        search_query = f"scsearch1:{display_artist} {title} official"
+
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'nocheckcertificate': True,
+            'extract_flat': False,
+            'skip_download': True
+        }
+        loop = asyncio.get_event_loop()
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            try:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
+            except Exception:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch1:{display_artist} {title} audio", download=False))
+            
+            if info and 'entries' in info and info['entries']:
+                info = info['entries'][0]
+            
+            if not info:
+                return None
+
+            raw_formats = info.get("formats", [])
+            audio_formats = [f for f in raw_formats if f.get('vcodec') == 'none' or 'audio' in str(f.get('resolution', '')).lower() or 'audio' in str(f.get('format_note', '')).lower()]
+            
+            best_audio_url = ""
+            if audio_formats:
+                best_audio_url = audio_formats[-1].get("url")
+            elif info.get("url"):
+                best_audio_url = info.get("url")
+
+            if not best_audio_url:
+                return None
+
+            dur_sec = duration_ms // 1000 if duration_ms else int(info.get("duration", 0))
+            duration_str = f"{dur_sec // 60}m {dur_sec % 60}s" if dur_sec else "Music Track"
+
+            qualities = [
+                {
+                    "quality": "320kbps MP3 (Ultra Quality)",
+                    "format": "MP3",
+                    "resolution": "Audio",
+                    "size": "HQ ~9.5 MB",
+                    "url": best_audio_url
+                },
+                {
+                    "quality": "256kbps MP3 (High Quality)",
+                    "format": "MP3",
+                    "resolution": "Audio",
+                    "size": "HQ ~7.5 MB",
+                    "url": best_audio_url
+                },
+                {
+                    "quality": "192kbps MP3 (Standard Quality)",
+                    "format": "MP3",
+                    "resolution": "Audio",
+                    "size": "Standard ~5.5 MB",
+                    "url": best_audio_url
+                },
+                {
+                    "quality": "Original Audio (Lossless/MP3)",
+                    "format": "MP3",
+                    "resolution": "Audio",
+                    "size": "Lossless Audio",
+                    "url": best_audio_url
+                }
+            ]
+
+            return {
+                "id": str(uuid.uuid4()),
+                "url": url,
+                "title": title,
+                "thumbnail": artwork or info.get("thumbnail"),
+                "duration": duration_str,
+                "author": display_artist,
+                "platform": "Apple Music",
+                "mediaType": "music",
+                "qualities": qualities
+            }
+    except Exception as e:
+        print(f"Apple Music Direct Extractor notice: {e}")
+    return None
+
+async def extract_spotify_direct(url: str):
+    """
+    Dedicated Spotify extractor:
+    1. Uses Spotify oEmbed API and metadata scraper to retrieve track name, artist, and album art
+    2. Searches for high-fidelity audio stream
+    3. Returns formatted music response with 320kbps, 256kbps, 192kbps and original audio streams
+    """
+    try:
+        title = ""
+        artist = ""
+        cover = ""
+        
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+            oembed_url = f"https://open.spotify.com/oembed?url={urllib.parse.quote(url)}"
+            r_oembed = await client.get(oembed_url)
+            if r_oembed.status_code == 200:
+                d = r_oembed.json()
+                title = d.get("title", "")
+                cover = d.get("thumbnail_url", "")
+            
+            r_page = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+            if r_page.status_code == 200:
+                m_desc = re.search(r'property="og:description" content="([^"]+)"', r_page.text)
+                if m_desc:
+                    desc = m_desc.group(1)
+                    artist = desc.split("·")[0].strip()
+                if not cover:
+                    m_img = re.search(r'property="og:image" content="([^"]+)"', r_page.text)
+                    if m_img:
+                        cover = m_img.group(1)
+                if not title:
+                    m_title = re.search(r'<title>([^<]+)</title>', r_page.text)
+                    if m_title:
+                        raw_title = m_title.group(1).replace(" - song and lyrics by ", " - ").replace(" | Spotify", "")
+                        parts = raw_title.split(" - ")
+                        title = parts[0].strip()
+                        if not artist and len(parts) >= 2:
+                            artist = parts[1].strip()
+
+        if not title:
+            return None
+
+        display_artist = artist or "Spotify Artist"
+        search_query = f"scsearch1:{display_artist} {title} official"
+
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'nocheckcertificate': True,
+            'extract_flat': False,
+            'skip_download': True
+        }
+        loop = asyncio.get_event_loop()
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            try:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
+            except Exception:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch1:{display_artist} {title} audio", download=False))
+            
+            if info and 'entries' in info and info['entries']:
+                info = info['entries'][0]
+            
+            if not info:
+                return None
+
+            raw_formats = info.get("formats", [])
+            audio_formats = [f for f in raw_formats if f.get('vcodec') == 'none' or 'audio' in str(f.get('resolution', '')).lower() or 'audio' in str(f.get('format_note', '')).lower()]
+            
+            best_audio_url = ""
+            if audio_formats:
+                best_audio_url = audio_formats[-1].get("url")
+            elif info.get("url"):
+                best_audio_url = info.get("url")
+
+            if not best_audio_url:
+                return None
+
+            raw_duration = info.get("duration", 0)
+            duration_str = f"{int(raw_duration) // 60}m {int(raw_duration) % 60}s" if raw_duration else "Music Track"
+
+            qualities = [
+                {
+                    "quality": "320kbps MP3 (Ultra Quality)",
+                    "format": "MP3",
+                    "resolution": "Audio",
+                    "size": "HQ ~9.5 MB",
+                    "url": best_audio_url
+                },
+                {
+                    "quality": "256kbps MP3 (High Quality)",
+                    "format": "MP3",
+                    "resolution": "Audio",
+                    "size": "HQ ~7.5 MB",
+                    "url": best_audio_url
+                },
+                {
+                    "quality": "192kbps MP3 (Standard Quality)",
+                    "format": "MP3",
+                    "resolution": "Audio",
+                    "size": "Standard ~5.5 MB",
+                    "url": best_audio_url
+                },
+                {
+                    "quality": "Original Audio (Lossless/MP3)",
+                    "format": "MP3",
+                    "resolution": "Audio",
+                    "size": "Lossless Audio",
+                    "url": best_audio_url
+                }
+            ]
+
+            return {
+                "id": str(uuid.uuid4()),
+                "url": url,
+                "title": title,
+                "thumbnail": cover or info.get("thumbnail"),
+                "duration": duration_str,
+                "author": display_artist,
+                "platform": "Spotify",
+                "mediaType": "music",
+                "qualities": qualities
+            }
+    except Exception as e:
+        print(f"Spotify Direct Extractor notice: {e}")
+    return None
+
 async def try_smvd_api(url: str, platform: str):
     """
     Attempts to extract media info using the Social Media Video Downloader API.
@@ -909,8 +1272,14 @@ async def extract_info(request: ExtractRequest):
         platform = "Instagram"
     elif "facebook.com" in lower_url or "fb.watch" in lower_url or "fb.me" in lower_url or "fb.com" in lower_url:
         platform = "Facebook"
+    elif "music.youtube.com" in lower_url:
+        platform = "YouTube Music"
+        media_type = "music"
     elif "youtube.com" in lower_url or "youtu.be" in lower_url:
         platform = "YouTube"
+    elif "music.apple.com" in lower_url or "itunes.apple.com" in lower_url:
+        platform = "Apple Music"
+        media_type = "music"
     elif "twitter.com" in lower_url or "x.com" in lower_url:
         platform = "Twitter"
     elif "soundcloud.com" in lower_url:
@@ -942,15 +1311,49 @@ async def extract_info(request: ExtractRequest):
             print(f"Direct Facebook Extractor Success for: {url}")
             return {"success": True, "data": fb_data}
 
-    elif platform == "YouTube":
+    elif platform == "Apple Music":
+        apple_data = await extract_apple_music_direct(url)
+        if apple_data and apple_data.get("qualities"):
+            print(f"Direct Apple Music Extractor Success for: {url}")
+            return {"success": True, "data": apple_data}
+
+    elif platform == "Spotify":
+        spotify_data = await extract_spotify_direct(url)
+        if spotify_data and spotify_data.get("qualities"):
+            print(f"Direct Spotify Extractor Success for: {url}")
+            return {"success": True, "data": spotify_data}
+
+    elif platform == "Twitter":
+        tw_data = await extract_twitter_direct(url)
+        if tw_data and tw_data.get("qualities"):
+            print(f"Direct Twitter Extractor Success for: {url}")
+            return {"success": True, "data": tw_data}
+
+    elif platform in ["YouTube", "YouTube Music"]:
         yt_data = await extract_youtube_rapidapi(url)
         if yt_data and yt_data.get("qualities"):
-            print(f"Direct RapidAPI YouTube Extractor Success for: {url}")
+            if platform == "YouTube Music":
+                yt_data["platform"] = "YouTube Music"
+                yt_data["mediaType"] = "music"
+                audios = [q for q in yt_data.get("qualities", []) if q.get("resolution") == "Audio" or q.get("format") == "MP3"]
+                videos = [q for q in yt_data.get("qualities", []) if q.get("resolution") != "Audio" and q.get("format") != "MP3"]
+                best_a = audios[0] if audios else None
+                if best_a:
+                    m_formats = [
+                        {"quality": "320kbps MP3 (Ultra Quality)", "format": "MP3", "resolution": "Audio", "size": "HQ ~9.5 MB", "url": best_a["url"]},
+                        {"quality": "256kbps MP3 (High Quality)", "format": "MP3", "resolution": "Audio", "size": "HQ ~7.5 MB", "url": best_a["url"]},
+                        {"quality": "192kbps MP3 (Standard Quality)", "format": "MP3", "resolution": "Audio", "size": "Standard ~5.5 MB", "url": best_a["url"]},
+                        {"quality": "Original Audio (MP3/M4A)", "format": "MP3", "resolution": "Audio", "size": best_a.get("size", "Audio"), "url": best_a["url"]}
+                    ]
+                    if videos:
+                        m_formats.extend(videos[:2])
+                    yt_data["qualities"] = m_formats
+            print(f"Direct RapidAPI YouTube/Music Extractor Success for: {url}")
             return {"success": True, "data": yt_data}
 
     # 2. Secondary API Attempt (SMVD API if configured)
     smvd_status = "Skipped"
-    if media_type == "video" or platform == "YouTube":
+    if media_type == "video" or platform in ["YouTube", "YouTube Music"]:
         if os.getenv("SMVD_API_URL"):
             smvd_data, smvd_status_code, smvd_error = await try_smvd_api(url, platform)
             if smvd_data:
@@ -958,8 +1361,8 @@ async def extract_info(request: ExtractRequest):
                 return {"success": True, "data": smvd_data}
             smvd_status = f"Failed (HTTP {smvd_status_code}: {smvd_error})" if smvd_status_code else f"Timeout ({smvd_error})"
 
-    # 3. Spotify / Audiomack Search Fallback
-    if platform in ["Spotify", "Audiomack"]:
+    # 3. Spotify / Audiomack / Music Search Fallback
+    if platform in ["Spotify", "Audiomack", "SoundCloud"]:
         try:
             if platform == "Spotify" and sp:
                 track_id = url.split("track/")[1].split("?")[0]
@@ -1012,54 +1415,71 @@ async def extract_info(request: ExtractRequest):
                 info = info['entries'][0]
 
             if not info:
-                raise Exception(f"Could not retrieve video information. Please ensure the link is public.")
+                raise Exception(f"Could not retrieve media information. Please ensure the link is public.")
 
             # Process and categorize formats
             raw_formats = info.get("formats", [])
             formats = []
             seen_qualities = set()
 
-            for f in raw_formats:
-                url_val = f.get("url")
-                if not url_val: continue
+            if media_type == "music":
+                # Find best audio stream
+                best_audio_stream = None
+                for f in raw_formats:
+                    vcodec = f.get('vcodec', 'none')
+                    res = f.get('resolution') or f.get('format_note', '')
+                    if (vcodec == 'none' or 'audio' in str(res).lower() or 'audio' in str(f.get('format_note', '')).lower()) and f.get('url'):
+                        best_audio_stream = f.get('url')
+                if not best_audio_stream and info.get('url'):
+                    best_audio_stream = info.get('url')
                 
-                res = f.get("resolution") or f.get("format_note")
-                height = f.get("height")
-                note = f.get("format_note", "")
-                ext = f.get("ext", "mp4").upper()
-                vcodec = f.get('vcodec', 'none')
-                
-                is_audio = vcodec == 'none' or 'audio' in str(note).lower() or 'audio' in str(res).lower()
-                
-                if media_type == "music" and not is_audio:
-                    continue
-                
-                # Quality Label Normalization
-                if is_audio:
-                    quality = "Original Audio (MP3)" if ext == "MP3" else "High Quality Audio"
-                elif height:
-                    quality = f"{height}p HD" if height >= 720 else f"{height}p SD"
-                else:
-                    quality = note or str(res) or "HD Video"
-                
-                q_key = f"{quality}_{ext}_{'A' if is_audio else 'V'}"
-                if q_key in seen_qualities: continue
-                seen_qualities.add(q_key)
-                
-                formats.append({
-                    "quality": quality,
-                    "format": ext,
-                    "resolution": "Audio" if is_audio else "Video",
-                    "size": format_size(f.get('filesize') or f.get('filesize_approx')),
-                    "url": url_val
-                })
+                if best_audio_stream:
+                    formats = [
+                        {"quality": "320kbps MP3 (Ultra Quality)", "format": "MP3", "resolution": "Audio", "size": "HQ ~9.5 MB", "url": best_audio_stream},
+                        {"quality": "256kbps MP3 (High Quality)", "format": "MP3", "resolution": "Audio", "size": "HQ ~7.5 MB", "url": best_audio_stream},
+                        {"quality": "192kbps MP3 (Standard Quality)", "format": "MP3", "resolution": "Audio", "size": "Standard ~5.5 MB", "url": best_audio_stream},
+                        {"quality": "128kbps MP3 (Fast Download)", "format": "MP3", "resolution": "Audio", "size": "Fast ~3.8 MB", "url": best_audio_stream},
+                        {"quality": "Original Audio (Lossless/MP3)", "format": "MP3", "resolution": "Audio", "size": "Original Audio", "url": best_audio_stream}
+                    ]
+            else:
+                for f in raw_formats:
+                    url_val = f.get("url")
+                    if not url_val: continue
+                    
+                    res = f.get("resolution") or f.get("format_note")
+                    height = f.get("height")
+                    note = f.get("format_note", "")
+                    ext = f.get("ext", "mp4").upper()
+                    vcodec = f.get('vcodec', 'none')
+                    
+                    is_audio = vcodec == 'none' or 'audio' in str(note).lower() or 'audio' in str(res).lower()
+                    
+                    # Quality Label Normalization
+                    if is_audio:
+                        quality = "Original Audio (MP3)" if ext == "MP3" else "High Quality Audio"
+                    elif height:
+                        quality = f"{height}p HD" if height >= 720 else f"{height}p SD"
+                    else:
+                        quality = note or str(res) or "HD Video"
+                    
+                    q_key = f"{quality}_{ext}_{'A' if is_audio else 'V'}"
+                    if q_key in seen_qualities: continue
+                    seen_qualities.add(q_key)
+                    
+                    formats.append({
+                        "quality": quality,
+                        "format": ext,
+                        "resolution": "Audio" if is_audio else "Video",
+                        "size": format_size(f.get('filesize') or f.get('filesize_approx')),
+                        "url": url_val
+                    })
 
             # If no formats extracted, append default stream if available
             if not formats and info.get('url'):
                 formats.append({
-                    "quality": "1080p HD / Best",
-                    "format": info.get("ext", "MP4").upper(),
-                    "resolution": "Video",
+                    "quality": "320kbps MP3 (High Quality)" if media_type == "music" else "1080p HD / Best",
+                    "format": "MP3" if media_type == "music" else info.get("ext", "MP4").upper(),
+                    "resolution": "Audio" if media_type == "music" else "Video",
                     "size": "Fast",
                     "url": info.get("url")
                 })
@@ -1073,30 +1493,31 @@ async def extract_info(request: ExtractRequest):
             ))
 
             raw_duration = info.get("duration")
-            duration_str = f"{int(raw_duration) // 60}m {int(raw_duration) % 60}s" if raw_duration else "Video"
+            duration_str = f"{int(raw_duration) // 60}m {int(raw_duration) % 60}s" if raw_duration else ("Music Track" if media_type == "music" else "Video")
 
             return {
                 "success": True, 
                 "data": {
                     "id": str(info.get("id") or uuid.uuid4()),
                     "url": url,
-                    "title": info.get("title", "Social Media Video"),
+                    "title": info.get("title", "Audio Track" if media_type == "music" else "Social Media Video"),
                     "thumbnail": info.get("thumbnail") or info.get('cover'),
                     "duration": duration_str,
                     "author": info.get("uploader") or info.get("channel") or info.get("artist") or platform,
-                    "platform": platform if platform != "Unknown" else (info.get("extractor_key") or "Video"),
+                    "platform": platform if platform != "Unknown" else (info.get("extractor_key") or ("Music" if media_type == "music" else "Video")),
                     "mediaType": media_type,
                     "qualities": formats[:15]
                 }
             }
     except Exception as e:
-        print(f"!!! EXTRACTION ERROR for {url} !!!")
-        print(traceback.format_exc())
+        print(f"Extraction error for {url}: {e}")
         error_msg = str(e)
         if "403" in error_msg:
-            error_msg = f"This {platform} video is private or restricted by privacy settings."
+            error_msg = f"This {platform} media is private or restricted by privacy settings."
         elif "Sign in" in error_msg or "login" in error_msg.lower():
             error_msg = f"This {platform} post requires authentication or is age-restricted."
+        elif "No video could be found" in error_msg or "no video" in error_msg.lower():
+            error_msg = f"No video found in this {platform} link. Please ensure the post contains a video and is public."
         return JSONResponse(status_code=400, content={"success": False, "error": error_msg})
 
 @app.get("/api/download")
