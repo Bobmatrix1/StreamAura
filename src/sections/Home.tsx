@@ -362,19 +362,34 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       </section>
 
       {/* Call to Action */}
-      <section className="px-4">
-         <div className="max-w-6xl mx-auto p-12 md:p-20 rounded-[3rem] bg-gradient-to-br from-indigo-900 to-black border border-white/10 text-center space-y-8 relative overflow-hidden">
+      <section className="px-3 sm:px-4">
+         <div className="max-w-6xl mx-auto p-6 sm:p-12 md:p-20 rounded-3xl sm:rounded-[3rem] bg-gradient-to-br from-indigo-900 to-black border border-white/10 text-center space-y-6 sm:space-y-8 relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-full bg-[url('https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?q=80&w=2070&auto=format&fit=crop')] opacity-10 bg-cover bg-center grayscale" />
-            <div className="relative z-10 space-y-6">
-               <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tighter leading-tight text-white">Ready to step into <br /><span className="gradient-text">The Grand Theater?</span></h2>
-               <p className="text-muted-foreground text-lg font-medium max-w-xl mx-auto leading-relaxed">
+            <div className="relative z-10 space-y-4 sm:space-y-6 max-w-2xl mx-auto">
+               <h2 className="text-2xl sm:text-4xl md:text-6xl font-black uppercase tracking-tight sm:tracking-tighter leading-tight text-white">
+                  Ready to step into <br className="hidden sm:inline" />
+                  <span className="gradient-text">The Grand Theater?</span>
+               </h2>
+               <p className="text-muted-foreground text-xs sm:text-base md:text-lg font-medium max-w-xl mx-auto leading-relaxed">
                   Join thousands of users enjoying the next generation of social media downloading and virtual cinema.
                </p>
-               {!isAuthenticated ? (
-                  <Button onClick={() => window.location.href='/?auth=signup'} className="h-14 px-12 rounded-2xl gradient-bg text-sm font-black uppercase tracking-widest shadow-2xl">Create Your Account</Button>
-               ) : (
-                  <Button onClick={() => onNavigate('cinema')} className="h-14 px-12 rounded-2xl gradient-bg text-sm font-black uppercase tracking-widest shadow-2xl">Enter the Cinema</Button>
-               )}
+               <div className="pt-2 flex justify-center w-full px-2">
+                  {!isAuthenticated ? (
+                     <Button 
+                        onClick={() => window.location.href='/?auth=signup'} 
+                        className="w-full sm:w-auto h-12 sm:h-14 px-5 sm:px-12 rounded-xl sm:rounded-2xl gradient-bg text-xs sm:text-sm font-black uppercase tracking-wider sm:tracking-widest shadow-2xl hover:brightness-110 active:scale-95 transition-all whitespace-normal text-center"
+                     >
+                        Create Your Account
+                     </Button>
+                  ) : (
+                     <Button 
+                        onClick={() => onNavigate('cinema')} 
+                        className="w-full sm:w-auto h-12 sm:h-14 px-5 sm:px-12 rounded-xl sm:rounded-2xl gradient-bg text-xs sm:text-sm font-black uppercase tracking-wider sm:tracking-widest shadow-2xl hover:brightness-110 active:scale-95 transition-all whitespace-normal text-center"
+                     >
+                        Enter the Cinema
+                     </Button>
+                  )}
+               </div>
             </div>
          </div>
       </section>
