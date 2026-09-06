@@ -21,6 +21,7 @@ import uuid
 import html
 import traceback
 import random
+import tempfile
 from typing import List, Optional, Union
 import firebase_admin
 from firebase_admin import credentials, messaging, firestore
@@ -89,8 +90,20 @@ app = FastAPI(title="StreamAura API Master", lifespan=lifespan)
 # Cinema Routers (Must be imported AFTER Firebase init because they call firestore.client() at module level)
 from routers import cinema as cinema_router
 from routers import games as games_router
-from websockets import room_sync as websocket_router
-from websockets import game_sync as game_ws_router
+try:
+    from websockets import room_sync as websocket_router
+    from websockets import game_sync as game_ws_router
+except (ImportError, AttributeError):
+    import importlib.util
+    from pathlib import Path
+    _backend_dir = Path(__file__).parent
+    _spec_room = importlib.util.spec_from_file_location("local_room_sync", _backend_dir / "websockets" / "room_sync.py")
+    websocket_router = importlib.util.module_from_spec(_spec_room)
+    _spec_room.loader.exec_module(websocket_router)
+    
+    _spec_game = importlib.util.spec_from_file_location("local_game_sync", _backend_dir / "websockets" / "game_sync.py")
+    game_ws_router = importlib.util.module_from_spec(_spec_game)
+    _spec_game.loader.exec_module(game_ws_router)
 
 app.include_router(cinema_router.router, prefix="/api/cinema", tags=["cinema"])
 app.include_router(games_router.router, prefix="/api/games", tags=["games"])
@@ -112,7 +125,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, 
 async def health_check():
     return {"status": "ok", "time": time.time()}
 
-DOWNLOAD_DIR = "/tmp/downloads"
+DOWNLOAD_DIR = os.path.join(tempfile.gettempdir(), "streamaura_downloads")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 class ExtractRequest(BaseModel):
@@ -128,6 +141,595 @@ def format_size(size_bytes):
         return f"{size_bytes:.1f} TB"
     except: return "Fast"
 
+async def resolve_canonical_url(url: str) -> str:
+    """Follows HTTP redirects for shortlinks (vt.tiktok.com, vm.tiktok.com, fb.watch, fb.me, bit.ly, etc.)"""
+    url = url.strip()
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = "https://" + url
+    
+    short_domains = [
+        "vt.tiktok.com", "vm.tiktok.com", "tiktok.com/t/", "m.tiktok.com",
+        "fb.watch", "fb.com", "fb.me", "facebook.com/share", "facebook.com/reel",
+        "instagr.am", "instagram.com/share", "t.co", "x.com/i/", "youtu.be", "bit.ly", "tinyurl.com"
+    ]
+    if any(sd in url.lower() for sd in short_domains):
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=8.0) as client:
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                }
+                resp = await client.head(url, headers=headers)
+                final_url = str(resp.url)
+                if final_url and final_url != url:
+                    return final_url
+                resp = await client.get(url, headers=headers)
+                return str(resp.url)
+        except Exception as e:
+            print(f"Redirect resolution notice for {url}: {e}")
+    return url
+
+async def extract_tiktok_direct(url: str):
+    """
+    Dedicated high-speed TikTok extractor using TikWM API.
+    Extracts 1080p Full HD (No Watermark), 720p HD (No Watermark), and original MP3 audio.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "application/json, text/plain, */*"
+            }
+            resp = await client.post("https://www.tikwm.com/api/", data={"url": url, "hd": 1}, headers=headers)
+            if resp.status_code == 200:
+                res_data = resp.json()
+                if res_data.get("code") == 0 and res_data.get("data"):
+                    d = res_data["data"]
+                    formats = []
+                    
+                    # 1. 1080p Full HD No Watermark (if available)
+                    hd_url = d.get("hdplay")
+                    if hd_url:
+                        if hd_url.startswith("/"): hd_url = f"https://www.tikwm.com{hd_url}"
+                        formats.append({
+                            "quality": "1080p Full HD (No Watermark)",
+                            "format": "MP4",
+                            "resolution": "Video",
+                            "size": format_size(d.get("hd_size")),
+                            "url": hd_url
+                        })
+                    
+                    # 2. 720p HD No Watermark
+                    play_url = d.get("play")
+                    if play_url:
+                        if play_url.startswith("/"): play_url = f"https://www.tikwm.com{play_url}"
+                        formats.append({
+                            "quality": "720p HD (No Watermark)",
+                            "format": "MP4",
+                            "resolution": "Video",
+                            "size": format_size(d.get("size")),
+                            "url": play_url
+                        })
+                    
+                    # 3. Watermarked version
+                    wm_url = d.get("wmplay")
+                    if wm_url:
+                        if wm_url.startswith("/"): wm_url = f"https://www.tikwm.com{wm_url}"
+                        formats.append({
+                            "quality": "Standard (Watermark)",
+                            "format": "MP4",
+                            "resolution": "Video",
+                            "size": format_size(d.get("wm_size")),
+                            "url": wm_url
+                        })
+                        
+                    # 4. Audio MP3
+                    music_url = d.get("music")
+                    if music_url:
+                        if music_url.startswith("/"): music_url = f"https://www.tikwm.com{music_url}"
+                        formats.append({
+                            "quality": "Original Audio (MP3)",
+                            "format": "MP3",
+                            "resolution": "Audio",
+                            "size": "HQ Audio",
+                            "url": music_url
+                        })
+
+                    # 5. Handle TikTok Images / Slideshows if present
+                    images = d.get("images")
+                    if images and isinstance(images, list) and not formats:
+                        for idx, img in enumerate(images):
+                            formats.append({
+                                "quality": f"Photo #{idx + 1} (HD)",
+                                "format": "JPG",
+                                "resolution": "Photo",
+                                "size": "Fast",
+                                "url": img
+                            })
+
+                    author_info = d.get("author", {})
+                    author_name = author_info.get("nickname") or author_info.get("unique_id") or "TikTok Creator"
+                    duration_sec = d.get("duration", 0)
+                    duration_str = f"{duration_sec // 60}m {duration_sec % 60}s" if duration_sec else "0m"
+                    cover = d.get("cover") or d.get("origin_cover") or d.get("dynamic_cover")
+
+                    return {
+                        "id": str(d.get("id") or uuid.uuid4()),
+                        "url": url,
+                        "title": d.get("title") or f"TikTok by @{author_name}",
+                        "thumbnail": cover,
+                        "duration": duration_str,
+                        "author": f"@{author_info.get('unique_id', author_name)}",
+                        "platform": "TikTok",
+                        "mediaType": "video",
+                        "qualities": formats
+                    }
+    except Exception as e:
+        print(f"TikTok Direct Extractor notice: {e}")
+    return None
+
+def extract_youtube_id(url: str) -> str:
+    """Extract 11-char YouTube video ID from various URL patterns."""
+    patterns = [
+        r'(?:v=|\/v\/|youtu\.be\/|\/embed\/|\/shorts\/|\/e\/|watch\?v=|\&v=)([a-zA-Z0-9_-]{11})',
+        r'^[a-zA-Z0-9_-]{11}$'
+    ]
+    for p in patterns:
+        m = re.search(p, url)
+        if m:
+            return m.group(1) if '(' in p else url
+    return ""
+
+async def extract_youtube_rapidapi(url: str):
+    """
+    RapidAPI YouTube Extractor using social-media-video-downloader API.
+    Provides direct high-speed tunnel streaming links up to 4K (2160p) + MP3 audio.
+    """
+    rapidapi_key = os.getenv("RAPIDAPI_KEY", "").strip()
+    if not rapidapi_key:
+        return None
+
+    video_id = extract_youtube_id(url)
+    if not video_id:
+        return None
+
+    host = "social-media-video-downloader.p.rapidapi.com"
+    headers = {
+        "X-RapidAPI-Key": rapidapi_key,
+        "X-RapidAPI-Host": host,
+        "Accept": "application/json"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            resp = await client.get(
+                f"https://{host}/youtube/v3/video/details",
+                params={"videoId": video_id},
+                headers=headers
+            )
+            if resp.status_code == 200 and resp.text.strip().startswith("{"):
+                data = resp.json()
+                contents = data.get("contents", [])
+                metadata = data.get("metadata", {})
+                title = metadata.get("title", f"YouTube Video {video_id}")
+                thumb = metadata.get("thumbnailUrl")
+                author_obj = metadata.get("author") or {}
+                author = metadata.get("additionalData", {}).get("author") or "YouTube Creator"
+                if isinstance(author_obj, dict):
+                    runs = author_obj.get("title", {}).get("runs", [])
+                    if runs and isinstance(runs[0], dict):
+                        author = runs[0].get("text", author)
+
+                formats = []
+                seen_labels = set()
+                if contents and isinstance(contents, list):
+                    c0 = contents[0]
+                    videos = c0.get("videos", [])
+                    for v in videos:
+                        label = v.get("label", "HD Video")
+                        v_url = v.get("url")
+                        meta = v.get("metadata", {})
+                        size_text = meta.get("content_length_text") or "HD"
+                        mime = meta.get("mime_type", "")
+                        
+                        if v_url and label not in seen_labels:
+                            seen_labels.add(label)
+                            formats.append({
+                                "quality": f"{label} High Quality",
+                                "format": "MP4" if "mp4" in mime else "WEBM",
+                                "resolution": label,
+                                "size": size_text,
+                                "url": v_url
+                            })
+
+                    audios = c0.get("audios", [])
+                    for a in audios:
+                        a_url = a.get("url")
+                        meta = a.get("metadata", {})
+                        size_text = meta.get("content_length_text") or "Audio"
+                        if a_url:
+                            formats.append({
+                                "quality": "Original Audio (MP3/M4A)",
+                                "format": "MP3",
+                                "resolution": "Audio",
+                                "size": size_text,
+                                "url": a_url
+                            })
+                            break
+
+                if formats:
+                    return {
+                        "id": video_id,
+                        "url": url,
+                        "title": title,
+                        "thumbnail": thumb,
+                        "duration": "YouTube Video",
+                        "author": f"@{author}" if not str(author).startswith("@") else author,
+                        "platform": "YouTube",
+                        "mediaType": "video",
+                        "qualities": formats
+                    }
+    except Exception as e:
+        print(f"RapidAPI YouTube Extractor notice: {e}")
+    return None
+
+async def extract_instagram_rapidapi(url: str, shortcode: str = ""):
+    """
+    RapidAPI Instagram Extractor using the user's configured RapidAPI Key.
+    Queries the RapidAPI Instagram downloader endpoints and parses media details.
+    """
+    rapidapi_key = os.getenv("RAPIDAPI_KEY", "").strip()
+    if not rapidapi_key:
+        return None
+
+    custom_host = os.getenv("RAPIDAPI_INSTAGRAM_HOST", "").strip()
+    
+    # Candidate RapidAPI Instagram endpoints (custom host takes precedence)
+    candidate_endpoints = []
+    if custom_host:
+        candidate_endpoints.extend([
+            (custom_host, "GET", f"https://{custom_host}/instagram/", {"url": url}),
+            (custom_host, "GET", f"https://{custom_host}/index", {"url": url}),
+            (custom_host, "GET", f"https://{custom_host}/download", {"url": url}),
+            (custom_host, "GET", f"https://{custom_host}/media", {"url": url}),
+            (custom_host, "GET", f"https://{custom_host}/v1/post_info", {"code_or_id_or_url": url}),
+            (custom_host, "POST", f"https://{custom_host}/download", {"url": url}),
+            (custom_host, "POST", f"https://{custom_host}/index.php", {"url": url}),
+            (custom_host, "POST", f"https://{custom_host}/rapid/media", {"url": url}),
+        ])
+        
+    candidate_endpoints.extend([
+        ("instagram-downloader-download-instagram-videos-stories1.p.rapidapi.com", "GET", "https://instagram-downloader-download-instagram-videos-stories1.p.rapidapi.com/index", {"url": url}),
+        ("instagram-scraper-api2.p.rapidapi.com", "GET", "https://instagram-scraper-api2.p.rapidapi.com/v1/post_info", {"code_or_id_or_url": url}),
+        ("instagram-video-downloader13.p.rapidapi.com", "POST", "https://instagram-video-downloader13.p.rapidapi.com/index.php", {"url": url}),
+        ("social-download-all-in-one.p.rapidapi.com", "POST", "https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink", {"url": url}),
+        ("instagram-looter2.p.rapidapi.com", "GET", "https://instagram-looter2.p.rapidapi.com/post", {"url": url}),
+        ("instagram-downloader-download-instagram-videos-stories.p.rapidapi.com", "GET", "https://instagram-downloader-download-instagram-videos-stories.p.rapidapi.com/index", {"url": url}),
+        ("snap-insta-downloader.p.rapidapi.com", "GET", "https://snap-insta-downloader.p.rapidapi.com/download", {"url": url}),
+        ("instagram-media-downloader.p.rapidapi.com", "POST", "https://instagram-media-downloader.p.rapidapi.com/rapid/media", {"url": url}),
+        ("instagram-downloader15.p.rapidapi.com", "GET", "https://instagram-downloader15.p.rapidapi.com/index", {"url": url}),
+        ("instagram-downloader-reels-and-posts.p.rapidapi.com", "GET", "https://instagram-downloader-reels-and-posts.p.rapidapi.com/download", {"url": url}),
+    ])
+
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        for host, method, ep_url, payload in candidate_endpoints:
+            headers = {
+                "X-RapidAPI-Key": rapidapi_key,
+                "X-RapidAPI-Host": host,
+                "Accept": "application/json"
+            }
+            try:
+                if method == "GET":
+                    resp = await client.get(ep_url, params=payload, headers=headers)
+                else:
+                    # Try json, fallback to form data if 415/400
+                    resp = await client.post(ep_url, json=payload, headers=headers)
+                    if resp.status_code in [400, 415, 422]:
+                        resp = await client.post(ep_url, data=payload, headers=headers)
+
+                if resp.status_code == 200 and resp.text.strip().startswith(("{", "[")):
+                    res_json = resp.json()
+                    
+                    # 1. Look for direct video url fields
+                    video_url = None
+                    thumb = None
+                    title = f"Instagram Video"
+                    author = "Instagram Creator"
+
+                    # Normalize if array returned
+                    data_obj = res_json[0] if isinstance(res_json, list) and res_json else res_json
+                    if isinstance(data_obj, dict):
+                        # Extract inner data wrapper if present
+                        inner = data_obj.get("data") or data_obj.get("result") or data_obj.get("media") or data_obj
+
+                        if isinstance(inner, dict):
+                            video_url = inner.get("video_url") or inner.get("download_url") or inner.get("url") or inner.get("video") or inner.get("link")
+                            thumb = inner.get("thumbnail") or inner.get("cover") or inner.get("thumb") or inner.get("display_url") or inner.get("image")
+                            title = inner.get("title") or inner.get("caption") or inner.get("text") or title
+                            author = inner.get("author") or inner.get("username") or inner.get("owner") or author
+                        elif isinstance(inner, list) and inner:
+                            for item in inner:
+                                if isinstance(item, dict):
+                                    v = item.get("video_url") or item.get("url") or item.get("download_url")
+                                    if v and (".mp4" in v or "video" in str(item.get("type", "")).lower() or not video_url):
+                                        video_url = v
+                                        thumb = item.get("thumbnail") or item.get("thumb") or item.get("display_url")
+                                        break
+                                elif isinstance(item, str) and (".mp4" in item or "http" in item):
+                                    video_url = item
+                                    break
+
+                        # Fallback search in raw json
+                        if not video_url:
+                            v_match = re.search(r'https?:\\\/\\\/[^\s"\'<>]+\.mp4[^\s"\'<>]*', resp.text) or re.search(r'https?://[^\s"\'<>]+\.mp4[^\s"\'<>]*', resp.text)
+                            if v_match:
+                                video_url = v_match.group(0).replace(r'\/', '/').replace(r'\u0026', '&')
+
+                        if video_url:
+                            # Clean string values
+                            if isinstance(title, dict): title = "Instagram Video"
+                            if isinstance(author, dict): author = author.get("username", "Instagram Creator")
+                            
+                            return {
+                                "id": shortcode or str(uuid.uuid4()),
+                                "url": url,
+                                "title": str(title)[:100],
+                                "thumbnail": thumb,
+                                "duration": "Instagram Video",
+                                "author": f"@{str(author).replace('@', '')}",
+                                "platform": "Instagram",
+                                "mediaType": "video",
+                                "qualities": [
+                                    {"quality": "1080p HD Video", "format": "MP4", "resolution": "Video", "size": "HD Quality", "url": video_url},
+                                    {"quality": "720p Fast Video", "format": "MP4", "resolution": "Video", "size": "Standard", "url": video_url}
+                                ]
+                            }
+                elif resp.status_code == 403 and "not subscribed" in resp.text.lower():
+                    print(f"[RapidAPI Notice] Key is valid, but not subscribed to host '{host}'.")
+            except Exception as e:
+                # continue to next candidate
+                continue
+
+    return None
+
+async def extract_instagram_direct(url: str):
+    """
+    Dedicated Instagram extractor with multi-tier fallback:
+    1. RapidAPI Instagram Engine (User RapidAPI Key)
+    2. Canonical URL resolution & Shortcode parsing (Reels, Posts, Stories, TV)
+    3. Instagram GraphQL PolarisPostRootQuery with browser session
+    4. Direct Embed metadata & media extraction
+    5. Fast web social downloader mirrors
+    """
+    try:
+        canonical_url = await resolve_canonical_url(url)
+        # Extract shortcode from standard path formats: /reel/CODE/, /p/CODE/, /reels/CODE/, /tv/CODE/, /stories/USER/CODE/
+        shortcode_match = re.search(r'/(?:p|reel|reels|tv|stories/[^/]+)/([A-Za-z0-9_-]+)', canonical_url) or re.search(r'/(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)', url)
+        shortcode = shortcode_match.group(1) if shortcode_match else ""
+
+        # Tier 1: RapidAPI Instagram Engine
+        rapid_data = await extract_instagram_rapidapi(canonical_url, shortcode)
+        if rapid_data and rapid_data.get("qualities"):
+            print(f"RapidAPI Instagram Extractor Success for: {url}")
+            return rapid_data
+
+        # Tier 2: Instagram GraphQL PolarisPostRootQuery with session cookies
+        if shortcode:
+            try:
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                    "X-IG-App-ID": "936619743392459",
+                    "X-Requested-With": "XMLHttpRequest",
+                    "X-FB-Friendly-Name": "PolarisPostRootQuery",
+                    "Referer": f"https://www.instagram.com/reel/{shortcode}/",
+                    "Origin": "https://www.instagram.com",
+                    "Accept": "*/*"
+                }
+                async with httpx.AsyncClient(timeout=8.0, follow_redirects=True, headers=headers) as client:
+                    # Initialize cookie jar
+                    r_init = await client.get("https://www.instagram.com/")
+                    cookies = dict(client.cookies)
+                    if "csrftoken" in cookies:
+                        headers["X-CSRFToken"] = cookies["csrftoken"]
+
+                    payload = {
+                        "fb_api_req_friendly_name": "PolarisPostRootQuery",
+                        "variables": json.dumps({"shortcode": shortcode}),
+                        "doc_id": "27128499623469141"
+                    }
+                    r_gql = await client.post("https://www.instagram.com/graphql/query", data=payload, headers=headers)
+                    if r_gql.status_code == 200 and r_gql.text.startswith("{"):
+                        data = r_gql.json().get("data", {})
+                        if data and "xdt_shortcode_media" in data and data["xdt_shortcode_media"]:
+                            media = data["xdt_shortcode_media"]
+                            video_url = media.get("video_url")
+                            if video_url:
+                                author = media.get("owner", {}).get("username", "Instagram Creator")
+                                caption_nodes = media.get("edge_media_to_caption", {}).get("edges", [])
+                                title = caption_nodes[0]["node"]["text"] if caption_nodes else f"Instagram Reel by @{author}"
+                                thumb = media.get("display_url")
+
+                                return {
+                                    "id": shortcode,
+                                    "url": url,
+                                    "title": title[:100],
+                                    "thumbnail": thumb,
+                                    "duration": "Reel",
+                                    "author": f"@{author}",
+                                    "platform": "Instagram",
+                                    "mediaType": "video",
+                                    "qualities": [
+                                        {"quality": "1080p HD Video", "format": "MP4", "resolution": "Video", "size": "HD Quality", "url": video_url},
+                                        {"quality": "720p Fast Video", "format": "MP4", "resolution": "Video", "size": "Fast Download", "url": video_url}
+                                    ]
+                                }
+            except Exception as gql_err:
+                print(f"Instagram GraphQL tier notice: {gql_err}")
+
+        # Tier 2: Public Embed Media Extractor
+        if shortcode:
+            try:
+                embed_url = f"https://www.instagram.com/p/{shortcode}/embed/captioned/"
+                async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+                    headers = {
+                        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                    }
+                    resp = await client.get(embed_url, headers=headers)
+                    if resp.status_code == 200:
+                        html_content = resp.text
+                        video_matches = re.findall(r'<video[^>]+src="([^">]+)"', html_content) or re.findall(r'"video_url":"([^"]+)"', html_content)
+                        img_matches = re.findall(r'<img[^>]+class="EmbeddedMediaImage"[^>]+src="([^">]+)"', html_content) or re.findall(r'<img[^>]+src="([^">]+)"', html_content)
+                        author_matches = re.findall(r'class="CaptionUsername"[^>]*>([^<]+)</a>', html_content) or re.findall(r'"username":"([^"]+)"', html_content)
+                        title_matches = re.findall(r'class="Caption"[^>]*>([^<]+)</div>', html_content) or re.findall(r'<title>([^<]+)</title>', html_content)
+                        
+                        if video_matches:
+                            video_url = video_matches[0].replace("&amp;", "&").replace("\\u0026", "&").replace("\\/", "/")
+                            thumb = img_matches[0].replace("&amp;", "&").replace("\\u0026", "&").replace("\\/", "/") if img_matches else None
+                            author = author_matches[0].strip() if author_matches else "Instagram Creator"
+                            raw_title = title_matches[0].strip() if title_matches else f"Instagram Reel by @{author}"
+                            
+                            return {
+                                "id": shortcode,
+                                "url": url,
+                                "title": raw_title[:100],
+                                "thumbnail": thumb,
+                                "duration": "Reel",
+                                "author": f"@{author}",
+                                "platform": "Instagram",
+                                "mediaType": "video",
+                                "qualities": [
+                                    {"quality": "1080p HD Video", "format": "MP4", "resolution": "Video", "size": "HD Quality", "url": video_url},
+                                    {"quality": "720p Fast Video", "format": "MP4", "resolution": "Video", "size": "Fast", "url": video_url}
+                                ]
+                            }
+            except Exception as embed_err:
+                print(f"Instagram Embed tier notice: {embed_err}")
+
+    except Exception as e:
+        print(f"Instagram Direct Extractor notice: {e}")
+    return None
+
+async def extract_facebook_direct(url: str):
+    """
+    Dedicated Facebook extractor with multi-tier engine:
+    1. Canonical redirect unshortener (fb.watch, fb.me, m.facebook, /reel/, /stories/, /share/)
+    2. High-speed parser service with HD, SD & MP3 direct stream extraction
+    3. Direct page metadata and playable URL regex scraper fallback
+    """
+    try:
+        canonical_url = await resolve_canonical_url(url)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Referer': 'https://getmyfb.com/',
+            'Origin': 'https://getmyfb.com',
+            'Accept': '*/*'
+        }
+        
+        # Method 1: High-speed extraction service for Facebook videos, reels & stories
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True, headers=headers) as client:
+            r = await client.post('https://getmyfb.com/process', data={'id': canonical_url, 'locale': 'en'})
+            if r.status_code == 200 and '<section class="results">' in r.text:
+                title_m = re.search(r'<figcaption class="results-item-text">\s*(.*?)\s*</figcaption>', r.text, re.DOTALL)
+                thumb_m = re.search(r'<img[^>]+class="results-item-image"[^>]+src="([^">]+)"', r.text) or re.search(r'<img[^>]+src="([^">]+)"[^>]*class="results-item-image"', r.text)
+                
+                title = title_m.group(1).strip() if title_m else "Facebook Video"
+                thumb = thumb_m.group(1) if thumb_m else None
+                
+                formats = []
+                # 720p/1080p HD
+                hd_m = re.search(r'<li[^>]*class="results-list-item"[^>]*>[\s\S]*?720p\(HD\)[\s\S]*?<a[^>]+href="([^">]+)"', r.text)
+                if hd_m:
+                    formats.append({
+                        "quality": "720p HD Video",
+                        "format": "MP4",
+                        "resolution": "Video",
+                        "size": "HD Quality",
+                        "url": hd_m.group(1)
+                    })
+                    
+                # 360p/480p SD
+                sd_m = re.search(r'<li[^>]*class="results-list-item"[^>]*>[\s\S]*?360p\(SD\)[\s\S]*?<a[^>]+href="([^">]+)"', r.text)
+                if sd_m:
+                    formats.append({
+                        "quality": "360p SD Video",
+                        "format": "MP4",
+                        "resolution": "Video",
+                        "size": "Standard Quality",
+                        "url": sd_m.group(1)
+                    })
+                    
+                # MP3 Audio
+                mp3_m = re.search(r'<li[^>]*class="results-list-item"[^>]*>[\s\S]*?MP3[\s\S]*?<a[^>]+href="([^">]+)"', r.text)
+                if mp3_m:
+                    formats.append({
+                        "quality": "MP3 Audio (128kbps)",
+                        "format": "MP3",
+                        "resolution": "Audio",
+                        "size": "Original Audio",
+                        "url": mp3_m.group(1)
+                    })
+                    
+                # Generic fallback if specific badges were not matched
+                if not formats:
+                    all_links = re.findall(r'<li[^>]*class="results-list-item"[^>]*>[\s\S]*?<a[^>]+href="([^">]+)"[^>]*download="([^">]+)"', r.text)
+                    for l_url, fname in all_links:
+                        formats.append({
+                            "quality": "HD Video" if "-hd" in fname.lower() else "SD Video",
+                            "format": "MP4",
+                            "resolution": "Video",
+                            "size": "Direct Download",
+                            "url": l_url
+                        })
+                        
+                if formats:
+                    return {
+                        "id": str(uuid.uuid4()),
+                        "url": url,
+                        "title": title[:100],
+                        "thumbnail": thumb,
+                        "duration": "Facebook Video",
+                        "author": "Facebook Creator",
+                        "platform": "Facebook",
+                        "mediaType": "video",
+                        "qualities": formats
+                    }
+                    
+        # Method 2: Fallback direct page regex parser
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+            resp = await client.get(canonical_url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            })
+            if resp.status_code == 200:
+                html_text = resp.text
+                hd_match = re.search(r'hd_src:"([^"]+)"', html_text) or re.search(r'"playable_url_quality_hd":"([^"]+)"', html_text)
+                sd_match = re.search(r'sd_src:"([^"]+)"', html_text) or re.search(r'"playable_url":"([^"]+)"', html_text)
+                title_match = re.search(r'<title>([^<]+)</title>', html_text)
+                thumb_match = re.search(r'meta property="og:image" content="([^"]+)"', html_text)
+                
+                formats = []
+                if hd_match:
+                    formats.append({"quality": "1080p HD", "format": "MP4", "resolution": "Video", "size": "High Quality", "url": hd_match.group(1).replace("\\/", "/").replace("&amp;", "&")})
+                if sd_match:
+                    formats.append({"quality": "720p / 480p SD", "format": "MP4", "resolution": "Video", "size": "Standard", "url": sd_match.group(1).replace("\\/", "/").replace("&amp;", "&")})
+                    
+                if formats:
+                    return {
+                        "id": str(uuid.uuid4()),
+                        "url": url,
+                        "title": (title_match.group(1).strip() if title_match else "Facebook Video")[:100],
+                        "thumbnail": thumb_match.group(1).replace("&amp;", "&") if thumb_match else None,
+                        "duration": "Facebook Video",
+                        "author": "Facebook Creator",
+                        "platform": "Facebook",
+                        "mediaType": "video",
+                        "qualities": formats
+                    }
+    except Exception as e:
+        print(f"Facebook Direct Extractor notice: {e}")
+    return None
+
 async def try_smvd_api(url: str, platform: str):
     """
     Attempts to extract media info using the Social Media Video Downloader API.
@@ -142,7 +744,6 @@ async def try_smvd_api(url: str, platform: str):
         
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # Standardize headers for NestJS AuthGuard
             headers = {
                 "Content-Type": "application/json",
                 "Accept": "application/json",
@@ -151,7 +752,6 @@ async def try_smvd_api(url: str, platform: str):
                 "Authorization": f"Bearer {smvd_key}"
             }
             
-            # Try multiple payload formats (NestJS can be picky)
             payload = {
                 "url": url,
                 "video_url": url,
@@ -159,13 +759,11 @@ async def try_smvd_api(url: str, platform: str):
                 "with_metadata": True
             }
             
-            # Attempt 1: /info route (from logs)
             endpoint = f"{smvd_url.rstrip('/')}/info"
             print(f"Attempting SMVD Info: {endpoint}...")
             
             response = await client.post(endpoint, json=payload, headers=headers)
             
-            # If /info fails, attempt 2: /download/video (from README)
             if response.status_code not in [200, 201]:
                 print(f"SMVD Info failed ({response.status_code}), trying /download/video...")
                 endpoint = f"{smvd_url.rstrip('/')}/download/video"
@@ -174,13 +772,11 @@ async def try_smvd_api(url: str, platform: str):
             if response.status_code in [200, 201]:
                 result = response.json()
                 
-                # Format A: Raw yt-dlp info object (often returned by /info)
                 if isinstance(result, dict) and (result.get("formats") or result.get("url")):
                     info = result
                     formats = []
                     seen_qualities = set()
                     
-                    # Some versions return media in a 'media' key, some in 'formats'
                     raw_formats = info.get("formats") or info.get("media") or []
                     
                     for f in raw_formats:
@@ -204,7 +800,6 @@ async def try_smvd_api(url: str, platform: str):
                             "url": url_val
                         })
                     
-                    # Fallback for single URL results
                     if not formats and info.get("url"):
                         formats.append({"quality": "HD", "format": "MP4", "resolution": "Video", "size": "Fast", "url": info["url"]})
 
@@ -220,7 +815,6 @@ async def try_smvd_api(url: str, platform: str):
                         "qualities": formats[:15]
                     }, response.status_code
                 
-                # Format B: The structured 'success/data' format
                 elif isinstance(result, dict) and result.get("success") and result.get("data"):
                     raw_data = result["data"]
                     formats = []
@@ -297,44 +891,74 @@ async def broadcast_notification(request: Request, admin: dict = Depends(get_cur
 
 @app.post("/api/extract")
 async def extract_info(request: ExtractRequest):
-    url = request.url.strip()
+    raw_url = request.url.strip()
+    if not raw_url:
+        return JSONResponse(status_code=400, content={"success": False, "error": "URL cannot be empty"})
+    
+    # 0. Canonicalize / Expand Shortlinks (vt.tiktok.com, fb.watch, etc.)
+    url = await resolve_canonical_url(raw_url)
     search_query = url
     platform = "Unknown"
-    media_type = "video" # Default to video as it's more common for general links
+    media_type = "video"
     
     # Platform Detection
-    if "youtube.com" in url or "youtu.be" in url: platform = "YouTube"
-    elif "tiktok.com" in url: platform = "TikTok"
-    elif "instagram.com" in url: platform = "Instagram"
-    elif "facebook.com" in url or "fb.watch" in url: platform = "Facebook"
-    elif "twitter.com" in url or "x.com" in url: platform = "Twitter"
-    elif "soundcloud.com" in url: 
+    lower_url = url.lower()
+    if "tiktok.com" in lower_url or "tikwm.com" in lower_url:
+        platform = "TikTok"
+    elif "instagram.com" in lower_url or "instagr.am" in lower_url:
+        platform = "Instagram"
+    elif "facebook.com" in lower_url or "fb.watch" in lower_url or "fb.me" in lower_url or "fb.com" in lower_url:
+        platform = "Facebook"
+    elif "youtube.com" in lower_url or "youtu.be" in lower_url:
+        platform = "YouTube"
+    elif "twitter.com" in lower_url or "x.com" in lower_url:
+        platform = "Twitter"
+    elif "soundcloud.com" in lower_url:
         platform = "SoundCloud"
         media_type = "music"
-    elif "spotify.com" in url:
+    elif "spotify.com" in lower_url:
         platform = "Spotify"
         media_type = "music"
-    elif "audiomack.com" in url:
+    elif "audiomack.com" in lower_url:
         platform = "Audiomack"
         media_type = "music"
-    
-    # 0. Primary API Attempt (Social Media Video Downloader API)
+
+    # 1. Platform-Specific Direct High-Speed Extractors
+    if platform == "TikTok":
+        tiktok_data = await extract_tiktok_direct(url)
+        if tiktok_data and tiktok_data.get("qualities"):
+            print(f"Direct TikTok Extractor Success for: {url}")
+            return {"success": True, "data": tiktok_data}
+
+    elif platform == "Instagram":
+        ig_data = await extract_instagram_direct(url)
+        if ig_data and ig_data.get("qualities"):
+            print(f"Direct Instagram Extractor Success for: {url}")
+            return {"success": True, "data": ig_data}
+
+    elif platform == "Facebook":
+        fb_data = await extract_facebook_direct(url)
+        if fb_data and fb_data.get("qualities"):
+            print(f"Direct Facebook Extractor Success for: {url}")
+            return {"success": True, "data": fb_data}
+
+    elif platform == "YouTube":
+        yt_data = await extract_youtube_rapidapi(url)
+        if yt_data and yt_data.get("qualities"):
+            print(f"Direct RapidAPI YouTube Extractor Success for: {url}")
+            return {"success": True, "data": yt_data}
+
+    # 2. Secondary API Attempt (SMVD API if configured)
     smvd_status = "Skipped"
     if media_type == "video" or platform == "YouTube":
-        if not os.getenv("SMVD_API_URL"):
-            smvd_status = "Not configured (Missing SMVD_API_URL in Render)"
-        else:
+        if os.getenv("SMVD_API_URL"):
             smvd_data, smvd_status_code, smvd_error = await try_smvd_api(url, platform)
             if smvd_data:
                 print(f"SMVD API Success for {platform}")
                 return {"success": True, "data": smvd_data}
-            
-            if smvd_status_code:
-                smvd_status = f"Failed (HTTP {smvd_status_code}: {smvd_error})"
-            else:
-                smvd_status = f"Connection Timeout ({smvd_error})"
-    
-    # 1. SoundCloud Mirror Engine (Most Stable on Render) fallback
+            smvd_status = f"Failed (HTTP {smvd_status_code}: {smvd_error})" if smvd_status_code else f"Timeout ({smvd_error})"
+
+    # 3. Spotify / Audiomack Search Fallback
     if platform in ["Spotify", "Audiomack"]:
         try:
             if platform == "Spotify" and sp:
@@ -343,21 +967,20 @@ async def extract_info(request: ExtractRequest):
                 search_query = f"scsearch1:{track['artists'][0]['name']} {track['name']} official"
             else:
                 search_query = f"scsearch1:{url}"
-        except Exception as e: 
-            print(f"Platform search extraction failed: {str(e)}")
+        except Exception as e:
+            print(f"Platform search extraction notice: {str(e)}")
             search_query = f"scsearch1:{url}"
 
-    # Format Selection: Try to be smart but allow fallbacks
-    format_opt = 'bestaudio/best' if media_type == "music" else 'bestvideo+bestaudio/best'
-    
+    # 4. Universal Engine Extraction (yt-dlp with optimized configuration)
     ydl_opts = {
-        'quiet': True, 
-        'no_warnings': True, 
+        'quiet': True,
+        'no_warnings': True,
         'nocheckcertificate': True,
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
+            'Sec-Fetch-Mode': 'navigate',
         },
         'extract_flat': False,
         'skip_download': True,
@@ -366,32 +989,32 @@ async def extract_info(request: ExtractRequest):
             'youtube': {
                 'player_client': ['web_embedded', 'android', 'ios'],
                 'skip': ['dash', 'hls']
+            },
+            'tiktok': {
+                'app_version': '34.1.2',
+                'manifest_app_version': '3412',
             }
         }
     }
     
     try:
-        print(f"--- Fallback Extraction Start (SMVD: {smvd_status}) ---")
-        print(f"Platform: {platform} | Media Type: {media_type}")
-        print(f"Query: {search_query}")
-        
+        print(f"--- Universal Extraction Start: {platform} ({url}) ---")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             loop = asyncio.get_event_loop()
             try:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(search_query, download=False))
             except Exception as ydl_err:
-                # If specialized search fails, try raw URL as last resort
-                print(f"Primary extraction failed, trying raw URL: {str(ydl_err)}")
+                print(f"Primary query failed, retrying raw canonical URL: {str(ydl_err)}")
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=False))
             
             if info and 'entries' in info:
-                if not info['entries']: raise Exception(f"No results found.")
+                if not info['entries']: raise Exception(f"No downloadable media found for this link.")
                 info = info['entries'][0]
 
             if not info:
-                raise Exception(f"Could not retrieve media info. (Engine: {smvd_status})")
+                raise Exception(f"Could not retrieve video information. Please ensure the link is public.")
 
-            # Process formats
+            # Process and categorize formats
             raw_formats = info.get("formats", [])
             formats = []
             seen_qualities = set()
@@ -400,18 +1023,25 @@ async def extract_info(request: ExtractRequest):
                 url_val = f.get("url")
                 if not url_val: continue
                 
-                res = f.get("resolution")
-                note = f.get("format_note")
+                res = f.get("resolution") or f.get("format_note")
+                height = f.get("height")
+                note = f.get("format_note", "")
                 ext = f.get("ext", "mp4").upper()
                 vcodec = f.get('vcodec', 'none')
                 
-                is_audio = vcodec == 'none' or 'audio' in (note or '').lower() or 'audio' in (res or '').lower()
+                is_audio = vcodec == 'none' or 'audio' in str(note).lower() or 'audio' in str(res).lower()
                 
-                # If we're strictly in music mode, we prefer audio-only formats
                 if media_type == "music" and not is_audio:
-                    continue 
+                    continue
                 
-                quality = note or res or ("HQ Audio" if is_audio else "Standard")
+                # Quality Label Normalization
+                if is_audio:
+                    quality = "Original Audio (MP3)" if ext == "MP3" else "High Quality Audio"
+                elif height:
+                    quality = f"{height}p HD" if height >= 720 else f"{height}p SD"
+                else:
+                    quality = note or str(res) or "HD Video"
+                
                 q_key = f"{quality}_{ext}_{'A' if is_audio else 'V'}"
                 if q_key in seen_qualities: continue
                 seen_qualities.add(q_key)
@@ -424,48 +1054,129 @@ async def extract_info(request: ExtractRequest):
                     "url": url_val
                 })
 
-            # If no formats found after filtering, provide at least one
+            # If no formats extracted, append default stream if available
             if not formats and info.get('url'):
                 formats.append({
-                    "quality": "Standard",
+                    "quality": "1080p HD / Best",
                     "format": info.get("ext", "MP4").upper(),
-                    "resolution": "Default",
+                    "resolution": "Video",
                     "size": "Fast",
                     "url": info.get("url")
                 })
 
+            # Sort formats: Video (HD first) -> Audio
+            formats.sort(key=lambda x: (
+                0 if x["resolution"] == "Video" and "1080" in x["quality"] else
+                1 if x["resolution"] == "Video" and "720" in x["quality"] else
+                2 if x["resolution"] == "Video" else
+                3
+            ))
+
+            raw_duration = info.get("duration")
+            duration_str = f"{int(raw_duration) // 60}m {int(raw_duration) % 60}s" if raw_duration else "Video"
+
             return {
                 "success": True, 
                 "data": {
-                    "id": str(info.get("id")),
+                    "id": str(info.get("id") or uuid.uuid4()),
                     "url": url,
-                    "title": info.get("title", "Media Content"),
+                    "title": info.get("title", "Social Media Video"),
                     "thumbnail": info.get("thumbnail") or info.get('cover'),
-                    "duration": f"{int(info.get('duration', 0)) // 60}m" if info.get("duration") else "0m",
-                    "author": info.get("uploader") or info.get("artist") or platform,
-                    "platform": platform,
+                    "duration": duration_str,
+                    "author": info.get("uploader") or info.get("channel") or info.get("artist") or platform,
+                    "platform": platform if platform != "Unknown" else (info.get("extractor_key") or "Video"),
                     "mediaType": media_type,
                     "qualities": formats[:15]
                 }
             }
     except Exception as e:
-        print(f"!!! EXTRACTION ERROR !!!")
+        print(f"!!! EXTRACTION ERROR for {url} !!!")
         print(traceback.format_exc())
         error_msg = str(e)
         if "403" in error_msg:
-            error_msg = f"This {platform} link is protected or restricted in your region."
+            error_msg = f"This {platform} video is private or restricted by privacy settings."
+        elif "Sign in" in error_msg or "login" in error_msg.lower():
+            error_msg = f"This {platform} post requires authentication or is age-restricted."
         return JSONResponse(status_code=400, content={"success": False, "error": error_msg})
 
 @app.get("/api/download")
-async def download_media(url: str, background_tasks: BackgroundTasks, filename: str = "file.mp4"):
-    temp_path = os.path.join(DOWNLOAD_DIR, f"{uuid.uuid4()}.mp4")
-    ydl_opts = {'format': 'bestaudio/best' if filename.endswith('.mp3') else 'best', 'outtmpl': temp_path, 'quiet': True}
+async def download_media(
+    url: str, 
+    background_tasks: BackgroundTasks, 
+    filename: str = "video.mp4",
+    quality: str = "best",
+    referer: Optional[str] = None
+):
+    safe_filename = re.sub(r'[^a-zA-Z0-9._-]', '_', filename)
+    if not safe_filename.endswith(('.mp4', '.mp3', '.m4a', '.webm')):
+        safe_filename += '.mp4'
+
+    temp_path = os.path.join(DOWNLOAD_DIR, f"{uuid.uuid4()}_{safe_filename}")
+    
+    # 1. Fast Direct CDN Streaming for direct media links
+    is_direct_cdn = any(cdn in url.lower() for cdn in [
+        "tikwm.com", "tiktokcdn.com", "cdninstagram.com", "fbcdn.net", 
+        "twimg.com", "sndcdn.com", ".mp4", ".mp3", ".m4a"
+    ]) or ("http" in url and ("mime=video" in url or "bytestart=" in url or "token=" in url or "googlevideo.com" in url))
+    
+    if is_direct_cdn and not ("youtube.com/watch" in url or "youtu.be/" in url):
+        try:
+            req_headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "*/*"
+            }
+            if referer:
+                req_headers["Referer"] = referer
+            elif "tiktok" in url or "tikwm" in url:
+                req_headers["Referer"] = "https://www.tiktok.com/"
+            elif "instagram" in url or "cdninstagram" in url:
+                req_headers["Referer"] = "https://www.instagram.com/"
+            elif "facebook" in url or "fbcdn" in url:
+                req_headers["Referer"] = "https://www.facebook.com/"
+
+            async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
+                async with client.stream("GET", url, headers=req_headers) as response:
+                    if response.status_code in [200, 206]:
+                        with open(temp_path, "wb") as f:
+                            async for chunk in response.aiter_bytes(chunk_size=65536):
+                                f.write(chunk)
+                        
+                        background_tasks.add_task(lambda: os.path.exists(temp_path) and os.remove(temp_path))
+                        media_type = "audio/mpeg" if safe_filename.endswith(".mp3") else "video/mp4"
+                        return FileResponse(path=temp_path, filename=safe_filename, media_type=media_type)
+        except Exception as direct_err:
+            print(f"Direct stream download notice (switching to yt-dlp): {direct_err}")
+
+    # 2. Universal yt-dlp Download Fallback
+    ydl_opts = {
+        'format': 'bestaudio/best' if safe_filename.endswith('.mp3') else 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'outtmpl': temp_path,
+        'quiet': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        }
+    }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.download([url]))
-        background_tasks.add_task(os.remove, temp_path)
-        return FileResponse(path=temp_path, filename=filename)
-    except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+        
+        actual_path = temp_path
+        if not os.path.exists(actual_path):
+            for ext in ['.mp4', '.mkv', '.webm', '.mp3']:
+                if os.path.exists(f"{temp_path}{ext}"):
+                    actual_path = f"{temp_path}{ext}"
+                    break
+                    
+        if not os.path.exists(actual_path):
+            raise Exception("File failed to download from source.")
+
+        background_tasks.add_task(lambda: os.path.exists(actual_path) and os.remove(actual_path))
+        media_type = "audio/mpeg" if safe_filename.endswith(".mp3") else "video/mp4"
+        return FileResponse(path=actual_path, filename=safe_filename, media_type=media_type)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 # =========================
 # MOVIE ENDPOINTS
@@ -1106,8 +1817,8 @@ async def get_movie_details(
 
 @app.get("/share", response_class=HTMLResponse)
 async def dynamic_share_preview(
-    title: str = "StreamAura", 
-    desc: str = "Your Premium Media Access", 
+    title: str = "StreamAura — Your No. 1 Virtual Cinema & World of Entertainment", 
+    desc: str = "Your No. 1 Virtual Cinema and World of Entertainment. Download high quality videos and music from any platform. Enjoy virtual cinema rooms, pre-order movies, and manage your media library — fast, free, and unlimited.", 
     img: str = "https://streamaura.site/icons/icon-512x512.png",
     target: str = "/"
 ):

@@ -9,12 +9,12 @@ interface SEOProps {
 }
 
 export const SEO: React.FC<SEOProps> = ({ 
-  title = "StreamAura — Professional Media Downloader & Cinema",
-  description = "Download high-quality videos and music from any platform. Enjoy virtual cinema rooms, pre-order movies, and manage your media library.",
+  title = "StreamAura — Your No. 1 Virtual Cinema & World of Entertainment",
+  description = "Your No. 1 Virtual Cinema and World of Entertainment. Download high quality videos and music from any platform. Enjoy virtual cinema rooms, pre-order movies, and manage your media library — fast, free, and unlimited.",
   image = "https://streamaura.site/icons/icon-512x512.png",
   url = "https://streamaura.site/"
 }) => {
-  const safeTitle = title || "StreamAura — Professional Media Downloader & Cinema";
+  const safeTitle = title || "StreamAura — Your No. 1 Virtual Cinema & World of Entertainment";
   const siteTitle = safeTitle.includes("StreamAura") ? safeTitle : `${safeTitle} | StreamAura`;
 
   return (

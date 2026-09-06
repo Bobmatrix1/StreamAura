@@ -54,6 +54,13 @@ const MusicDownloader: React.FC = () => {
     }
   }, [currentPreview, isLoadingPreview]);
 
+  // Clean up preview on unmount
+  useEffect(() => {
+    return () => {
+      setCurrentPreview(null);
+    };
+  }, [setCurrentPreview]);
+
   const handleFetch = async () => {
     requireAuth(async () => {
       if (!url.trim()) return;
@@ -70,6 +77,7 @@ const MusicDownloader: React.FC = () => {
   };
 
   const handleClear = () => {
+    cancelDownload();
     setUrl('');
     setCurrentPreview(null);
     setSelectedQuality(null);

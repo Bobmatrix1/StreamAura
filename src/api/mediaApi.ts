@@ -20,17 +20,17 @@ export const API_BASE_URL = import.meta.env.VITE_API_URL || '';
  * Detect platform from URL
  */
 export const detectPlatform = (url: string): Platform => {
-  const lowerUrl = url.toLowerCase();
+  const lowerUrl = url.toLowerCase().trim();
   
-  if (lowerUrl.includes('youtube') || lowerUrl.includes('youtu.be')) return 'youtube';
-  if (lowerUrl.includes('tiktok')) return 'tiktok';
-  if (lowerUrl.includes('instagram')) return 'instagram';
-  if (lowerUrl.includes('facebook') || lowerUrl.includes('fb.watch')) return 'facebook';
-  if (lowerUrl.includes('twitter') || lowerUrl.includes('x.com')) return 'twitter';
-  if (lowerUrl.includes('spotify')) return 'spotify';
-  if (lowerUrl.includes('soundcloud')) return 'soundcloud';
+  if (lowerUrl.includes('youtube.com') || lowerUrl.includes('youtu.be')) return 'youtube';
+  if (lowerUrl.includes('tiktok.com') || lowerUrl.includes('vt.tiktok') || lowerUrl.includes('vm.tiktok') || lowerUrl.includes('tikwm')) return 'tiktok';
+  if (lowerUrl.includes('instagram.com') || lowerUrl.includes('instagr.am')) return 'instagram';
+  if (lowerUrl.includes('facebook.com') || lowerUrl.includes('fb.watch') || lowerUrl.includes('fb.me') || lowerUrl.includes('fb.com')) return 'facebook';
+  if (lowerUrl.includes('twitter.com') || lowerUrl.includes('x.com') || lowerUrl.includes('t.co')) return 'twitter';
+  if (lowerUrl.includes('spotify.com')) return 'spotify';
+  if (lowerUrl.includes('soundcloud.com')) return 'soundcloud';
   if (lowerUrl.includes('music.apple') || lowerUrl.includes('itunes')) return 'apple-music';
-  if (lowerUrl.includes('deezer')) return 'deezer';
+  if (lowerUrl.includes('deezer.com')) return 'deezer';
   if (lowerUrl.includes('moviebox')) return 'moviebox';
   
   return 'unknown';
@@ -50,21 +50,32 @@ export const isPlatformSupported = (platform: Platform): boolean => {
 /**
  * Extract video information
  */
-export const extractVideoInfo = async (url: string): Promise<ApiResponse<VideoInfo>> => {
+export const extractVideoInfo = async (
+  url: string, 
+  signal?: AbortSignal
+): Promise<ApiResponse<VideoInfo> & { cancelled?: boolean }> => {
   try {
     const response = await fetch(`${API_BASE_URL}/api/extract`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url })
+      body: JSON.stringify({ url }),
+      signal
     });
     
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to extract video information');
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || error.detail || 'Failed to extract video information');
     }
     
     return await response.json();
   } catch (error: any) {
+    if (error?.name === 'AbortError' || signal?.aborted) {
+      return {
+        success: false,
+        cancelled: true,
+        error: 'Extraction cancelled.'
+      };
+    }
     return {
       success: false,
       error: error.message || 'Connection to backend failed. Make sure the server is running.'

@@ -33,7 +33,7 @@ export default defineConfig({
       manifest: {
         name: 'StreamAura',
         short_name: 'StreamAura',
-        description: 'Download videos and music from any platform',
+        description: 'Your No. 1 Virtual Cinema and World of Entertainment. Download high quality videos and music from any platform. Enjoy virtual cinema rooms, pre-order movies, and manage your media library — fast, free, and unlimited.',
         theme_color: '#0f0f23',
         background_color: '#0f0f23',
         display: 'standalone',

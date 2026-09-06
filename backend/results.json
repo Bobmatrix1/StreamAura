@@ -1,0 +1,9 @@
+{
+  "igdownloader.app": "err: [Errno 11002] getaddrinfo failed",
+  "snapsave.app": "(403, '<!DOCTYPE html><html lang=\"en-US\"><head><title>Just a moment...</title><meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\"><meta http-equiv=\"X-UA-Compatible\" content=\"IE=Edge\"><meta nam')",
+  "instavideosave.net": "err: [Errno 11002] getaddrinfo failed",
+  "indown.io": "(403, 5357)",
+  "sssinstagram.com": "(200, '{\"info\":\"<span class=\\\\\"error\\\\\">Invalid request.</span>\",\"code\":\"URL_IS_EMPTY\"}')",
+  "fastdl.app": "(403, '<!DOCTYPE html>\\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\\n<!--[if IE 8]>    <html class=\"no-')",
+  "instagram __d=dis": "(404, '<!DOCTYPE html>\\n<html lang=\"None\" class=\"no-js not-logged-in \">\\n    <head>\\n        <meta charset=\"utf-8\">\\n        <meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\">\\n\\n        <title>\\n               ')"
+}

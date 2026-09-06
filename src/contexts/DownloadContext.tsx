@@ -75,6 +75,7 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
   const { showSuccess, showError } = useToast();
   const { user } = useAuth();
   const abortControllerRef = useRef<AbortController | null>(null);
+  const fetchAbortControllerRef = useRef<AbortController | null>(null);
 
   // 1. Sync local history to localStorage
   useEffect(() => {
@@ -113,20 +114,34 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, []);
 
   /**
-   * Fetch media info
+   * Fetch media info with full abort controller support
    */
   const getMediaInfo = useCallback(async (url: string): Promise<VideoInfo | MusicInfo | null> => {
+    if (fetchAbortControllerRef.current) {
+      fetchAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    fetchAbortControllerRef.current = controller;
     setIsLoadingPreview(true);
+
     try {
-      const result = await mediaApi.extractVideoInfo(url);
+      const result = await mediaApi.extractVideoInfo(url, controller.signal);
+      if (controller.signal.aborted) return null;
       if (result.success && result.data) return result.data;
-      showError(result.error || 'Mirror not found.');
+      if (!result.cancelled) {
+        showError(result.error || 'Mirror not found.');
+      }
       return null;
-    } catch (error) {
-      showError('Backend server is busy. Please try again.');
+    } catch (error: any) {
+      if (error?.name !== 'AbortError' && !controller.signal.aborted) {
+        showError('Backend server is busy. Please try again.');
+      }
       return null;
     } finally {
-      setIsLoadingPreview(false);
+      if (fetchAbortControllerRef.current === controller) {
+        setIsLoadingPreview(false);
+        fetchAbortControllerRef.current = null;
+      }
     }
   }, [showError]);
 
@@ -289,9 +304,27 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, [queue, getMediaInfo, downloadWithProgress, showError]);
 
   const cancelDownload = useCallback(() => {
+    let hadActiveOperation = false;
+    
+    // 1. Abort in-flight metadata fetch
+    if (fetchAbortControllerRef.current) {
+      fetchAbortControllerRef.current.abort();
+      fetchAbortControllerRef.current = null;
+      setIsLoadingPreview(false);
+      hadActiveOperation = true;
+    }
+
+    // 2. Abort in-flight file download stream
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
-      showSuccess('Download cancelled');
+      abortControllerRef.current = null;
+      setActiveDownloads(0);
+      setCurrentDownloadProgress(0);
+      hadActiveOperation = true;
+    }
+
+    if (hadActiveOperation) {
+      showSuccess('Cancelled');
     }
   }, [showSuccess]);
 

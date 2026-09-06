@@ -2,7 +2,13 @@ import os
 from dotenv import load_dotenv
 load_dotenv(".env")
 load_dotenv("backend/.env")
-from pydantic_settings import BaseSettings
+try:
+    from pydantic_settings import BaseSettings
+except ImportError:
+    try:
+        from pydantic import BaseSettings
+    except ImportError:
+        from pydantic import BaseModel as BaseSettings
 
 class Settings(BaseSettings):
     # Redis
