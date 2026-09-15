@@ -103,11 +103,16 @@ export const extractMusicInfo = async (
 };
 
 /**
- * Search movies or series using MovieBox API
+ * Search movies or series using MovieBox API with 40-item pagination support
  */
-export const searchMovies = async (query: string, type: 'movie' | 'series' = 'movie'): Promise<ApiResponse<MovieInfo[]>> => {
+export const searchMovies = async (
+  query: string, 
+  type: 'movie' | 'series' = 'movie',
+  page: number = 1,
+  perPage: number = 40
+): Promise<ApiResponse<MovieInfo[]>> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/movies/search?query=${encodeURIComponent(query)}&type=${type}`);
+    const response = await fetch(`${API_BASE_URL}/api/movies/search?query=${encodeURIComponent(query)}&type=${type}&page=${page}&per_page=${perPage}`);
     
     if (!response.ok) {
       const error = await response.json();
@@ -119,6 +124,32 @@ export const searchMovies = async (query: string, type: 'movie' | 'series' = 'mo
     return {
       success: false,
       error: error.message || 'Failed to search'
+    };
+  }
+};
+
+/**
+ * Fetch movies or series by categorized genre with pagination
+ */
+export const getMoviesByGenre = async (
+  genre: string,
+  type: 'movie' | 'series' = 'movie',
+  page: number = 1,
+  perPage: number = 40
+): Promise<ApiResponse<MovieInfo[]>> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/movies/genre?genre=${encodeURIComponent(genre)}&type=${type}&page=${page}&per_page=${perPage}`);
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to fetch genre');
+    }
+    
+    return await response.json();
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error.message || 'Failed to fetch genre'
     };
   }
 };
@@ -345,6 +376,7 @@ export default {
   extractVideoInfo,
   extractMusicInfo,
   searchMovies,
+  getMoviesByGenre,
   getTrendingMovies,
   getMovieDetails,
   startDownload,

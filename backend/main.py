@@ -75,8 +75,8 @@ from contextlib import asynccontextmanager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Start the periodic cleanup workers and telegram polling worker
-    from websockets.game_sync import start_periodic_cleanup
-    from websockets.room_sync import start_periodic_cinema_cleanup
+    from ws_sync.game_sync import start_periodic_cleanup
+    from ws_sync.room_sync import start_periodic_cinema_cleanup
     asyncio.create_task(start_periodic_cleanup())
     asyncio.create_task(start_periodic_cinema_cleanup())
     asyncio.create_task(telegram_polling_worker())
@@ -90,20 +90,8 @@ app = FastAPI(title="StreamAura API Master", lifespan=lifespan)
 # Cinema Routers (Must be imported AFTER Firebase init because they call firestore.client() at module level)
 from routers import cinema as cinema_router
 from routers import games as games_router
-try:
-    from websockets import room_sync as websocket_router
-    from websockets import game_sync as game_ws_router
-except (ImportError, AttributeError):
-    import importlib.util
-    from pathlib import Path
-    _backend_dir = Path(__file__).parent
-    _spec_room = importlib.util.spec_from_file_location("local_room_sync", _backend_dir / "websockets" / "room_sync.py")
-    websocket_router = importlib.util.module_from_spec(_spec_room)
-    _spec_room.loader.exec_module(websocket_router)
-    
-    _spec_game = importlib.util.spec_from_file_location("local_game_sync", _backend_dir / "websockets" / "game_sync.py")
-    game_ws_router = importlib.util.module_from_spec(_spec_game)
-    _spec_game.loader.exec_module(game_ws_router)
+from ws_sync import room_sync as websocket_router
+from ws_sync import game_sync as game_ws_router
 
 app.include_router(cinema_router.router, prefix="/api/cinema", tags=["cinema"])
 app.include_router(games_router.router, prefix="/api/games", tags=["games"])
@@ -1965,12 +1953,25 @@ def clean_query_for_related(q: str) -> str:
     return q
 
 @app.get("/api/movies/search")
-async def search_movies(query: str = Query(...), type: str = "movie"):
+async def search_movies(
+    query: str = Query(...), 
+    type: str = "movie", 
+    page: int = 1, 
+    per_page: int = 40
+):
     try:
         client_session = Session(verify=False)
 
-        async def perform_search(search_type_str, search_query):
+        async def perform_search(search_type_str, search_query, target_count=40, page_num=1):
             auth_token = os.getenv("MOVIEBOX_AUTH_TOKEN", "").strip()
+            pages = [page_num, page_num + 1] if target_count > 20 else [page_num]
+            all_raw = []
+
+            def extract_items(res):
+                if isinstance(res, list): return res
+                if isinstance(res, dict):
+                    return res.get('items') or res.get('list') or res.get('resData', {}).get('list') or []
+                return getattr(res, 'items', []) or getattr(res, 'list', [])
             
             if auth_token:
                 # 1. Try v2 Search (Web API - compatible with Chrome-captured web tokens)
@@ -1987,12 +1988,15 @@ async def search_movies(query: str = Query(...), type: str = "movie"):
                         "Authorization": f"Bearer {auth_token}"
                     }
                     sess = Session(headers=headers, verify=False)
-                    search = SearchV2(sess, search_query, subject_type=st_v2)
-                    res = await search.get_content()
-                    if isinstance(res, dict):
-                        items = res.get('items') or res.get('list') or res.get('resData', {}).get('list') or []
-                        if items:
-                            return items
+                    for p in pages:
+                        try:
+                            search = SearchV2(sess, search_query, subject_type=st_v2, page=p, per_page=24)
+                            res = await search.get_content()
+                            all_raw.extend(extract_items(res))
+                        except Exception:
+                            pass
+                    if all_raw:
+                        return all_raw
                 except Exception as v2_exc:
                     print(f"v2 Search failed: {v2_exc}")
 
@@ -2008,47 +2012,39 @@ async def search_movies(query: str = Query(...), type: str = "movie"):
                     tab = TabIDV3.MOVIE if search_type_str == "movie" else TabIDV3.TV_SERIES
                     
                     async with MovieBoxHttpClient(verify=False) as client:
-                        # Prioritize SearchV2 because it supports tab_id filtering directly on the MovieBox servers
-                        try:
-                            search = SearchV2V3(client, search_query, subject_type=st, tab_id=tab)
-                            res = await search.get_content()
-                        except Exception as v2_exc:
-                            print(f"v3 SearchV2 failed, falling back to SearchV3: {v2_exc}")
+                        for p in pages:
                             try:
-                                search = SearchV3(client, search_query, subject_type=st)
+                                search = SearchV2V3(client, search_query, subject_type=st, tab_id=tab, page=p, per_page=24)
                                 res = await search.get_content()
-                            except Exception as v3_exc:
-                                print(f"v3 SearchV3 also failed: {v3_exc}")
-                                res = None
-
-                        if res is not None:
-                            items = []
-                            if hasattr(res, 'list') and res.list:
-                                items = res.list
-                            elif hasattr(res, 'items') and res.items:
-                                items = res.items
-                            else:
-                                items = getattr(res, 'resData', {}).get('list') or []
-                            return items
+                                all_raw.extend(extract_items(res))
+                            except Exception:
+                                try:
+                                    search = SearchV3(client, search_query, subject_type=st, page=p, per_page=24)
+                                    res = await search.get_content()
+                                    all_raw.extend(extract_items(res))
+                                except Exception:
+                                    pass
+                        if all_raw:
+                            return all_raw
                 except Exception as e:
                     print(f"v3 Search module failure: {e}")
             
             st = SubjectType.MOVIES if search_type_str == "movie" else SubjectType.TV_SERIES
-            try:
-                sess_no_auth = Session(verify=False)
-                search = Search(sess_no_auth, search_query, subject_type=st)
-                res = await search.get_content()
-                if isinstance(res, list): return res
-                if isinstance(res, dict):
-                    return res.get('items') or res.get('list') or res.get('resData', {}).get('list') or []
-                return getattr(res, 'items', []) or getattr(res, 'list', [])
-            except:
+            for p in pages:
                 try:
                     sess_no_auth = Session(verify=False)
-                    search = Search(sess_no_auth, search_query, subject_type=st)
-                    model = await search.get_content_model()
-                    return getattr(model, 'items', []) or getattr(model, 'list', [])
-                except: return []
+                    search = Search(sess_no_auth, search_query, subject_type=st, page=p, per_page=24)
+                    res = await search.get_content()
+                    all_raw.extend(extract_items(res))
+                except Exception:
+                    try:
+                        sess_no_auth = Session(verify=False)
+                        search = Search(sess_no_auth, search_query, subject_type=st, page=p, per_page=24)
+                        model = await search.get_content_model()
+                        all_raw.extend(extract_items(model))
+                    except Exception:
+                        pass
+            return all_raw
 
         def get_val(obj, key, default=None):
             if isinstance(obj, dict): return obj.get(key, default)
@@ -2060,54 +2056,50 @@ async def search_movies(query: str = Query(...), type: str = "movie"):
             return default
 
         # 1. Search in the requested category (type)
-        items = await perform_search(type, query)
+        items = await perform_search(type, query, target_count=per_page, page_num=page)
         
         # 2. If no results found in the requested category
         if not items:
             other_type = "series" if type == "movie" else "movie"
-            other_items = await perform_search(other_type, query)
+            other_items = await perform_search(other_type, query, target_count=per_page, page_num=page)
             
             if other_items:
-                # The query matches the other category (e.g. searched a movie in the series tab).
-                # We do NOT show the other category items. Instead, we look for related items of the requested type.
                 cleaned_query = clean_query_for_related(query)
                 if cleaned_query and cleaned_query.lower() != query.lower():
-                    items = await perform_search(type, cleaned_query)
+                    items = await perform_search(type, cleaned_query, target_count=per_page, page_num=page)
                 
-                # If still no items, try searching with the first couple of words of the cleaned title
                 if not items and cleaned_query:
                     words = [w for w in re.split(r'\s+', cleaned_query) if len(w) > 2]
                     if words:
                         broad_query = " ".join(words[:2])
-                        items = await perform_search(type, broad_query)
+                        items = await perform_search(type, broad_query, target_count=per_page, page_num=page)
                 
-                # If still no items, fall back to trending items of the requested type
                 if not items:
                     from moviebox_api.v1 import Trending
-                    tr = Trending(client_session)
+                    tr = Trending(client_session, page=page, per_page=24)
                     tr_res = await tr.get_content()
                     raw_trending = tr_res.get('subjectList', []) or []
                     target_sub_type = 1 if type == "movie" else 2
-                    items = [i for i in raw_trending if get_val(i, 'subjectType') == target_sub_type][:12]
+                    items = [i for i in raw_trending if get_val(i, 'subjectType') == target_sub_type][:per_page]
             else:
-                # No results in either category. Try a broader search in the requested type.
                 cleaned_query = clean_query_for_related(query)
                 if cleaned_query and cleaned_query.lower() != query.lower():
-                    items = await perform_search(type, cleaned_query)
+                    items = await perform_search(type, cleaned_query, target_count=per_page, page_num=page)
                 
-                # If still nothing, return trending of the requested type
                 if not items:
                     from moviebox_api.v1 import Trending
-                    tr = Trending(client_session)
+                    tr = Trending(client_session, page=page, per_page=24)
                     tr_res = await tr.get_content()
                     raw_trending = tr_res.get('subjectList', []) or []
                     target_sub_type = 1 if type == "movie" else 2
-                    items = [i for i in raw_trending if get_val(i, 'subjectType') == target_sub_type][:12]
+                    items = [i for i in raw_trending if get_val(i, 'subjectType') == target_sub_type][:per_page]
 
         formatted_results = []
+        seen_ids = set()
         for item in items:
             movie_id = str(get_val(item, 'subjectId', ''))
-            if not movie_id: continue
+            if not movie_id or movie_id in seen_ids: continue
+            seen_ids.add(movie_id)
 
             poster_data = get_val(item, 'cover') or get_val(item, 'poster') or {}
             poster_url = get_val(poster_data, 'url') if isinstance(poster_data, dict) else poster_data
@@ -2128,9 +2120,115 @@ async def search_movies(query: str = Query(...), type: str = "movie"):
                 "mediaType": type
             })
 
+            if len(formatted_results) >= per_page:
+                break
+
         return {"success": True, "data": formatted_results}
     except Exception as e:
         print(f"Movie Search Critical Error: {str(e)}")
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+@app.get("/api/movies/genre")
+async def get_movies_by_genre(
+    genre: str = Query(...), 
+    type: str = "movie", 
+    page: int = 1, 
+    per_page: int = 40
+):
+    """
+    Dedicated genre / category discovery endpoint with high-capacity 40-item pagination.
+    """
+    try:
+        genre_lower = genre.lower().strip()
+        client_session = Session(verify=False)
+
+        def get_val(obj, key, default=None):
+            if isinstance(obj, dict): return obj.get(key, default)
+            val = getattr(obj, key, None)
+            if val is not None: return val
+            snake_key = re.sub(r'(?<!^)(?=[A-Z])', '_', key).lower()
+            val = getattr(obj, snake_key, None)
+            if val is not None: return val
+            return default
+
+        # Genre to search keyword mappings for deep catalogues
+        genre_map = {
+            "all": "popular",
+            "trending": "",
+            "popular": "popular",
+            "action": "action",
+            "african": "nollywood",
+            "kdrama": "kdrama",
+            "comedy": "comedy",
+            "romance": "romance",
+            "animation": "animation",
+            "scifi": "sci-fi",
+            "horror": "horror",
+            "thriller": "thriller",
+            "crime": "crime",
+            "drama": "drama",
+            "documentary": "documentary",
+            "family": "family",
+            "top_rated": "award"
+        }
+        
+        target_keyword = genre_map.get(genre_lower, genre_lower)
+
+        if genre_lower in ["trending", "all", "popular"] and not target_keyword:
+            from moviebox_api.v1 import Trending
+            pages = [(page - 1) * 2, (page - 1) * 2 + 1]
+            tasks = [Trending(client_session, page=p, per_page=24).get_content() for p in pages]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            raw_trending = []
+            for r in results:
+                if isinstance(r, dict):
+                    raw_trending.extend(r.get('subjectList', []) or [])
+            target_sub_type = 1 if type == "movie" else 2
+            items = [i for i in raw_trending if get_val(i, 'subjectType') == target_sub_type]
+        else:
+            # Search with keyword and page
+            search_query = target_keyword or genre_lower
+            # Forward to search_movies handler logic with page & per_page
+            res = await search_movies(query=search_query, type=type, page=page, per_page=per_page)
+            if isinstance(res, dict) and res.get('success'):
+                return res
+            elif isinstance(res, JSONResponse):
+                return res
+            items = []
+
+        formatted_results = []
+        seen_ids = set()
+        for item in items:
+            movie_id = str(get_val(item, 'subjectId', ''))
+            if not movie_id or movie_id in seen_ids: continue
+            seen_ids.add(movie_id)
+
+            poster_data = get_val(item, 'cover') or get_val(item, 'poster') or {}
+            poster_url = get_val(poster_data, 'url') if isinstance(poster_data, dict) else poster_data
+            if not poster_url or not isinstance(poster_url, str):
+                poster_url = get_val(item, 'poster') or get_val(item, 'thumbnail')
+
+            title_val = get_val(item, 'title') or get_val(item, 'name') or "Unknown Title"
+            detail_path = get_val(item, 'detailPath') or get_val(item, 'detail_path') or f"/detail/{make_slug(title_val)}?id={movie_id}"
+
+            formatted_results.append({
+                "id": movie_id,
+                "detailPath": detail_path,
+                "title": title_val,
+                "thumbnail": poster_url,
+                "year": str(get_val(item, 'releaseDate', 'N/A')).split('-')[0],
+                "rating": str(get_val(item, 'imdbRatingValue', '0.0')),
+                "description": get_val(item, 'description', 'No description available.'),
+                "mediaType": type
+            })
+
+            if len(formatted_results) >= per_page:
+                break
+
+        return {"success": True, "data": formatted_results}
+    except Exception as e:
+        print(f"Genre Fetch Error: {str(e)}")
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
@@ -2159,31 +2257,44 @@ async def get_trending_movies(type: str = "movie"):
             if val is not None: return val
             return default
 
-        # A. Try fetching homepage categories (for a wide range of movies/series in rows)
+        target_sub_type = 1 if type == "movie" else 2
+
+        # A. Try fetching Homepage operating categories (60+ rows including Nollywood, Action, Thrillers, Romance, Popular, etc.)
         try:
             from moviebox_api.v2.core import Homepage
             hp = Homepage(client_session)
             hp_res = await hp.get_content()
             operating_list = hp_res.get('operatingList', [])
             
-            target_sub_type = 1 if type == "movie" else 2
             formatted_categories = []
             
             for row in operating_list:
                 title = row.get('title') or row.get('name')
-                if not title or title.startswith("Banner_") or "hot tv" in title.lower():
+                if not title or title.startswith("Banner_") or "hot tv" in title.lower() or "football" in title.lower() or "categories" in title.lower():
                     continue
+                
+                # Clean up outdated past years in category titles (e.g. "2024 Popular Movies" -> "Popular Movies")
+                cleaned_title = re.sub(r'\b(201\d|202[0-5])\b', '', title).strip()
+                cleaned_title = re.sub(r'\s+', ' ', cleaned_title).strip()
+                if cleaned_title:
+                    title = cleaned_title
                     
                 subjects = row.get('subjects', []) or []
                 filtered_subjects = [s for s in subjects if get_val(s, 'subjectType') == target_sub_type]
                 
+                # If filtered subjects empty, but subjects exist and match general content, take up to 40
+                if not filtered_subjects and subjects:
+                    filtered_subjects = subjects
+                    
                 if not filtered_subjects:
                     continue
                     
                 formatted_items = []
+                seen_row_ids = set()
                 for item in filtered_subjects:
                     movie_id = str(get_val(item, 'subjectId', ''))
-                    if not movie_id: continue
+                    if not movie_id or movie_id in seen_row_ids: continue
+                    seen_row_ids.add(movie_id)
 
                     poster_data = get_val(item, 'cover') or get_val(item, 'poster') or {}
                     poster_url = get_val(poster_data, 'url') if isinstance(poster_data, dict) else poster_data
@@ -2193,35 +2304,37 @@ async def get_trending_movies(type: str = "movie"):
                     title_val = get_val(item, 'title') or get_val(item, 'name') or "Unknown Title"
                     detail_path = get_val(item, 'detailPath') or get_val(item, 'detail_path') or f"/detail/{make_slug(title_val)}?id={movie_id}"
 
+                    raw_rel = str(get_val(item, 'releaseDate', '') or '')
+                    year_val = raw_rel.split('-')[0] if raw_rel and raw_rel != 'N/A' else ''
+
                     formatted_items.append({
                         "id": movie_id,
                         "detailPath": detail_path,
                         "title": title_val,
                         "thumbnail": poster_url,
-                        "year": str(get_val(item, 'releaseDate', 'N/A')).split('-')[0],
+                        "year": year_val,
                         "rating": str(get_val(item, 'imdbRatingValue', '0.0')),
                         "description": get_val(item, 'description', 'No description available.'),
                         "mediaType": type
                     })
                 
-                if formatted_items:
+                # Only include rows that have at least 4 items for full rich display
+                if formatted_items and len(formatted_items) >= 4:
                     formatted_categories.append({
                         "category": title,
                         "items": formatted_items
                     })
             
-            if formatted_categories:
+            if formatted_categories and len(formatted_categories) >= 3:
                 return {"success": True, "isRows": True, "data": formatted_categories}
         except Exception as hp_exc:
-            print(f"Homepage rows fetch failed, falling back to flat Trending list: {hp_exc}")
+            print(f"Homepage rows fetch failed, falling back to Trending list: {hp_exc}")
 
-        # B. Fallback to flat Trending list
+        # B. Fallback to Trending list
         from moviebox_api.v1 import Trending
         tr = Trending(client_session)
         tr_res = await tr.get_content()
         raw_trending = tr_res.get('subjectList', []) or []
-        
-        target_sub_type = 1 if type == "movie" else 2
         items = [i for i in raw_trending if get_val(i, 'subjectType') == target_sub_type]
         
         formatted_results = []

@@ -356,7 +356,7 @@ async def delete_game_room(game_id: str, user: dict = Depends(get_current_user))
                         "timestamp": firestore.SERVER_TIMESTAMP
                     })
 
-        from websockets.game_sync import manager
+        from ws_sync.game_sync import manager
         if game_id in manager.active_connections:
             await manager.broadcast({
                 "type": "game_update", 
