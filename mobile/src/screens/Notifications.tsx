@@ -33,6 +33,41 @@ import {
   type AppNotification 
 } from '../lib/firebase';
 
+const AutoCarouselImage: React.FC<{
+  images: string[];
+}> = ({ images }) => {
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    if (images.length <= 1) return;
+    const timer = setInterval(() => {
+      setIndex(prev => (prev + 1) % images.length);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [images.length]);
+
+  const currentImg = images[index] || images[0];
+
+  return (
+    <View style={styles.imageContainer}>
+      <Image source={{ uri: currentImg }} style={styles.adImage} resizeMode="cover" />
+      {images.length > 1 && (
+        <View style={styles.carouselDotsContainer}>
+          {images.map((_, i) => (
+            <View 
+              key={i} 
+              style={[
+                styles.carouselDot, 
+                i === index && styles.carouselDotActive
+              ]} 
+            />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+};
+
 const Notifications: React.FC = () => {
   const { user } = useAuth();
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -109,10 +144,34 @@ const Notifications: React.FC = () => {
     }
   };
 
+  const handleItemPress = (item: AppNotification) => {
+    if (item.link) {
+      const url = item.link.startsWith('http') ? item.link : `https://${item.link}`;
+      import('react-native').then(({ Linking }) => {
+        Linking.openURL(url).catch(() => {});
+      });
+    }
+  };
+
   const renderItem = ({ item }: { item: AppNotification }) => {
     const iconData = getIconData(item);
+    
+    // Extract all carousel images
+    let images: string[] = [];
+    if (item.carouselSlides && item.carouselSlides.length > 0) {
+      images = item.carouselSlides.map(s => s.imageUrl).filter(Boolean);
+    } else if (item.imageUrls && item.imageUrls.length > 0) {
+      images = item.imageUrls.filter(Boolean);
+    } else if (item.imageUrl) {
+      images = [item.imageUrl];
+    }
+
     return (
-      <View style={[styles.notifCard, item.read && styles.notifRead]}>
+      <TouchableOpacity 
+        activeOpacity={item.link ? 0.7 : 1}
+        onPress={() => handleItemPress(item)}
+        style={[styles.notifCard, item.read && styles.notifRead]}
+      >
         <View style={[styles.iconBox, { backgroundColor: item.read ? 'rgba(255,255,255,0.05)' : iconData.bgColor }]}>
           {iconData.icon}
         </View>
@@ -121,7 +180,12 @@ const Notifications: React.FC = () => {
             <Text style={[styles.notifTitle, item.read && styles.textRead]}>{item.title}</Text>
             <Text style={styles.notifTime}>{new Date(item.timestamp).toLocaleDateString()}</Text>
           </View>
-          <Text style={[styles.notifMessage, item.read && styles.textRead]} numberOfLines={2}>{item.message}</Text>
+          <Text style={[styles.notifMessage, item.read && styles.textRead]} numberOfLines={3}>{item.message}</Text>
+          
+          {images.length > 0 && (
+            <AutoCarouselImage images={images} />
+          )}
+
           <View style={styles.notifActions}>
             {!item.read && (
               <TouchableOpacity onPress={() => handleMarkRead(item.id)} style={styles.actionBtn}>
@@ -135,7 +199,7 @@ const Notifications: React.FC = () => {
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -198,6 +262,11 @@ const styles = StyleSheet.create({
   notifActions: { flexDirection: 'row', gap: 15, marginTop: 5 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   actionText: { color: '#fb7185', fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase' },
+  imageContainer: { marginTop: 8, borderRadius: 12, overflow: 'hidden', height: 120, position: 'relative' },
+  adImage: { width: '100%', height: '100%' },
+  carouselDotsContainer: { position: 'absolute', bottom: 8, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 4 },
+  carouselDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.4)' },
+  carouselDotActive: { width: 14, backgroundColor: '#fb7185' },
   emptyState: { paddingVertical: 100, alignItems: 'center', gap: 15 },
   emptyText: { color: '#64748b', italic: true }
 });

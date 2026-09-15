@@ -100,9 +100,15 @@ export const CinemaContentManager: React.FC = () => {
 
   const handleDelete = async (coll: string, id: string) => {
     if (!window.confirm('Are you sure you want to delete this item?')) return;
+
+    // Optimistic state update (0ms perceived latency)
+    if (coll === 'cinema_carousel') setCarouselItems(prev => prev.filter(item => item.id !== id));
+    else if (coll === 'cinema_trailers') setTrailers(prev => prev.filter(item => item.id !== id));
+    else if (coll === 'cinema_upcoming') setUpcoming(prev => prev.filter(item => item.id !== id));
+    showSuccess('Item deleted successfully');
+
     try {
       await deleteDoc(doc(db, coll, id));
-      showSuccess('Item deleted successfully');
     } catch (err) {
       showError('Failed to delete item');
     }

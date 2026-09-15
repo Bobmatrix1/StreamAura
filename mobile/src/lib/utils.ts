@@ -1,14 +1,3 @@
-import { clsx, type ClassValue } from "clsx"
-import { twMerge } from "tailwind-merge"
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
-}
-
-/**
- * Extracts and formats the user's first name for greetings.
- * Handles display name (taking first name) or email prefix, with proper title casing.
- */
 export function getGreetingName(displayName?: string | null, email?: string | null): string {
   if (displayName && displayName.trim()) {
     const first = displayName.trim().split(/\s+/)[0].replace(/[^a-zA-Z0-9'-]/g, '');
@@ -24,4 +13,3 @@ export function getGreetingName(displayName?: string | null, email?: string | nu
   }
   return 'there';
 }
-

@@ -285,3 +285,89 @@ export interface Order {
   telegramChatId?: string | number;
   createdAt: number;
 }
+
+// Advertisement & Marketing Campaign Types
+export type AdType = 'flyer' | 'popup' | 'banner' | 'carousel';
+export type AdFrequency = 'always' | 'once_per_session' | 'once_per_day' | 'x_per_day' | 'x_per_week' | 'once_ever';
+export type AdInteractionSource = 'flyer' | 'popup' | 'banner' | 'carousel' | 'notification';
+export type AdDismissMethod = 'close_button' | 'backdrop_tap' | 'esc_key' | 'auto_timer';
+
+export interface CarouselSlideConfig {
+  id?: string;
+  imageUrl: string;
+  destinationType?: 'external' | 'in_app' | 'none';
+  targetUrl?: string; // external URL or fallback
+  inAppPage?: string; // e.g. 'cinema', 'games', 'wallet', 'vendor', etc.
+  buttonText?: string; // custom CTA for this slide
+  title?: string;
+}
+
+export interface AdCampaign {
+  id: string;
+  title: string;
+  type: AdType; // 'flyer' (OPay App Launch Splash) | 'popup' (Targeted In-App Modal) | 'banner' (sticky banner) | 'carousel' (moving carousel slide)
+  imageUrl: string;
+  imageUrls?: string[]; // Multiple images for carousel slider
+  carouselSlides?: CarouselSlideConfig[]; // Rich multi-slide configurations with per-slide links
+  destinationType?: 'external' | 'in_app' | 'none';
+  targetUrl?: string; // link to open when clicked
+  targetPages: string[]; // ['all'] or ['home', 'video', etc.]
+  active: boolean;
+  
+  // Frequency & Capping
+  frequency: AdFrequency; // 'always' | 'once_per_session' | 'once_per_day' | 'x_per_day' | 'x_per_week' | 'once_ever'
+  maxPerDay?: number; // e.g. 2 times a day
+  maxPerWeek?: number; // e.g. 5 times a week
+  
+  // Timing & Scheduling
+  startDate?: number; // timestamp
+  endDate?: number; // timestamp
+  displayDelaySeconds?: number; // delay before showing popup in seconds
+  autoCloseSeconds?: number; // auto close countdown (0 = manual only)
+  
+  // Styling / Presentation
+  aspectRatio?: 'flyer' | 'square' | 'wide'; // 'flyer' (3:4 - OPay poster style), 'square' (1:1), 'wide' (16:9)
+  roundedCorners?: 'full' | 'xl' | '2xl' | '3xl';
+  bannerPosition?: 'top' | 'bottom'; // for banner
+  buttonText?: string; // e.g. "Claim Offer", "Open Now"
+  description?: string;
+  
+  // Performance Metrics & Tracking
+  impressions: number;
+  clicks: number;
+  closes?: number; // Total times ad was closed/dismissed
+  
+  // Source Attribution Breakdown
+  clicksBySource?: {
+    flyer?: number;
+    popup?: number;
+    banner?: number;
+    carousel?: number;
+    notification?: number;
+  };
+  impressionsBySource?: {
+    flyer?: number;
+    popup?: number;
+    banner?: number;
+    carousel?: number;
+    notification?: number;
+  };
+  closesByMethod?: {
+    close_button?: number;
+    backdrop_tap?: number;
+    esc_key?: number;
+    auto_timer?: number;
+  };
+
+  createdAt: number;
+  updatedAt?: number;
+}
+
+export interface AdTelemetryDelta {
+  impressions?: number;
+  clicks?: number;
+  closes?: number;
+  clicksBySource?: Partial<Record<AdInteractionSource, number>>;
+  impressionsBySource?: Partial<Record<AdInteractionSource, number>>;
+  closesByMethod?: Partial<Record<AdDismissMethod, number>>;
+}

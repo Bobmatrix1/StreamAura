@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Mail, Lock, Eye, EyeOff, ArrowRight, User } from 'lucide-react-native';
 import { useAuth } from '../contexts/AuthContext';
+import { getGreetingName } from '../lib/utils';
 
 interface SignupProps {
   onToggleView: () => void;
@@ -60,6 +61,8 @@ const Signup: React.FC<SignupProps> = ({ onToggleView }) => {
     setIsSubmitting(true);
     try {
       await signUp(email, password, displayName);
+      const name = getGreetingName(displayName, email);
+      Alert.alert('Welcome to StreamAura', `${name}, welcome to StreamAura! We are glad to have you on board 😊`);
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to create account');
     } finally {

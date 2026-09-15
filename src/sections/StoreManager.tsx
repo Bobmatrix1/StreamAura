@@ -54,7 +54,6 @@ export const StoreManager: React.FC = () => {
     name: '',
     image: ''
   });
-  const [isDeleting, setIsDeleting] = useState(false);
 
   // Form States
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
@@ -171,26 +170,35 @@ export const StoreManager: React.FC = () => {
 
   const handleConfirmDelete = async () => {
     if (!deleteModal.id) return;
-    setIsDeleting(true);
-    const toastId = toast.loading(`Deleting ${deleteModal.type}...`);
+    const { id, type, name, image } = deleteModal;
+
+    // 1. Close modal and optimistically remove item immediately (0ms lag)
+    setDeleteModal({ isOpen: false, type: 'product', id: '', name: '', image: '' });
+
+    if (type === 'vendor') {
+      setVendors(prev => prev.filter(v => v.id !== id));
+      toast.success(`Vendor "${name}" deleted`);
+    } else if (type === 'product') {
+      setProducts(prev => prev.filter(p => p.id !== id));
+      toast.success(`Product "${name}" deleted`);
+    } else if (type === 'partner') {
+      setPartners(prev => prev.filter(p => p.id !== id));
+      toast.success(`Partner "${name}" removed`);
+    }
+
+    // 2. Perform backend/database deletion
     try {
-      if (deleteModal.type === 'vendor') {
-        await deleteVendor(deleteModal.id);
-        toast.success(`Vendor "${deleteModal.name}" deleted`, { id: toastId });
-      } else if (deleteModal.type === 'product') {
-        await deleteProduct(deleteModal.id, deleteModal.image);
-        toast.success(`Product "${deleteModal.name}" deleted from database and Cloudflare`, { id: toastId });
-      } else if (deleteModal.type === 'partner') {
-        await deletePartner(deleteModal.id, deleteModal.image);
-        toast.success(`Partner "${deleteModal.name}" removed`, { id: toastId });
+      if (type === 'vendor') {
+        await deleteVendor(id);
+      } else if (type === 'product') {
+        await deleteProduct(id, image);
+      } else if (type === 'partner') {
+        await deletePartner(id, image);
       }
-      setDeleteModal({ isOpen: false, type: 'product', id: '', name: '', image: '' });
-      fetchData();
     } catch (err: any) {
       console.error('Delete error:', err);
-      toast.error(err?.message || 'Delete failed', { id: toastId });
-    } finally {
-      setIsDeleting(false);
+      toast.error(err?.message || 'Delete failed');
+      fetchData(); // Rollback / sync state on failure
     }
   };
 
@@ -567,7 +575,7 @@ export const StoreManager: React.FC = () => {
         {deleteModal.isOpen && (
           <div 
             className="fixed inset-0 bg-black/80 backdrop-blur-md z-[1000] flex items-center justify-center p-4"
-            onClick={() => !isDeleting && setDeleteModal(prev => ({ ...prev, isOpen: false }))}
+            onClick={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
           >
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
@@ -595,7 +603,6 @@ export const StoreManager: React.FC = () => {
                 <Button 
                   type="button" 
                   variant="outline" 
-                  disabled={isDeleting}
                   className="flex-1 h-10 sm:h-11 rounded-xl text-[10px] sm:text-xs font-black uppercase"
                   onClick={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
                 >
@@ -603,11 +610,10 @@ export const StoreManager: React.FC = () => {
                 </Button>
                 <Button 
                   type="button" 
-                  disabled={isDeleting}
                   onClick={handleConfirmDelete}
                   className="flex-1 h-10 sm:h-11 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider bg-red-600 hover:bg-red-700 text-white font-black"
                 >
-                  {isDeleting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Delete'}
+                  Delete
                 </Button>
               </div>
             </motion.div>

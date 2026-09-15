@@ -237,6 +237,26 @@ service cloud.firestore {
       allow create, delete: if isAdmin();
     }
 
+    // =================================================================
+    // === ADS & FLYER CAMPAIGNS =======================================
+    // =================================================================
+
+    match /ads/{adId} {
+      allow read, list: if true;
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'impressions', 
+          'clicks', 
+          'closes', 
+          'impressionsBySource', 
+          'clicksBySource', 
+          'closesByMethod', 
+          'updatedAt'
+        ])
+      );
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

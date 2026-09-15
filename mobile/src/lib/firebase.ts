@@ -168,8 +168,28 @@ export const saveDownloadHistory = async (userId: string, userEmail: string | nu
 
 export const listenToNotifications = (userId: string, callback: (notifs: any[]) => void) => {
   return onSnapshot(query(collection(db, 'users', userId, 'notifications'), limit(50)), (snapshot) => {
-    const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    callback(notifs);
+    const now = Date.now();
+    const rawNotifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const expiredIds: string[] = [];
+    const validNotifs: any[] = [];
+
+    for (const n of rawNotifs as any[]) {
+      if ((n.adId || n.type === 'ad' || n.type === 'promo') && n.endDate && n.endDate <= now) {
+        expiredIds.push(n.id);
+      } else {
+        validNotifs.push(n);
+      }
+    }
+
+    if (expiredIds.length > 0) {
+      const batch = writeBatch(db);
+      expiredIds.forEach(nId => {
+        batch.delete(doc(db, 'users', userId, 'notifications', nId));
+      });
+      batch.commit().catch(() => {});
+    }
+
+    callback(validNotifs);
   });
 };
 

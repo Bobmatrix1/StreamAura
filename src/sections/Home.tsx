@@ -9,17 +9,11 @@ import {
   Share2, 
   Play, 
   ArrowRight, 
-  Music,
-  Film,
-  Award,
-  Lock,
-  ChevronRight,
-  ExternalLink,
-  Facebook,
-  Twitter,
-  Instagram,
-  Youtube,
-  Gamepad2
+  Music, 
+  Film, 
+  Award, 
+  Gamepad2,
+  ChevronRight
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -28,6 +22,7 @@ import { useAuth } from '../contexts/AuthContext';
 import type { ViewType } from '../types';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import Footer from '../components/Footer';
 
 interface HomeProps {
   onNavigate: (view: ViewType) => void;
@@ -395,65 +390,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       </section>
 
       {/* Footer */}
-      <footer className="max-w-7xl mx-auto px-4 pt-12 border-t border-white/5 text-white">
-         <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-16">
-            <div className="col-span-1 md:col-span-1 space-y-6">
-               <div className="flex items-center gap-3">
-                  <img src="/logo.png" className="w-8 h-8" alt="Logo" />
-                  <span className="text-xl font-black uppercase tracking-tighter gradient-text">StreamAura</span>
-               </div>
-               <p className="text-xs text-muted-foreground font-medium leading-relaxed">
-                  The ultimate media powerhouse for downloading, extracting, and watching together in luxury.
-               </p>
-               <div className="flex gap-4">
-                  <button className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center border border-white/10 hover:bg-primary/20 transition-all text-white"><Twitter className="w-4 h-4" /></button>
-                  <button className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center border border-white/10 hover:bg-primary/20 transition-all text-white"><Facebook className="w-4 h-4" /></button>
-                  <button className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center border border-white/10 hover:bg-primary/20 transition-all text-white"><Instagram className="w-4 h-4" /></button>
-                  <button className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center border border-white/10 hover:bg-primary/20 transition-all text-white"><Youtube className="w-4 h-4" /></button>
-               </div>
-            </div>
-
-            <div className="space-y-6">
-               <h4 className="text-[10px] font-black uppercase tracking-widest text-white">Features</h4>
-               <ul className="space-y-3 text-xs font-bold text-muted-foreground">
-                  <li><button onClick={() => onNavigate('video')} className="hover:text-primary transition-colors text-left">Video Downloader</button></li>
-                  <li><button onClick={() => onNavigate('music')} className="hover:text-primary transition-colors text-left">Audio Extractor</button></li>
-                  <li><button onClick={() => onNavigate('cinema')} className="hover:text-primary transition-colors text-left">Virtual Cinema</button></li>
-                  <li><button onClick={() => onNavigate('bulk')} className="hover:text-primary transition-colors text-left">Bulk Tools</button></li>
-               </ul>
-            </div>
-
-            <div className="space-y-6">
-               <h4 className="text-[10px] font-black uppercase tracking-widest text-white">Support</h4>
-               <ul className="space-y-3 text-xs font-bold text-muted-foreground">
-                  <li><button onClick={() => onNavigate('about')} className="hover:text-primary transition-colors text-left">About Us</button></li>
-                  <li><button onClick={() => onNavigate('contact')} className="hover:text-primary transition-colors text-left">Contact Support</button></li>
-                  <li><button onClick={() => onNavigate('privacy')} className="hover:text-primary transition-colors text-left">Privacy Policy</button></li>
-                  <li><button onClick={() => onNavigate('cookies')} className="hover:text-primary transition-colors text-left">Cookie Policy</button></li>
-                  <li><button onClick={() => onNavigate('terms')} className="hover:text-primary transition-colors flex items-center gap-2 text-left">Terms of Use <ExternalLink className="w-3 h-3" /></button></li>
-               </ul>
-            </div>
-
-            <div className="space-y-6">
-               <h4 className="text-[10px] font-black uppercase tracking-widest text-white">Newsletter</h4>
-               <p className="text-xs text-muted-foreground font-medium">Get the latest updates and movie room releases.</p>
-               <div className="relative">
-                  <input type="email" placeholder="Email Address" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-xs outline-none focus:border-primary/50 text-white" />
-                  <button className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-primary hover:bg-primary/80 transition-colors">
-                     <ChevronRight className="w-4 h-4 text-white" />
-                  </button>
-               </div>
-            </div>
-         </div>
-         
-         <div className="py-8 border-t border-white/5 flex flex-col md:flex-row items-center justify-between gap-4 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">
-            <p>© 2026 StreamAura Media Group. All rights reserved.</p>
-            <div className="flex gap-8">
-               <span className="flex items-center gap-2"><Lock className="w-3 h-3 text-emerald-500" /> Secure SSL</span>
-               <span className="flex items-center gap-2"><Globe className="w-3 h-3 text-blue-500" /> Server Global</span>
-            </div>
-         </div>
-      </footer>
+      <Footer onNavigate={onNavigate} />
     </div>
   );
 };

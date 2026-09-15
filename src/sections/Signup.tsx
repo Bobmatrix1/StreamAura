@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { getGreetingName } from '../lib/utils';
 
 interface SignupProps {
   onToggleView: () => void;
@@ -84,7 +85,8 @@ const Signup: React.FC<SignupProps> = ({ onToggleView, isModal, onBack }) => {
     
     try {
       await signUp(email, password, displayName);
-      showSuccess('Account created successfully!');
+      const name = getGreetingName(displayName, email);
+      showSuccess(`${name}, welcome to StreamAura! We are glad to have you on board 😊`);
     } catch (err: any) {
       showError(err.message || 'Failed to create account');
     } finally {
@@ -96,8 +98,15 @@ const Signup: React.FC<SignupProps> = ({ onToggleView, isModal, onBack }) => {
     setIsSubmitting(true);
     
     try {
-      await signInGoogle();
-      showSuccess('Account created successfully!');
+      const result = await signInGoogle();
+      if (result?.user) {
+        const name = getGreetingName(result.user.displayName, result.user.email);
+        if (result.isNewUser) {
+          showSuccess(`${name}, welcome to StreamAura! We are glad to have you on board 😊`);
+        } else {
+          showSuccess(`Welcome back, ${name}!`);
+        }
+      }
     } catch (err: any) {
       showError(err.message || 'Failed to sign up with Google');
     } finally {

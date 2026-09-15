@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { getGreetingName } from '../lib/utils';
 
 interface LoginProps {
   onToggleView: () => void;
@@ -71,8 +72,9 @@ const Login: React.FC<LoginProps> = ({ onToggleView, isModal, onBack }) => {
     setIsSubmitting(true);
     
     try {
-      await signIn(email, password);
-      showSuccess('Welcome back!');
+      const loggedInUser = await signIn(email, password);
+      const name = getGreetingName(loggedInUser?.displayName, email);
+      showSuccess(`Welcome back, ${name}!`);
     } catch (err: any) {
       showError(err.message || 'Invalid email or password');
     } finally {
@@ -83,8 +85,15 @@ const Login: React.FC<LoginProps> = ({ onToggleView, isModal, onBack }) => {
   const handleGoogleSignIn = async () => {
     setIsSubmitting(true);
     try {
-      await signInGoogle();
-      showSuccess('Welcome back!');
+      const result = await signInGoogle();
+      if (result?.user) {
+        const name = getGreetingName(result.user.displayName, result.user.email);
+        if (result.isNewUser) {
+          showSuccess(`${name}, welcome to StreamAura! We are glad to have you on board 😊`);
+        } else {
+          showSuccess(`Welcome back, ${name}!`);
+        }
+      }
     } catch (err: any) {
       showError(err.message || 'Failed to sign in with Google');
     } finally {

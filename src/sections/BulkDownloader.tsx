@@ -817,6 +817,7 @@ const BulkDownloader: React.FC = () => {
                         <img 
                           src={item.info.thumbnail} 
                           alt="Thumbnail" 
+                          referrerPolicy="no-referrer"
                           className="w-full h-full object-cover"
                           onError={(e) => {
                             // Fallback to platform icon on broken images

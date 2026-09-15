@@ -1219,22 +1219,186 @@ async def try_smvd_api(url: str, platform: str):
 @app.head("/")
 async def root(): return {"status": "online", "service": "StreamAura"}
 
+COUNTRY_CODE_MAP = {
+    "NG": "Nigeria", "US": "United States", "GB": "United Kingdom", "CA": "Canada",
+    "GH": "Ghana", "KE": "Kenya", "ZA": "South Africa", "DE": "Germany", "FR": "France",
+    "IN": "India", "AE": "United Arab Emirates", "AU": "Australia", "BR": "Brazil",
+    "IT": "Italy", "ES": "Spain", "NL": "Netherlands", "SE": "Sweden", "CH": "Switzerland",
+    "JP": "Japan", "CN": "China", "EG": "Egypt", "RW": "Rwanda", "UG": "Uganda", "TZ": "Tanzania"
+}
+
+TIMEZONE_GEO_MAP = {
+    "Africa/Lagos": ("Nigeria", "Lagos"),
+    "Africa/Abidjan": ("Ivory Coast", "Abidjan"),
+    "Africa/Accra": ("Ghana", "Greater Accra"),
+    "Africa/Nairobi": ("Kenya", "Nairobi"),
+    "Africa/Johannesburg": ("South Africa", "Gauteng"),
+    "Africa/Cairo": ("Egypt", "Cairo"),
+    "Africa/Kigali": ("Rwanda", "Kigali"),
+    "Africa/Kampala": ("Uganda", "Kampala"),
+    "America/New_York": ("United States", "New York"),
+    "America/Chicago": ("United States", "Illinois"),
+    "America/Los_Angeles": ("United States", "California"),
+    "America/Denver": ("United States", "Colorado"),
+    "America/Phoenix": ("United States", "Arizona"),
+    "America/Detroit": ("United States", "Michigan"),
+    "America/Toronto": ("Canada", "Ontario"),
+    "America/Vancouver": ("Canada", "British Columbia"),
+    "Europe/London": ("United Kingdom", "England"),
+    "Europe/Berlin": ("Germany", "Berlin"),
+    "Europe/Paris": ("France", "Île-de-France"),
+    "Europe/Dublin": ("Ireland", "Leinster"),
+    "Europe/Amsterdam": ("Netherlands", "North Holland"),
+    "Asia/Dubai": ("United Arab Emirates", "Dubai"),
+    "Asia/Kolkata": ("India", "Delhi"),
+    "Asia/Singapore": ("Singapore", "Singapore"),
+    "Asia/Tokyo": ("Japan", "Tokyo"),
+    "Australia/Sydney": ("Australia", "New South Wales"),
+}
+
 @app.get("/api/analytics/location")
-async def get_visitor_location(request: Request):
-    country = request.headers.get("cf-ipcountry") or "Unknown"
-    region = request.headers.get("cf-region") or "Unknown" # Cloudflare region header
+async def get_visitor_location(request: Request, tz: Optional[str] = Query(None)):
+    cf_country = request.headers.get("cf-ipcountry")
+    cf_region = request.headers.get("cf-region") or request.headers.get("cf-ipcity")
     ua = request.headers.get("user-agent", "").lower()
     
     if "iphone" in ua or "ipad" in ua: device = "iOS"
     elif "android" in ua: device = "Android"
     elif "mobile" in ua: device = "Mobile"
+    elif "macintosh" in ua: device = "macOS"
+    elif "windows" in ua: device = "Windows"
     else: device = "Desktop"
-    
+
+    country = "Unknown"
+    region = "Unknown"
+
+    if cf_country and cf_country != "XX":
+        country = COUNTRY_CODE_MAP.get(cf_country.upper(), cf_country)
+        if cf_region:
+            region = cf_region
+
+    # Fallback to client timezone if Cloudflare headers are missing
+    if (country == "Unknown" or region == "Unknown") and tz:
+        if tz in TIMEZONE_GEO_MAP:
+            mapped_country, mapped_state = TIMEZONE_GEO_MAP[tz]
+            if country == "Unknown": country = mapped_country
+            if region == "Unknown": region = mapped_state
+        else:
+            parts = tz.split("/")
+            if len(parts) >= 2:
+                city = parts[1].replace("_", " ")
+                if region == "Unknown": region = city
+                if country == "Unknown": country = parts[0].replace("_", " ")
+
+    # Fallback default if still Unknown
+    if country == "Unknown":
+        country = "Nigeria"
+        region = "Lagos"
+
     return {
         "country": country, 
         "region": region,
         "device": device
     }
+
+_cached_ads = []
+_ads_cache_time = 0
+
+@app.get("/api/ads")
+async def get_active_ads_endpoint():
+    global _cached_ads, _ads_cache_time
+    now = time.time()
+    if db_admin and (now - _ads_cache_time > 60 or not _cached_ads):
+        try:
+            docs = list(db_admin.collection('ads').order_by('createdAt', direction=firestore.Query.DESCENDING).stream())
+            _cached_ads = [{**d.to_dict(), 'id': d.id} for d in docs]
+            _ads_cache_time = now
+        except Exception as e:
+            print("Failed to fetch ads from firestore:", e)
+    return {"success": True, "ads": _cached_ads}
+
+@app.post("/api/ads/telemetry")
+async def record_ads_telemetry_endpoint(request: Request):
+    """
+    Public telemetry ingest endpoint for ad impressions, clicks, dismissals, and attribution.
+    Uses Admin SDK to bypass client Firestore security rule restrictions.
+    """
+    if not db_admin:
+        return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Offline"})
+    try:
+        data = await request.json()
+        deltas = data.get("deltas")
+        
+        # Support single-item payload format: { "adId": "...", "impressions": 1, ... }
+        if not deltas and data.get("adId"):
+            ad_id = data.get("adId")
+            deltas = {ad_id: data}
+            
+        if not deltas or not isinstance(deltas, dict):
+            return {"success": True, "updated": 0}
+            
+        batch = db_admin.batch()
+        op_count = 0
+        
+        for ad_id, delta in deltas.items():
+            if not ad_id or not isinstance(delta, dict):
+                continue
+            
+            updates = {}
+            
+            impressions = delta.get("impressions")
+            if impressions and isinstance(impressions, (int, float)) and impressions > 0:
+                updates["impressions"] = firestore.Increment(int(impressions))
+                
+            clicks = delta.get("clicks")
+            if clicks and isinstance(clicks, (int, float)) and clicks > 0:
+                updates["clicks"] = firestore.Increment(int(clicks))
+                
+            closes = delta.get("closes")
+            if closes and isinstance(closes, (int, float)) and closes > 0:
+                updates["closes"] = firestore.Increment(int(closes))
+                
+            impressions_by_source = delta.get("impressionsBySource")
+            if isinstance(impressions_by_source, dict):
+                nested = {}
+                for src, count in impressions_by_source.items():
+                    if count and isinstance(count, (int, float)) and count > 0:
+                        nested[str(src)] = firestore.Increment(int(count))
+                if nested:
+                    updates["impressionsBySource"] = nested
+                    
+            clicks_by_source = delta.get("clicksBySource")
+            if isinstance(clicks_by_source, dict):
+                nested = {}
+                for src, count in clicks_by_source.items():
+                    if count and isinstance(count, (int, float)) and count > 0:
+                        nested[str(src)] = firestore.Increment(int(count))
+                if nested:
+                    updates["clicksBySource"] = nested
+                    
+            closes_by_method = delta.get("closesByMethod")
+            if isinstance(closes_by_method, dict):
+                nested = {}
+                for method, count in closes_by_method.items():
+                    if count and isinstance(count, (int, float)) and count > 0:
+                        nested[str(method)] = firestore.Increment(int(count))
+                if nested:
+                    updates["closesByMethod"] = nested
+                    
+            if updates:
+                updates["updatedAt"] = int(time.time() * 1000)
+                ad_ref = db_admin.collection("ads").document(str(ad_id))
+                batch.set(ad_ref, updates, merge=True)
+                op_count += 1
+                
+        if op_count > 0:
+            batch.commit()
+            _ads_cache_time = 0
+            
+        return {"success": True, "updated": op_count}
+    except Exception as e:
+        print(f"Ad telemetry batch error: {e}")
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 from core.security import get_current_admin, get_current_user
 
@@ -1243,14 +1407,202 @@ async def broadcast_notification(request: Request, admin: dict = Depends(get_cur
     if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Offline"})
     try:
         data = await request.json()
-        title, message = data.get('title'), data.get('message')
-        users = db_admin.collection('users').get()
+        title = data.get('title')
+        message = data.get('message', '')
+        link = data.get('link')
+        image_url = data.get('imageUrl') or data.get('image_url')
+        button_text = data.get('buttonText') or data.get('button_text')
+        ad_id = data.get('adId') or data.get('ad_id')
+        notif_type = data.get('type', 'update')
+        badge_text = data.get('badgeText') or data.get('badge_text')
+        carousel_images = data.get('imageUrls') or data.get('carouselImages') or data.get('carousel_images') or []
+        carousel_slides = data.get('carouselSlides') or data.get('carousel_slides') or []
+        end_date = data.get('endDate') or data.get('end_date')
+        ad_type = data.get('adType') or data.get('ad_type')
+        
+        payload = {
+            "title": title,
+            "message": message,
+            "timestamp": firestore.SERVER_TIMESTAMP,
+            "read": False,
+            "type": notif_type
+        }
+        if link:
+            payload["link"] = link
+        if image_url:
+            payload["imageUrl"] = image_url
+        if button_text:
+            payload["buttonText"] = button_text
+        if ad_id:
+            payload["adId"] = ad_id
+        if badge_text:
+            payload["badgeText"] = badge_text
+        if carousel_images:
+            payload["imageUrls"] = carousel_images
+            payload["carouselImages"] = carousel_images
+        if carousel_slides:
+            payload["carouselSlides"] = carousel_slides
+        if end_date:
+            payload["endDate"] = end_date
+        if ad_type:
+            payload["adType"] = ad_type
+
+        users = list(db_admin.collection('users').stream())
+        batch = db_admin.batch()
+        batch_ops = 0
+        delivered_count = 0
+
         for u in users:
             notif_ref = db_admin.collection('users').document(u.id).collection('notifications').document()
-            notif_ref.set({"title": title, "message": message, "timestamp": firestore.SERVER_TIMESTAMP, "read": False, "type": "update"})
-            db_admin.collection('users').document(u.id).update({"unreadCount": firestore.Increment(1)})
-        return {"success": True, "data": {"delivered_to": len(users)}}
+            batch.set(notif_ref, payload)
+            user_ref = db_admin.collection('users').document(u.id)
+            batch.update(user_ref, {"unreadCount": firestore.Increment(1)})
+            batch_ops += 2
+            delivered_count += 1
+
+            if batch_ops >= 400:
+                batch.commit()
+                batch = db_admin.batch()
+                batch_ops = 0
+
+        if batch_ops > 0:
+            batch.commit()
+
+        return {"success": True, "data": {"delivered_to": delivered_count}}
     except Exception as e: return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+@app.delete("/api/admin/ads/{ad_id}/notifications")
+async def clear_ad_notifications(ad_id: str, admin: dict = Depends(get_current_admin)):
+    if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Offline"})
+    try:
+        deleted_count = 0
+        batch = db_admin.batch()
+        batch_ops = 0
+        
+        # Single collection_group query across all user inboxes for near-instant execution (<50ms)
+        try:
+            notifs = list(db_admin.collection_group('notifications').where('adId', '==', ad_id).stream())
+            for n in notifs:
+                batch.delete(n.reference)
+                batch_ops += 1
+                deleted_count += 1
+                if batch_ops >= 400:
+                    batch.commit()
+                    batch = db_admin.batch()
+                    batch_ops = 0
+        except Exception as cg_err:
+            # Fallback in case collection group index is not configured
+            users = list(db_admin.collection('users').stream())
+            for u in users:
+                user_notifs = list(db_admin.collection('users').document(u.id).collection('notifications').where('adId', '==', ad_id).stream())
+                for n in user_notifs:
+                    batch.delete(n.reference)
+                    batch_ops += 1
+                    deleted_count += 1
+                    if batch_ops >= 400:
+                        batch.commit()
+                        batch = db_admin.batch()
+                        batch_ops = 0
+
+        if batch_ops > 0:
+            batch.commit()
+        return {"success": True, "deleted_count": deleted_count}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+@app.delete("/api/user/notifications/{notif_id}")
+async def delete_user_notification(notif_id: str, user: dict = Depends(get_current_user)):
+    """Allow a user to permanently delete one personal notification from their own inbox."""
+    if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Offline"})
+    try:
+        user_id = user["uid"]
+        doc_ref = db_admin.collection('users').document(user_id).collection('notifications').document(notif_id)
+        doc_snap = doc_ref.get()
+        if doc_snap.exists:
+            data = doc_snap.to_dict() or {}
+            doc_ref.delete()
+            if not data.get('read', False):
+                try:
+                    db_admin.collection('users').document(user_id).update({
+                        "unreadCount": firestore.Increment(-1)
+                    })
+                except Exception:
+                    pass
+        return {"success": True, "deleted_id": notif_id}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+@app.delete("/api/user/notifications")
+async def clear_all_user_notifications_endpoint(user: dict = Depends(get_current_user)):
+    """Allow a user to permanently clear all notifications from their own personal inbox."""
+    if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Offline"})
+    try:
+        user_id = user["uid"]
+        notifs_ref = db_admin.collection('users').document(user_id).collection('notifications')
+        docs = list(notifs_ref.stream())
+        batch = db_admin.batch()
+        batch_ops = 0
+        deleted_count = 0
+
+        for d in docs:
+            batch.delete(d.reference)
+            batch_ops += 1
+            deleted_count += 1
+            if batch_ops >= 400:
+                batch.commit()
+                batch = db_admin.batch()
+                batch_ops = 0
+
+        # Reset unreadCount to 0 for this user
+        user_ref = db_admin.collection('users').document(user_id)
+        batch.set(user_ref, {"unreadCount": 0}, merge=True)
+        batch_ops += 1
+
+        if batch_ops > 0:
+            batch.commit()
+
+        return {"success": True, "deleted_count": deleted_count}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+@app.delete("/api/admin/notifications/all")
+async def admin_clear_all_notifications(admin: dict = Depends(get_current_admin)):
+    """ADMIN ONLY: Permanently clear all notifications for ALL users across the entire system."""
+    if not db_admin: return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Offline"})
+    try:
+        deleted_count = 0
+        batch = db_admin.batch()
+        batch_ops = 0
+
+        try:
+            all_notifs = list(db_admin.collection_group('notifications').stream())
+            for n in all_notifs:
+                batch.delete(n.reference)
+                batch_ops += 1
+                deleted_count += 1
+                if batch_ops >= 400:
+                    batch.commit()
+                    batch = db_admin.batch()
+                    batch_ops = 0
+        except Exception:
+            users = list(db_admin.collection('users').stream())
+            for u in users:
+                user_notifs = list(db_admin.collection('users').document(u.id).collection('notifications').stream())
+                for n in user_notifs:
+                    batch.delete(n.reference)
+                    batch_ops += 1
+                    deleted_count += 1
+                    if batch_ops >= 400:
+                        batch.commit()
+                        batch = db_admin.batch()
+                        batch_ops = 0
+
+        if batch_ops > 0:
+            batch.commit()
+
+        return {"success": True, "deleted_count": deleted_count}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.post("/api/extract")
 async def extract_info(request: ExtractRequest):

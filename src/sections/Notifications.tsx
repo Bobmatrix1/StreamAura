@@ -23,22 +23,210 @@ import {
   XCircle,
   Star,
   Loader2,
-  ChefHat
+  ChefHat,
+  ExternalLink,
+  Megaphone
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { 
   listenToNotifications, 
+  listenToAds,
   markAsRead, 
   markAllAsRead,
   clearNotification, 
   clearAllUserNotifications,
+  adminClearAllGlobalNotifications,
   updatePreOrderStatus,
   rateVendorOrder,
   type AppNotification 
 } from '../lib/firebase';
+import type { AdCampaign } from '../types';
+import { recordAdClickLocally } from '../lib/adFrequency';
 import { toast } from 'sonner';
 
 import { LoginRequired } from '../components/LoginRequired';
+
+const NotificationCarousel: React.FC<{
+  notif: AppNotification;
+  adCampaign?: AdCampaign;
+  onNotificationClick: (notif: AppNotification, customLink?: string) => void;
+}> = ({ notif, adCampaign, onNotificationClick }) => {
+  const slides = React.useMemo(() => {
+    // 1. Structured carousel slides from notification or live ad campaign
+    let rawSlides: any = notif.carouselSlides || adCampaign?.carouselSlides;
+    if (typeof rawSlides === 'string') {
+      try { rawSlides = JSON.parse(rawSlides); } catch (e) {}
+    }
+    if (Array.isArray(rawSlides) && rawSlides.length > 0) {
+      return rawSlides.map((s: any, idx: number) => ({
+        imageUrl: typeof s === 'string' ? s : (s.imageUrl || s.url || s.image || ''),
+        title: (typeof s === 'object' && s.title) ? s.title : (notif.title || adCampaign?.title),
+        buttonText: (typeof s === 'object' && s.buttonText) ? s.buttonText : (notif.buttonText || adCampaign?.buttonText || 'Open Offer'),
+        link: (typeof s === 'object' && s.destinationType === 'in_app') ? (s.inAppPage || s.targetUrl) : (typeof s === 'object' ? (s.targetUrl || notif.link || adCampaign?.targetUrl) : (notif.link || adCampaign?.targetUrl)),
+        key: `slide_${idx}`
+      })).filter(s => s.imageUrl);
+    }
+
+    // 2. Image URLs array from notification or live ad campaign
+    let rawImgs: any = notif.imageUrls || adCampaign?.imageUrls || (notif as any).carouselImages || (notif as any).images;
+    if (typeof rawImgs === 'string') {
+      try { rawImgs = JSON.parse(rawImgs); } catch (e) {
+        if (rawImgs.includes(',')) rawImgs = rawImgs.split(',').map((s: string) => s.trim());
+      }
+    }
+    if (Array.isArray(rawImgs) && rawImgs.length > 0) {
+      return rawImgs.map((url: any, idx: number) => ({
+        imageUrl: typeof url === 'string' ? url : (url.imageUrl || url.url || url.image || ''),
+        title: notif.title || adCampaign?.title,
+        buttonText: notif.buttonText || adCampaign?.buttonText || 'Open Offer',
+        link: notif.link || adCampaign?.targetUrl,
+        key: `slide_${idx}`
+      })).filter(s => s.imageUrl);
+    }
+
+    // 3. Single image fallback
+    const singleImg = notif.imageUrl || adCampaign?.imageUrl;
+    if (singleImg) {
+      return [{
+        imageUrl: singleImg,
+        title: notif.title || adCampaign?.title,
+        buttonText: notif.buttonText || adCampaign?.buttonText || 'Open Offer',
+        link: notif.link || adCampaign?.targetUrl,
+        key: 'slide_0'
+      }];
+    }
+    return [];
+  }, [notif, adCampaign]);
+
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  // Auto-move moving carousel every 3.0 seconds reliably
+  useEffect(() => {
+    if (slides.length <= 1) return;
+    const interval = setInterval(() => {
+      setCurrentIndex(prev => (prev + 1) % slides.length);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [slides.length]);
+
+  if (slides.length === 0) return null;
+
+  const currentSlide = slides[currentIndex] || slides[0];
+
+  if (slides.length === 1) {
+    return (
+      <div 
+        onClick={(e) => { 
+          e.stopPropagation(); 
+          onNotificationClick(notif, currentSlide.link); 
+        }}
+        className="mt-2.5 rounded-xl overflow-hidden border border-white/10 max-h-56 max-w-md cursor-pointer group relative shadow-lg bg-black/40"
+      >
+        <img 
+          src={currentSlide.imageUrl} 
+          alt={currentSlide.title || notif.title} 
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 max-h-52" 
+        />
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+          <span className="px-3 py-1.5 rounded-lg bg-black/80 text-white text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg border border-white/20">
+            <ExternalLink className="w-3.5 h-3.5" /> {currentSlide.buttonText || 'Open Offer'}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div 
+      className="mt-3 rounded-2xl overflow-hidden border border-white/15 bg-[#060913] shadow-xl relative group select-none max-w-lg"
+    >
+      {/* Top Animated Progress Bar for Auto-Sliding */}
+      <div className="absolute top-0 left-0 right-0 h-1 bg-white/10 z-30 overflow-hidden">
+        <motion.div
+          key={`bar_${currentIndex}`}
+          initial={{ width: "0%" }}
+          animate={{ width: "100%" }}
+          transition={{ duration: 3.0, ease: "linear" }}
+          className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.8)]"
+        />
+      </div>
+
+      {/* Moving Carousel Container */}
+      <div 
+        className="relative h-48 sm:h-56 w-full cursor-pointer overflow-hidden flex items-end"
+        onClick={(e) => {
+          e.stopPropagation();
+          onNotificationClick(notif, currentSlide.link);
+        }}
+      >
+        <AnimatePresence mode="popLayout">
+          <motion.div
+            key={`slide_${currentIndex}_${currentSlide.imageUrl}`}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.05 }}
+            transition={{ duration: 0.45, ease: "easeInOut" }}
+            className="absolute inset-0 w-full h-full"
+          >
+            <img 
+              src={currentSlide.imageUrl} 
+              alt={currentSlide.title || notif.title} 
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+            />
+            {/* Ambient shadow gradient */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-transparent to-black/30 pointer-events-none" />
+          </motion.div>
+        </AnimatePresence>
+
+        {/* Bottom Bar: Title & Action */}
+        <div className="relative z-20 w-full p-3 sm:p-4 flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            {currentSlide.title && (
+              <h4 className="text-white font-bold text-xs sm:text-sm truncate drop-shadow">
+                {currentSlide.title}
+              </h4>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onNotificationClick(notif, currentSlide.link);
+            }}
+            className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg shadow-indigo-500/25 shrink-0 active:scale-95 transition-all border border-white/20 cursor-pointer"
+          >
+            <span>{currentSlide.buttonText || 'Open Offer'}</span>
+            <ExternalLink className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+
+      {/* Multi-Slide Navigation Dots Indicator */}
+      {slides.length > 1 && (
+        <div className="py-2.5 bg-white/[0.03] border-t border-white/10 flex items-center justify-center gap-1.5 z-20 relative">
+          {slides.map((_, idx) => (
+            <button
+              key={idx}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setCurrentIndex(idx);
+              }}
+              className={`transition-all rounded-full cursor-pointer ${
+                currentIndex === idx 
+                  ? 'w-6 h-1.5 bg-gradient-to-r from-indigo-500 to-pink-500 shadow-[0_0_8px_rgba(99,102,241,0.6)]' 
+                  : 'w-1.5 h-1.5 bg-white/25 hover:bg-white/50'
+              }`}
+              aria-label={`Go to slide ${idx + 1}`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const Notifications: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
@@ -53,10 +241,24 @@ const Notifications: React.FC = () => {
     );
   }
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [ads, setAds] = useState<AdCampaign[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [selectedNotifForOptions, setSelectedNotifForOptions] = useState<AppNotification | null>(null);
   const [ratingStates, setRatingStates] = useState<Record<string, { rating: number; hoverRating: number; review: string; isSubmitting: boolean }>>({});
+
+  useEffect(() => {
+    const unsub = listenToAds((fetched) => {
+      setAds(fetched);
+    });
+    return () => unsub();
+  }, []);
+
+  const adsMap = React.useMemo(() => {
+    const map = new Map<string, AdCampaign>();
+    ads.forEach(a => map.set(a.id, a));
+    return map;
+  }, [ads]);
 
   const loadNotifications = () => {
     if (!user?.uid) return () => {};
@@ -100,13 +302,59 @@ const Notifications: React.FC = () => {
 
   const handleClear = async (id: string) => {
     if (!user?.uid) return;
-    await clearNotification(user.uid, id);
+    const itemToDelete = notifications.find(n => n.id === id);
+
+    // 1. Instant Optimistic UI removal (0ms perceived lag)
+    setNotifications(prev => prev.filter(n => n.id !== id));
+    toast.success('Notification removed');
+
+    // 2. Perform deletion
+    try {
+      await clearNotification(user.uid, id);
+    } catch (err) {
+      if (itemToDelete) {
+        setNotifications(prev => [itemToDelete, ...prev]);
+      }
+      toast.error('Failed to remove notification');
+    }
   };
 
   const handleClearAll = async () => {
     if (!user?.uid || notifications.length === 0) return;
-    await clearAllUserNotifications(user.uid);
+    const backup = [...notifications];
+
+    // 1. Instant Optimistic UI clear
+    setNotifications([]);
     setIsConfirmOpen(false);
+    toast.success('All notifications cleared');
+
+    // 2. Perform bulk clear
+    try {
+      await clearAllUserNotifications(user.uid);
+    } catch (err) {
+      setNotifications(backup);
+      toast.error('Failed to clear notifications');
+    }
+  };
+
+  const handleAdminGlobalClear = async () => {
+    if (!user?.isAdmin) return;
+    if (!window.confirm("ADMIN ONLY: Are you sure you want to permanently delete ALL notifications for ALL users across the entire system?")) return;
+    
+    setNotifications([]);
+    setIsConfirmOpen(false);
+    toast.info('Wiping all platform notifications...');
+    
+    try {
+      const res = await adminClearAllGlobalNotifications();
+      if (res.success) {
+        toast.success(`Global wipe complete: ${res.deleted_count ?? 0} notifications deleted across all users.`);
+      } else {
+        toast.error(res.error || 'Admin wipe failed');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to wipe global notifications');
+    }
   };
 
   const handleStarClick = (notifId: string, star: number) => {
@@ -178,9 +426,39 @@ const Notifications: React.FC = () => {
     }
   };
 
+  const handleNotificationClick = async (notif: AppNotification, customLink?: string) => {
+    if (notif.adId) {
+      recordAdClickLocally(notif.adId, 'notification');
+    }
+    if (!notif.read && user?.uid) {
+      await handleMarkRead(notif.id);
+    }
+    const targetLink = customLink || notif.link;
+    if (targetLink) {
+      const rawLink = targetLink.trim();
+      const cleanTab = rawLink.replace(/^\//, '').toLowerCase();
+
+      const VALID_APP_TABS = new Set([
+        'home', 'video', 'music', 'movie', 'series', 'cinema', 'games', 'wallet', 'bulk', 'referral',
+        'profile', 'history', 'about', 'privacy', 'terms', 'cookies', 'contact', 'notifications', 'vendor', 'admin'
+      ]);
+
+      if (VALID_APP_TABS.has(cleanTab)) {
+        window.dispatchEvent(new CustomEvent('navigate', { detail: { view: cleanTab } }));
+      } else {
+        const externalUrl = /^https?:\/\//i.test(rawLink) ? rawLink : `https://${rawLink}`;
+        window.open(externalUrl, '_blank', 'noopener,noreferrer');
+      }
+    }
+  };
+
   const getIcon = (notif: AppNotification) => {
     const type = notif.type;
     const title = notif.title || '';
+
+    if (type === 'ad' || type === 'promo' || notif.adId) {
+      return <Megaphone className="w-5 h-5 text-indigo-400" />;
+    }
 
     if (type === 'withdrawal_approved' || (type === 'success' && title.toLowerCase().includes('withdrawal'))) {
       return <Banknote className="w-5 h-5 text-emerald-400" />;
@@ -347,19 +625,32 @@ const Notifications: React.FC = () => {
                 </p>
               </div>
 
-              <div className="flex gap-3 pt-2">
-                <button 
-                  onClick={() => setIsConfirmOpen(false)}
-                  className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-sm font-bold hover:bg-white/10 transition-all"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleClearAll}
-                  className="flex-1 py-3 rounded-xl bg-red-600 text-white text-sm font-bold shadow-lg shadow-red-600/20 hover:bg-red-500 active:scale-95 transition-all"
-                >
-                  Clear All
-                </button>
+              <div className="flex flex-col gap-2.5 pt-2">
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setIsConfirmOpen(false)}
+                    className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-sm font-bold hover:bg-white/10 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleClearAll}
+                    className="flex-1 py-3 rounded-xl bg-red-600 text-white text-sm font-bold shadow-lg shadow-red-600/20 hover:bg-red-500 active:scale-95 transition-all cursor-pointer"
+                  >
+                    Clear My Inbox
+                  </button>
+                </div>
+
+                {user?.isAdmin && (
+                  <button
+                    type="button"
+                    onClick={handleAdminGlobalClear}
+                    className="w-full py-2.5 px-3 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs font-black uppercase tracking-wider hover:bg-rose-900/60 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Wipe All Users' Inboxes (Admin)</span>
+                  </button>
+                )}
               </div>
             </motion.div>
           </div>
@@ -459,23 +750,31 @@ const Notifications: React.FC = () => {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, scale: 0.95 }}
-                  className={`p-5 flex items-start gap-4 transition-colors ${notif.read ? 'opacity-60' : 'bg-white/[0.03]'} ${notif.type === 'preorder_delivered' ? 'cursor-pointer hover:bg-white/[0.06] border-l-2 border-cyan-500' : ''}`}
+                  className={`p-5 flex items-start gap-4 transition-colors ${notif.read ? 'opacity-60' : 'bg-white/[0.03]'} ${notif.type === 'preorder_delivered' || notif.link ? 'cursor-pointer hover:bg-white/[0.06]' : ''} ${notif.type === 'ad' || notif.type === 'promo' ? 'border-l-2 border-indigo-500 bg-indigo-500/[0.02]' : notif.type === 'preorder_delivered' ? 'border-l-2 border-cyan-500' : ''}`}
                   onClick={() => {
                     if (notif.type === 'preorder_delivered') {
                       setSelectedNotifForOptions(notif);
+                    } else if (notif.link) {
+                      handleNotificationClick(notif);
                     }
                   }}
                 >
-                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 border border-white/10 ${notif.read ? 'bg-white/5' : 'bg-white/10 shadow-lg'}`}>
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 border border-white/10 ${notif.type === 'ad' || notif.type === 'promo' ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30 shadow-lg shadow-indigo-500/10' : notif.read ? 'bg-white/5' : 'bg-white/10 shadow-lg'}`}>
                     {getIcon(notif)}
                   </div>
                   
                   <div className="flex-1 min-w-0 space-y-1">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 min-w-0">
                         <h3 className={`font-bold text-sm truncate ${notif.read ? 'text-muted-foreground' : 'text-foreground'}`}>
                           {notif.title}
                         </h3>
+                        {(notif.type === 'ad' || notif.type === 'promo' || notif.adId || notif.badgeText) && (
+                          <span className="px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-400 border border-amber-500/30 font-black text-[9px] uppercase tracking-wider shrink-0 shadow-sm flex items-center gap-1">
+                            <Megaphone className="w-2.5 h-2.5" />
+                            {notif.badgeText || 'Special Offer'}
+                          </span>
+                        )}
                         {notif.orderNumber && (
                           <span className="px-1.5 py-0.5 rounded-md bg-white/10 text-white font-mono text-[9px] font-black shrink-0 border border-white/10">
                             #{notif.orderNumber}
@@ -491,6 +790,30 @@ const Notifications: React.FC = () => {
                     <p className="text-xs text-muted-foreground leading-relaxed">
                       {notif.message}
                     </p>
+
+                    {/* Flyer / Moving Carousel / Promotional Banner Image Preview */}
+                    {(notif.imageUrl || (notif.imageUrls && notif.imageUrls.length > 0) || (notif.carouselSlides && notif.carouselSlides.length > 0) || (notif.adId && adsMap.get(notif.adId)?.imageUrl)) ? (
+                      <NotificationCarousel 
+                        notif={notif} 
+                        adCampaign={notif.adId ? adsMap.get(notif.adId) : undefined}
+                        onNotificationClick={handleNotificationClick} 
+                      />
+                    ) : notif.link ? (
+                      /* Clickable CTA Action Button for text-only link notifications */
+                      <div className="mt-3 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleNotificationClick(notif);
+                          }}
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-indigo-500/25 hover:brightness-110 active:scale-95 transition-all"
+                        >
+                          <span>{notif.buttonText || 'Open Link'}</span>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : null}
 
                     {/* Shipped ETA Badge */}
                     {notif.estimatedDeliveryTime && notif.type === 'order_shipped' && (

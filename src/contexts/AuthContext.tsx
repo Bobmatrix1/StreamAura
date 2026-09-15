@@ -7,21 +7,22 @@ import {
   logOut, 
   onAuthChange,
   resetPassword as firebaseResetPassword,
-  db
+  db,
+  type GoogleSignInResult
 } from '../lib/firebase';
 import { doc, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 
-import Login from '../sections/Login';
-import Signup from '../sections/Signup';
+const Login = React.lazy(() => import('../sections/Login'));
+const Signup = React.lazy(() => import('../sections/Signup'));
 
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   isAdmin: boolean;
-  signUp: (email: string, password: string, displayName: string) => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
-  signInGoogle: () => Promise<void>;
+  signUp: (email: string, password: string, displayName: string) => Promise<User>;
+  signIn: (email: string, password: string) => Promise<User>;
+  signInGoogle: () => Promise<GoogleSignInResult | null>;
   resetPassword: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   error: string | null;
@@ -155,12 +156,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const signUp = async (email: string, password: string, displayName: string): Promise<void> => {
+  const signUp = async (email: string, password: string, displayName: string): Promise<User> => {
     try {
       setIsLoading(true);
       setError(null);
       const newUser = await signUpWithEmail(email, password, displayName);
       setUser(newUser);
+      return newUser;
     } catch (err: any) {
       const friendlyMsg = mapAuthError(err);
       setError(friendlyMsg);
@@ -170,12 +172,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const signIn = async (email: string, password: string): Promise<void> => {
+  const signIn = async (email: string, password: string): Promise<User> => {
     try {
       setIsLoading(true);
       setError(null);
       const loggedInUser = await signInWithEmail(email, password);
       setUser(loggedInUser);
+      return loggedInUser;
     } catch (err: any) {
       const friendlyMsg = mapAuthError(err);
       setError(friendlyMsg);
@@ -185,12 +188,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const signInGoogle = async (): Promise<void> => {
+  const signInGoogle = async (): Promise<GoogleSignInResult | null> => {
     try {
       setIsLoading(true);
       setError(null);
-      const googleUser = await signInWithGoogle();
-      if (googleUser) setUser(googleUser);
+      const googleResult = await signInWithGoogle();
+      if (googleResult?.user) {
+        setUser(googleResult.user);
+        return googleResult;
+      }
+      return null;
     } catch (err: any) {
       const friendlyMsg = mapAuthError(err);
       setError(friendlyMsg);
@@ -260,20 +267,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       {authModal.isOpen && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
           <div className="relative w-full max-w-md">
-            <div className="glass-card border-white/10 overflow-hidden shadow-2xl">
-              {showLogin ? (
-                <Login 
-                  onToggleView={() => setShowLogin(false)} 
-                  onBack={() => setAuthModal({ isOpen: false })}
-                  isModal 
-                />
-              ) : (
-                <Signup 
-                  onToggleView={() => setShowLogin(true)} 
-                  onBack={() => setAuthModal({ isOpen: false })}
-                  isModal 
-                />
-              )}
+            <div className="glass-card border-white/10 overflow-hidden shadow-2xl min-h-[300px] flex flex-col justify-center">
+              <React.Suspense fallback={
+                <div className="p-12 flex flex-col items-center justify-center gap-3">
+                  <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  <span className="text-xs text-muted-foreground font-medium">Loading...</span>
+                </div>
+              }>
+                {showLogin ? (
+                  <Login 
+                    onToggleView={() => setShowLogin(false)} 
+                    onBack={() => setAuthModal({ isOpen: false })}
+                    isModal 
+                  />
+                ) : (
+                  <Signup 
+                    onToggleView={() => setShowLogin(true)} 
+                    onBack={() => setAuthModal({ isOpen: false })}
+                    isModal 
+                  />
+                )}
+              </React.Suspense>
             </div>
             
             <p className="mt-4 text-center text-[10px] text-white/40 font-black uppercase tracking-widest">

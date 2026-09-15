@@ -67,15 +67,66 @@ import { PreOrderManager } from './PreOrderManager';
 import { StoreManager } from './StoreManager';
 import { PartnersManager } from './PartnersManager';
 import { CinemaContentManager } from './CinemaContentManager';
+import { AdsManager } from './AdsManager';
 import { Badge } from '../components/ui/badge';
-import { CheckCircle2, X, Copy, ChevronRight } from 'lucide-react';
+import { CheckCircle2, X, Copy, ChevronRight, Megaphone, FileAudio, FileVideo } from 'lucide-react';
 import { auth } from '../lib/firebase';
+
+const PAGE_TITLE_MAP: Record<string, string> = {
+  home: 'Home Hub',
+  video: 'Video Downloader',
+  music: 'Music Downloader',
+  movie: 'Movie Downloader',
+  cinema: 'Cinema Watch Room',
+  games: 'Split or Steal Games',
+  wallet: 'Wallet & Payouts',
+  bulk: 'Bulk Multi-Stream',
+  referral: 'Refer & Earn',
+  profile: 'User Profile',
+  history: 'Download History',
+  about: 'About StreamAura'
+};
+
+const ActivityThumbnail: React.FC<{ 
+  thumbnail?: string; 
+  title: string; 
+  platform: string; 
+  mediaType: string;
+}> = ({ thumbnail, title, platform, mediaType }) => {
+  const [hasError, setHasError] = useState(false);
+
+  if (!thumbnail || hasError) {
+    return (
+      <div className="w-10 h-10 rounded-lg flex flex-col items-center justify-center bg-white/5 border border-white/10 text-center select-none flex-shrink-0">
+        {mediaType === 'audio' || mediaType === 'music' ? (
+          <FileAudio className="w-4 h-4 text-orange-400" />
+        ) : (
+          <FileVideo className="w-4 h-4 text-primary" />
+        )}
+        <span className="text-[7px] font-black uppercase text-white/70 tracking-wider truncate max-w-full px-0.5">
+          {platform?.slice(0, 4) || 'AURA'}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={thumbnail}
+      alt={title}
+      referrerPolicy="no-referrer"
+      loading="lazy"
+      onError={() => setHasError(true)}
+      className="w-10 h-10 rounded-lg object-cover border border-white/10 flex-shrink-0"
+    />
+  );
+};
 
 const AdminDashboard: React.FC = () => {
   const { user: currentUser } = useAuth();
   const { showSuccess, showError } = useToast();
   
-  const [activeTab, setActiveTab] = useState<'users' | 'history' | 'preorders' | 'traffic' | 'insights' | 'messages' | 'store' | 'cinema' | 'payouts' | 'partners'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'history' | 'preorders' | 'traffic' | 'insights' | 'messages' | 'store' | 'cinema' | 'payouts' | 'partners' | 'ads'>('users');
   const [users, setUsers] = useState<User[]>([]);
   const [history, setHistory] = useState<GlobalHistoryItem[]>([]);
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
@@ -106,6 +157,10 @@ const AdminDashboard: React.FC = () => {
   // Notification State
   const [notifTitle, setNotifTitle] = useState('');
   const [notifMessage, setNotifMessage] = useState('');
+  const [notifLink, setNotifLink] = useState('');
+  const [notifImageUrl, setNotifImageUrl] = useState('');
+  const [notifButtonText, setNotifButtonText] = useState('Explore Now');
+  const [notifType, setNotifType] = useState<'update' | 'ad' | 'general' | 'alert'>('update');
   const [isSending, setIsSending] = useState(false);
 
   // Insight Accordion State
@@ -200,7 +255,11 @@ const AdminDashboard: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: notifTitle,
-          message: notifMessage
+          message: notifMessage,
+          link: notifLink.trim() || undefined,
+          imageUrl: notifImageUrl.trim() || undefined,
+          buttonText: notifButtonText.trim() || 'Explore Now',
+          type: notifType
         })
       });
       
@@ -212,6 +271,8 @@ const AdminDashboard: React.FC = () => {
         showSuccess(`Broadcast delivered to ${count} users.`);
         setNotifTitle('');
         setNotifMessage('');
+        setNotifLink('');
+        setNotifImageUrl('');
       } else {
         showError(result.error || 'Failed to send broadcast');
       }
@@ -397,8 +458,12 @@ const AdminDashboard: React.FC = () => {
 
   useEffect(() => {
     loadStats();
+  }, []);
+
+  useEffect(() => {
     if (activeTab === 'users') loadUsers();
     else if (activeTab === 'history') loadHistory();
+    else if (activeTab === 'traffic' || activeTab === 'insights') loadStats();
     else if (activeTab === 'payouts') {
       loadWithdrawals();
       loadUsers();
@@ -575,6 +640,7 @@ const AdminDashboard: React.FC = () => {
             <button onClick={() => setActiveTab('cinema')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'cinema' ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Film className="w-4 h-4" />Cinema</button>
             <button onClick={() => setActiveTab('payouts')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'payouts' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Banknote className="w-4 h-4" />Payouts</button>
             <button onClick={() => setActiveTab('partners')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'partners' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Handshake className="w-4 h-4" />Partners</button>
+            <button onClick={() => setActiveTab('ads')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'ads' ? 'bg-pink-600 text-white shadow-lg shadow-pink-600/25' : 'text-muted-foreground hover:text-foreground'}`}><Megaphone className="w-4 h-4" />Ads</button>
           </div>
         </div>
       </div>
@@ -589,7 +655,7 @@ const AdminDashboard: React.FC = () => {
 
       <div className="glass-card p-6">
         {/* TOOLBAR (Optional for some tabs) */}
-        {activeTab !== 'messages' && activeTab !== 'insights' && activeTab !== 'preorders' && (
+        {activeTab !== 'messages' && activeTab !== 'insights' && activeTab !== 'preorders' && activeTab !== 'ads' && (
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
             <div className="relative w-full sm:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -816,6 +882,8 @@ const AdminDashboard: React.FC = () => {
             </div>
           ) : activeTab === 'partners' ? (
             <PartnersManager />
+          ) : activeTab === 'ads' ? (
+            <AdsManager />
           ) : activeTab === 'users' ? (
             <Table>
               <TableHeader>
@@ -1018,7 +1086,7 @@ const AdminDashboard: React.FC = () => {
                 return (
                   <div key={userId}>
                     <button onClick={() => setExpandedUserId(isExpanded ? null : userId)} className={`w-full p-5 flex items-center justify-between hover:bg-white/[0.02] transition-all ${isExpanded ? 'bg-white/[0.02]' : ''}`}><div className="flex items-center gap-4"><div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center border border-primary/10"><Activity className="w-6 h-6 text-primary" /></div><div className="text-left"><p className="font-bold text-foreground text-base">{group.userName}</p><p className="text-xs text-muted-foreground uppercase font-bold">{group.downloads.length} Tracks</p></div></div><ChevronDown className={`w-6 h-6 text-muted-foreground transition-transform duration-500 ${isExpanded ? 'rotate-180' : ''}`} /></button>
-                    <AnimatePresence>{isExpanded && (<motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden bg-black/20"><div className="p-4 border-t border-white/5 flex items-center justify-between"><p className="text-[10px] text-muted-foreground font-black uppercase">Activity Logs</p><button onClick={(e) => { e.stopPropagation(); handleClearHistoryAction(userId, group.userName); }} className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 text-[10px] font-black uppercase">Clear Data</button></div><div className="p-4 overflow-x-auto"><Table><TableHeader><TableRow className="border-white/5"><TableHead className="text-[10px] uppercase font-black">Content</TableHead><TableHead className="text-[10px] uppercase font-black">Source</TableHead><TableHead className="text-right text-[10px] uppercase font-black">Time</TableHead></TableRow></TableHeader><TableBody>{group.downloads.map((item, idx) => (<TableRow key={item.id + idx} className="border-white/5"><TableCell><div className="flex items-center gap-3"><img src={item.thumbnail} alt={item.title} referrerPolicy="no-referrer" loading="lazy" className="w-10 h-10 rounded-lg object-cover border border-white/10" /><div className="flex flex-col"><span className="text-sm font-bold truncate max-w-[200px]">{item.title}</span><span className="text-[10px] text-muted-foreground uppercase">{item.mediaType}</span></div></div></TableCell><TableCell><span className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] font-black uppercase">{item.platform}</span></TableCell><TableCell className="text-right text-[10px] text-muted-foreground font-bold">{new Date(item.downloadedAt).toLocaleString()}</TableCell></TableRow>))}</TableBody></Table></div></motion.div>)}</AnimatePresence>
+                    <AnimatePresence>{isExpanded && (<motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden bg-black/20"><div className="p-4 border-t border-white/5 flex items-center justify-between"><p className="text-[10px] text-muted-foreground font-black uppercase">Activity Logs</p><button onClick={(e) => { e.stopPropagation(); handleClearHistoryAction(userId, group.userName); }} className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 text-[10px] font-black uppercase">Clear Data</button></div><div className="p-4 overflow-x-auto"><Table><TableHeader><TableRow className="border-white/5"><TableHead className="text-[10px] uppercase font-black">Content</TableHead><TableHead className="text-[10px] uppercase font-black">Source</TableHead><TableHead className="text-right text-[10px] uppercase font-black">Time</TableHead></TableRow></TableHeader><TableBody>{group.downloads.map((item, idx) => (<TableRow key={item.id + idx} className="border-white/5"><TableCell><div className="flex items-center gap-3"><ActivityThumbnail thumbnail={item.thumbnail} title={item.title} platform={item.platform} mediaType={item.mediaType} /><div className="flex flex-col"><span className="text-sm font-bold truncate max-w-[200px]">{item.title}</span><span className="text-[10px] text-muted-foreground uppercase">{item.mediaType}</span></div></div></TableCell><TableCell><span className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] font-black uppercase">{item.platform}</span></TableCell><TableCell className="text-right text-[10px] text-muted-foreground font-bold">{new Date(item.downloadedAt).toLocaleString()}</TableCell></TableRow>))}</TableBody></Table></div></motion.div>)}</AnimatePresence>
                   </div>
                 );
               })}
@@ -1040,12 +1108,16 @@ const AdminDashboard: React.FC = () => {
                  <div className="glass-card p-6 space-y-4 border-white/5">
                     <h4 className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2"><Globe className="w-3.5 h-3.5" /> Top Countries</h4>
                     <div className="space-y-3">
-                       {stats?.topCountries.map((c, i) => (
-                         <div key={i} className="space-y-1.5">
-                            <div className="flex justify-between text-xs font-bold uppercase"><span className="text-white/80">{c.country}</span><span className="text-primary">{c.count}</span></div>
-                            <div className="h-1 bg-white/5 rounded-full overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${(c.count / (stats?.totalVisits || 1)) * 100}%` }} className="h-full bg-primary" /></div>
-                         </div>
-                       ))}
+                       {stats?.topCountries && stats.topCountries.length > 0 ? (
+                         stats.topCountries.map((c, i) => (
+                           <div key={i} className="space-y-1.5">
+                              <div className="flex justify-between text-xs font-bold uppercase"><span className="text-white/80">{c.country}</span><span className="text-primary">{c.count}</span></div>
+                              <div className="h-1 bg-white/5 rounded-full overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${(c.count / (stats?.totalVisits || 1)) * 100}%` }} className="h-full bg-primary" /></div>
+                           </div>
+                         ))
+                       ) : (
+                         <p className="text-xs text-muted-foreground italic opacity-60">No country location logs recorded yet</p>
+                       )}
                     </div>
                  </div>
 
@@ -1053,12 +1125,16 @@ const AdminDashboard: React.FC = () => {
                  <div className="glass-card p-6 space-y-4 border-white/5">
                     <h4 className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2"><MapPin className="w-3.5 h-3.5 text-blue-400" /> Top States/Regions</h4>
                     <div className="space-y-3">
-                       {stats?.topStates.map((s, i) => (
-                         <div key={i} className="space-y-1.5">
-                            <div className="flex justify-between text-xs font-bold uppercase"><span className="text-white/80">{s.state}</span><span className="text-blue-400">{s.count}</span></div>
-                            <div className="h-1 bg-white/5 rounded-full overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${(s.count / (stats?.totalVisits || 1)) * 100}%` }} className="h-full bg-blue-500" /></div>
-                         </div>
-                       ))}
+                       {stats?.topStates && stats.topStates.length > 0 ? (
+                         stats.topStates.map((s, i) => (
+                           <div key={i} className="space-y-1.5">
+                              <div className="flex justify-between text-xs font-bold uppercase"><span className="text-white/80">{s.state}</span><span className="text-blue-400">{s.count}</span></div>
+                              <div className="h-1 bg-white/5 rounded-full overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${(s.count / (stats?.totalVisits || 1)) * 100}%` }} className="h-full bg-blue-500" /></div>
+                           </div>
+                         ))
+                       ) : (
+                         <p className="text-xs text-muted-foreground italic opacity-60">No state location logs recorded yet</p>
+                       )}
                     </div>
                  </div>
 
@@ -1066,15 +1142,19 @@ const AdminDashboard: React.FC = () => {
                  <div className="glass-card p-6 space-y-4 border-white/5">
                     <h4 className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2"><Smartphone className="w-3.5 h-3.5 text-emerald-400" /> Device Distribution</h4>
                     <div className="space-y-3">
-                       {stats?.topDevices.map((d, i) => (
-                         <div key={i} className="space-y-1.5">
-                            <div className="flex justify-between text-xs font-bold uppercase items-center gap-2">
-                               <div className="flex items-center gap-2">{getDeviceIcon(d.device)} <span className="text-white/80 truncate">{d.device}</span></div>
-                               <span className="text-emerald-400">{d.count}</span>
-                            </div>
-                            <div className="h-1 bg-white/5 rounded-full overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${(d.count / (stats?.totalVisits || 1)) * 100}%` }} className="h-full bg-emerald-500" /></div>
-                         </div>
-                       ))}
+                       {stats?.topDevices && stats.topDevices.length > 0 ? (
+                         stats.topDevices.map((d, i) => (
+                           <div key={i} className="space-y-1.5">
+                              <div className="flex justify-between text-xs font-bold uppercase items-center gap-2">
+                                 <div className="flex items-center gap-2">{getDeviceIcon(d.device)} <span className="text-white/80 truncate">{d.device}</span></div>
+                                 <span className="text-emerald-400">{d.count}</span>
+                              </div>
+                              <div className="h-1 bg-white/5 rounded-full overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${(d.count / (stats?.totalVisits || 1)) * 100}%` }} className="h-full bg-emerald-500" /></div>
+                           </div>
+                         ))
+                       ) : (
+                         <p className="text-xs text-muted-foreground italic opacity-60">No device logs recorded yet</p>
+                       )}
                     </div>
                  </div>
               </div>
@@ -1092,16 +1172,29 @@ const AdminDashboard: React.FC = () => {
                        </TableRow>
                     </TableHeader>
                     <TableBody>
-                       {stats?.pageVisitsRanked.map((pv, i) => (
-                         <TableRow key={i} className="border-white/5 hover:bg-white/[0.01]">
-                            <TableCell className="font-bold text-xs uppercase tracking-tight text-white/90">{pv.page}</TableCell>
-                            <TableCell className="text-center font-black text-xs text-primary">{pv.count}</TableCell>
-                            <TableCell className="text-center"><Badge variant="outline" className="text-[9px] border-white/10 bg-white/5">{pv.avgTimeSpent}s / view</Badge></TableCell>
-                            <TableCell className="text-right">
-                               <div className="w-24 h-1 bg-white/5 rounded-full ml-auto overflow-hidden"><div className="h-full bg-primary" style={{ width: `${(pv.count / (stats?.totalVisits || 1)) * 100}%` }} /></div>
-                            </TableCell>
+                       {stats?.pageVisitsRanked && stats.pageVisitsRanked.length > 0 ? (
+                         stats.pageVisitsRanked.map((pv, i) => (
+                           <TableRow key={i} className="border-white/5 hover:bg-white/[0.01]">
+                              <TableCell className="font-bold text-xs uppercase tracking-tight text-white/90">
+                                <div className="flex items-center gap-2.5">
+                                  <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-black ${i === 0 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : i === 1 ? 'bg-slate-400/20 text-slate-300 border border-slate-400/30' : i === 2 ? 'bg-orange-700/20 text-orange-400 border border-orange-700/30' : 'bg-white/5 text-muted-foreground'}`}>
+                                    {i + 1}
+                                  </span>
+                                  <span>{PAGE_TITLE_MAP[pv.page.toLowerCase()] || pv.page}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-center font-black text-xs text-primary">{pv.count}</TableCell>
+                              <TableCell className="text-center"><Badge variant="outline" className="text-[9px] border-white/10 bg-white/5">{pv.avgTimeSpent}s / view</Badge></TableCell>
+                              <TableCell className="text-right">
+                                 <div className="w-24 h-1 bg-white/5 rounded-full ml-auto overflow-hidden"><div className="h-full bg-primary" style={{ width: `${Math.min(100, (pv.count / Math.max(1, stats.pageVisitsRanked[0]?.count || 1)) * 100)}%` }} /></div>
+                              </TableCell>
+                           </TableRow>
+                         ))
+                       ) : (
+                         <TableRow>
+                            <TableCell colSpan={4} className="text-center py-6 text-xs text-muted-foreground italic opacity-60">No page visit records found</TableCell>
                          </TableRow>
-                       ))}
+                       )}
                     </TableBody>
                  </Table>
               </div>
@@ -1169,33 +1262,88 @@ const AdminDashboard: React.FC = () => {
               </div>
 
               <form onSubmit={handleSendNotification} className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-xs font-black uppercase text-muted-foreground tracking-widest px-1">Headline / Title</label>
-                  <input 
-                    type="text" 
-                    value={notifTitle}
-                    onChange={(e) => setNotifTitle(e.target.value)}
-                    placeholder="e.g. New Features Added! 🚀" 
-                    className="w-full glass-input p-4 rounded-xl focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all"
-                    required
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="space-y-2 sm:col-span-2">
+                    <label className="text-xs font-black uppercase text-muted-foreground tracking-widest px-1">Headline / Title</label>
+                    <input 
+                      type="text" 
+                      value={notifTitle}
+                      onChange={(e) => setNotifTitle(e.target.value)}
+                      placeholder="e.g. Special Weekend Offer! 🎁" 
+                      className="w-full glass-input p-4 rounded-xl focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase text-muted-foreground tracking-widest px-1">Type / Category</label>
+                    <select
+                      value={notifType}
+                      onChange={(e: any) => setNotifType(e.target.value)}
+                      className="w-full glass-input p-4 rounded-xl focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all bg-[#0f172a] text-white"
+                    >
+                      <option value="update">🚀 App Update</option>
+                      <option value="ad">📢 Sponsored / Ad Promo</option>
+                      <option value="general">ℹ️ General Info</option>
+                      <option value="alert">⚠️ Important Alert</option>
+                    </select>
+                  </div>
                 </div>
+
                 <div className="space-y-2">
                   <label className="text-xs font-black uppercase text-muted-foreground tracking-widest px-1">Message Content</label>
                   <textarea 
                     value={notifMessage}
                     onChange={(e) => setNotifMessage(e.target.value)}
-                    placeholder="Tell your users what's new in this update..." 
-                    className="w-full glass-input p-4 rounded-xl h-32 resize-none focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all"
+                    placeholder="Tell your users what's new or what offer they are getting..." 
+                    className="w-full glass-input p-4 rounded-xl h-28 resize-none focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all"
                     required
                   />
                 </div>
+
+                {/* Clickable Link & Flyer Image Details */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 rounded-2xl bg-white/[0.02] border border-white/10">
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <label className="text-[11px] font-black uppercase text-indigo-300 tracking-wider flex items-center gap-1.5">
+                      <Globe className="w-3.5 h-3.5" /> Target Link / Page (Optional)
+                    </label>
+                    <input 
+                      type="text" 
+                      value={notifLink}
+                      onChange={(e) => setNotifLink(e.target.value)}
+                      placeholder="e.g. https://your-offer.com or movie / video / cinema" 
+                      className="w-full glass-input p-3 text-xs rounded-xl focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-black uppercase text-indigo-300 tracking-wider">Button CTA Text</label>
+                    <input 
+                      type="text" 
+                      value={notifButtonText}
+                      onChange={(e) => setNotifButtonText(e.target.value)}
+                      placeholder="e.g. Claim Now" 
+                      className="w-full glass-input p-3 text-xs rounded-xl focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5 sm:col-span-3">
+                    <label className="text-[11px] font-black uppercase text-indigo-300 tracking-wider">Flyer / Banner Image URL (Optional)</label>
+                    <input 
+                      type="url" 
+                      value={notifImageUrl}
+                      onChange={(e) => setNotifImageUrl(e.target.value)}
+                      placeholder="https://... (Direct image link for thumbnail preview)" 
+                      className="w-full glass-input p-3 text-xs rounded-xl focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
                 <button 
                   type="submit"
                   disabled={isSending || !notifTitle || !notifMessage}
                   className="w-full py-4 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-3 hover:brightness-110 active:scale-95 transition-all disabled:opacity-50"
                 >
-                  {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Send className="w-4 h-4" /> Broadcast Now</>}
+                  {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Send className="w-4 h-4" /> Broadcast Notification</>}
                 </button>
               </form>
 
@@ -1254,7 +1402,7 @@ const AdminDashboard: React.FC = () => {
               {/* 2. Top Searches & Media Trends */}
               <div className="glass-card overflow-hidden border-white/5">
                 <button onClick={() => setExpandedInsight(expandedInsight === 'trends' ? null : 'trends')} className="w-full p-5 flex items-center justify-between hover:bg-white/[0.02] transition-all">
-                  <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center text-purple-400"><TrendingUp className="w-5 h-5" /></div><div className="text-left"><h3 className="font-bold text-foreground">Search & Media Trends</h3><p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Filtered by 10+ interactions</p></div></div>
+                  <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center text-purple-400"><TrendingUp className="w-5 h-5" /></div><div className="text-left"><h3 className="font-bold text-foreground">Search & Media Trends</h3><p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Live user searches & top media</p></div></div>
                   <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${expandedInsight === 'trends' ? 'rotate-180' : ''}`} />
                 </button>
                 <AnimatePresence>
@@ -1264,25 +1412,31 @@ const AdminDashboard: React.FC = () => {
                         <div className="space-y-4">
                           <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Top Hot Searches</h4>
                           <div className="space-y-2">
-                            {(stats?.topSearches || []).slice(0, showAllItems['trends'] ? undefined : 5).map((s, i) => (
-                              <div key={i} className="flex justify-between items-center p-3 rounded-xl bg-white/[0.02] border border-white/5">
-                                <span className="text-sm font-bold truncate pr-4">{s.query}</span>
-                                <span className="text-[10px] font-black bg-white/10 px-2 py-1 rounded-lg">{formatNumber(s.count)} HITS</span>
-                              </div>
-                            ))}
-                            {(!stats?.topSearches || stats.topSearches.length === 0) && <p className="text-xs text-muted-foreground italic opacity-50">Threshold (10 hits) not reached</p>}
+                            {stats?.topSearches && stats.topSearches.length > 0 ? (
+                              stats.topSearches.slice(0, showAllItems['trends'] ? undefined : 5).map((s, i) => (
+                                <div key={i} className="flex justify-between items-center p-3 rounded-xl bg-white/[0.02] border border-white/5">
+                                  <span className="text-sm font-bold truncate pr-4">{s.query}</span>
+                                  <span className="text-[10px] font-black bg-white/10 px-2 py-1 rounded-lg">{formatNumber(s.count)} HITS</span>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="text-xs text-muted-foreground italic opacity-50">No search logs recorded yet</p>
+                            )}
                           </div>
                         </div>
                         <div className="space-y-4">
                           <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Popular Content</h4>
                           <div className="space-y-2">
-                            {(stats?.topMovies || []).slice(0, showAllItems['trends'] ? undefined : 5).map((m, i) => (
-                              <div key={i} className="p-3 rounded-xl bg-white/[0.02] border border-white/5 space-y-2">
-                                <span className="text-sm font-bold truncate block">{m.title}</span>
-                                <div className="flex gap-4"><div className="flex items-center gap-1.5"><Eye className="w-3 h-3 text-cyan-400" /> <span className="text-[10px] font-black text-cyan-400">{formatNumber(m.watches)}</span></div><div className="flex items-center gap-1.5"><Download className="w-3 h-3 text-purple-400" /> <span className="text-[10px] font-black text-purple-400">{formatNumber(m.downloads)}</span></div></div>
-                              </div>
-                            ))}
-                            {(!stats?.topMovies || stats.topMovies.length === 0) && <p className="text-xs text-muted-foreground italic opacity-50">Threshold (10+ interactions) not reached</p>}
+                            {stats?.topMovies && stats.topMovies.length > 0 ? (
+                              stats.topMovies.slice(0, showAllItems['trends'] ? undefined : 5).map((m, i) => (
+                                <div key={i} className="p-3 rounded-xl bg-white/[0.02] border border-white/5 space-y-2">
+                                  <span className="text-sm font-bold truncate block">{m.title}</span>
+                                  <div className="flex gap-4"><div className="flex items-center gap-1.5"><Eye className="w-3 h-3 text-cyan-400" /> <span className="text-[10px] font-black text-cyan-400">{formatNumber(m.watches)}</span></div><div className="flex items-center gap-1.5"><Download className="w-3 h-3 text-purple-400" /> <span className="text-[10px] font-black text-purple-400">{formatNumber(m.downloads)}</span></div></div>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="text-xs text-muted-foreground italic opacity-50">No media downloads recorded yet</p>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1307,24 +1461,32 @@ const AdminDashboard: React.FC = () => {
                         <div className="space-y-4">
                           <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Feature Popularity</h4>
                           <div className="space-y-4">
-                            {stats?.featureUsage.map((f, i) => {
-                              const max = stats.featureUsage[0].count;
-                              const percentage = (f.count / max) * 100;
-                              return (
-                                <div key={i} className="space-y-2">
-                                  <div className="flex justify-between text-[10px] font-black uppercase text-foreground"><span>{f.feature}</span><span>{formatNumber(f.count)} ACTIONS</span></div>
-                                  <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${percentage}%` }} className={`h-full ${i === 0 ? 'bg-cyan-500' : 'bg-white/20'}`} /></div>
-                                </div>
-                              );
-                            })}
+                            {stats?.featureUsage && stats.featureUsage.length > 0 ? (
+                              stats.featureUsage.map((f, i) => {
+                                const max = Math.max(1, stats.featureUsage[0]?.count || 1);
+                                const percentage = (f.count / max) * 100;
+                                return (
+                                  <div key={i} className="space-y-2">
+                                    <div className="flex justify-between text-[10px] font-black uppercase text-foreground"><span>{f.feature}</span><span>{formatNumber(f.count)} ACTIONS</span></div>
+                                    <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${percentage}%` }} className={`h-full ${i === 0 ? 'bg-cyan-500' : 'bg-white/20'}`} /></div>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <p className="text-xs text-muted-foreground italic opacity-50">No feature interactions recorded yet</p>
+                            )}
                           </div>
                         </div>
                         <div className="space-y-4">
                           <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Source Conversion</h4>
                           <div className="grid grid-cols-2 gap-2">
-                            {stats?.topPlatforms.map((p, i) => (
-                              <div key={i} className="flex justify-between items-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><span className="text-xs font-bold capitalize">{p.platform}</span><span className="text-[10px] font-black text-orange-400">{formatNumber(p.count)}</span></div>
-                            ))}
+                            {stats?.topPlatforms && stats.topPlatforms.length > 0 ? (
+                              stats.topPlatforms.map((p, i) => (
+                                <div key={i} className="flex justify-between items-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><span className="text-xs font-bold capitalize">{p.platform}</span><span className="text-[10px] font-black text-orange-400">{formatNumber(p.count)}</span></div>
+                              ))
+                            ) : (
+                              <p className="text-xs text-muted-foreground italic opacity-50 col-span-2">No platform conversion logs</p>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1343,13 +1505,20 @@ const AdminDashboard: React.FC = () => {
                   {expandedInsight === 'time' && (
                     <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden bg-black/20 border-t border-white/5">
                       <div className="p-6 flex flex-wrap gap-3">
-                        {stats?.peakHours.map((h: any, i: number) => (
-                          <div key={i} className="flex-1 min-w-[120px] p-4 rounded-2xl bg-white/[0.03] border border-white/5 text-center space-y-1">
-                            <p className="text-xl font-black text-blue-400">{h.display}</p>
-                            <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">{formatNumber(h.count)} VISITS</p>
-                            <div className="w-full h-1 bg-white/5 mt-2 rounded-full overflow-hidden"><div className="h-full bg-blue-500/40" style={{ width: `${(h.count / stats.peakHours[0].count) * 100}%` }} /></div>
-                          </div>
-                        ))}
+                        {stats?.peakHours && stats.peakHours.length > 0 ? (
+                          stats.peakHours.map((h: any, i: number) => {
+                            const maxPeak = Math.max(1, stats.peakHours[0]?.count || 1);
+                            return (
+                              <div key={i} className="flex-1 min-w-[120px] p-4 rounded-2xl bg-white/[0.03] border border-white/5 text-center space-y-1">
+                                <p className="text-xl font-black text-blue-400">{h.display}</p>
+                                <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">{formatNumber(h.count)} VISITS</p>
+                                <div className="w-full h-1 bg-white/5 mt-2 rounded-full overflow-hidden"><div className="h-full bg-blue-500/40" style={{ width: `${(h.count / maxPeak) * 100}%` }} /></div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className="text-xs text-muted-foreground italic opacity-50">No visit time logs recorded</p>
+                        )}
                       </div>
                     </motion.div>
                   )}

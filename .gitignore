@@ -44,3 +44,7 @@ serviceAccountKey.json
 
 # Scratch test folder
 scratch/
+
+# Documents & Presentations (Ignored from Git)
+*.docx
+*.doc

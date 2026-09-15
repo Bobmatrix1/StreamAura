@@ -23,7 +23,20 @@ import CookiePolicy from '@/sections/CookiePolicy';
 import ContactUs from '@/sections/ContactUs';
 import InstallPWA from '@/components/InstallPWA';
 import CookieBanner from '@/components/CookieBanner';
-import { logVisit, updateUserPresence, logFeatureUsage, requestNotificationPermission, listenToNotifications, logPageVisit, auth, logUserAction } from '@/lib/firebase';
+import { GlobalAdLayer } from '@/components/ads/GlobalAdLayer';
+import { 
+  logVisit, 
+  updateUserPresence, 
+  logFeatureUsage, 
+  requestNotificationPermission, 
+  listenToNotifications, 
+  logPageEnter,
+  logPageLeave,
+  recordClick,
+  recordTap,
+  flushUserInteractions,
+  auth 
+} from '@/lib/firebase';
 import { API_BASE_URL } from '@/api/mediaApi';
 import type { ViewType } from '@/types';
 
@@ -84,20 +97,24 @@ export const AppContent: React.FC = () => {
   useEffect(() => {
     const trackVisit = async () => {
       try {
-        let country = 'Unknown';
-        let state = 'Unknown';
+        let country = 'Nigeria';
+        let state = 'Lagos';
         let device = 'Desktop';
         
         try {
-          const response = await fetch(`${API_BASE_URL}/api/analytics/location`);
+          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+          const response = await fetch(`${API_BASE_URL}/api/analytics/location?tz=${encodeURIComponent(tz)}`);
           if (response.ok) {
             const data = await response.json();
-            country = data.country || 'Unknown';
-            state = data.region || 'Unknown';
+            country = data.country || 'Nigeria';
+            state = data.region || 'Lagos';
             device = data.device || 'Desktop';
           }
         } catch (backendErr) {
-          if (window.location.hostname === 'localhost') country = 'Localhost';
+          if (window.location.hostname === 'localhost') {
+            country = 'Nigeria';
+            state = 'Lagos';
+          }
         }
         
         await logVisit(country, state, device, auth.currentUser?.uid);
@@ -107,7 +124,7 @@ export const AppContent: React.FC = () => {
     };
     
     trackVisit();
-    logPageVisit(activeView, auth.currentUser?.uid, 0);
+    logPageEnter(activeView, auth.currentUser?.uid);
   }, [auth.currentUser?.uid]);
 
   // 2. Real-time Presence, Badges, and Notifications
@@ -127,7 +144,8 @@ export const AppContent: React.FC = () => {
       // Presence Sync
       const syncPresence = async () => {
         try {
-          const resp = await fetch(`${API_BASE_URL}/api/analytics/location`);
+          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+          const resp = await fetch(`${API_BASE_URL}/api/analytics/location?tz=${encodeURIComponent(tz)}`);
           const data = await resp.json();
           updateUserPresence(user.uid, data.device || 'Desktop');
         } catch (e) {
@@ -149,13 +167,16 @@ export const AppContent: React.FC = () => {
   }, [isAuthenticated, user?.uid]);
 
   const handleTabChange = (tab: ViewType) => {
+    if (tab === activeView) return;
+
     // 1. Log time spent on previous page
     const timeSpent = Date.now() - viewStartTime;
-    logPageVisit(activeView, auth.currentUser?.uid, timeSpent);
+    logPageLeave(activeView, timeSpent, auth.currentUser?.uid);
 
-    // 2. Switch View
+    // 2. Switch View & Log entry to new page
     setActiveView(tab);
     setViewStartTime(Date.now());
+    logPageEnter(tab, auth.currentUser?.uid);
     
     // 3. Scroll the main content area to top (since main has overflow-auto)
     setTimeout(() => {
@@ -171,30 +192,33 @@ export const AppContent: React.FC = () => {
     }
   };
 
-  // Global Interaction Tracking
+  // Global Interaction Tracking (Accurate Clicks and Touch Taps)
   useEffect(() => {
-    const handleGlobalClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      const details = {
-        tagName: target.tagName,
-        text: target.innerText?.substring(0, 30),
-        id: target.id,
-        className: target.className
-      };
-      logUserAction('click', activeView, details, auth.currentUser?.uid);
+    const handleGlobalClick = () => {
+      recordClick();
     };
 
-    window.addEventListener('click', handleGlobalClick);
-    return () => window.removeEventListener('click', handleGlobalClick);
-  }, [activeView, auth.currentUser?.uid]);
+    const handleGlobalTouch = () => {
+      recordTap();
+    };
 
-  // Final Unmount Tracking
-  useEffect(() => {
-    return () => {
+    const handleBeforeUnload = () => {
       const timeSpent = Date.now() - viewStartTime;
-      logPageVisit(activeView, auth.currentUser?.uid, timeSpent);
+      logPageLeave(activeView, timeSpent, auth.currentUser?.uid);
+      flushUserInteractions();
     };
-  }, []);
+
+    window.addEventListener('click', handleGlobalClick, { passive: true });
+    window.addEventListener('touchstart', handleGlobalTouch, { passive: true });
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('click', handleGlobalClick);
+      window.removeEventListener('touchstart', handleGlobalTouch);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      flushUserInteractions();
+    };
+  }, [activeView, viewStartTime, auth.currentUser?.uid]);
 
   if (isLoading) {
     return (
@@ -273,6 +297,7 @@ export const AppContent: React.FC = () => {
   return (
     <>
       <Layout activeTab={activeView} onTabChange={handleTabChange}>
+        <GlobalAdLayer currentView={activeView} onNavigate={handleTabChange} />
         <AnimatePresence mode="wait">
           <motion.div
             key={activeView}

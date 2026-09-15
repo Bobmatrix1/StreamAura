@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react-native';
 import { useAuth } from '../contexts/AuthContext';
+import { getGreetingName } from '../lib/utils';
 
 interface LoginProps {
   onToggleView: () => void;
@@ -36,6 +37,8 @@ const Login: React.FC<LoginProps> = ({ onToggleView }) => {
     setIsSubmitting(true);
     try {
       await signIn(email, password);
+      const name = getGreetingName(null, email);
+      Alert.alert('Welcome Back', `Welcome back, ${name}!`);
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Invalid email or password');
     } finally {
