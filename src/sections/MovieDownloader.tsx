@@ -87,7 +87,7 @@ const RotatingSpinner = () => (
 // Category visual helper
 const getCategoryMeta = (catName: string) => {
   const lower = catName.toLowerCase();
-  if (lower.includes('action') || lower.includes('fight') || lower.includes('war')) {
+  if (lower.includes('action') || lower.includes('fight') || lower.includes('war') || lower.includes('stunt')) {
     return {
       genreId: 'action',
       icon: <Zap className="w-4 h-4 text-rose-400" />,
@@ -95,27 +95,27 @@ const getCategoryMeta = (catName: string) => {
       accentColor: 'from-rose-500 to-orange-500'
     };
   }
-  if (lower.includes('africa') || lower.includes('nollywood') || lower.includes('nigeria')) {
+  if (lower.includes('africa') || lower.includes('nollywood') || lower.includes('nigeria') || lower.includes('black shows')) {
     return {
       genreId: 'african',
       icon: <Globe className="w-4 h-4 text-emerald-400" />,
-      tagline: 'Premier Nollywood & top African cinema hits',
+      tagline: 'Premier Nollywood & top African cinema and series',
       accentColor: 'from-emerald-500 to-teal-500'
     };
   }
-  if (lower.includes('k-drama') || lower.includes('asian') || lower.includes('korean')) {
+  if (lower.includes('k-drama') || lower.includes('c-drama') || lower.includes('asian') || lower.includes('korean')) {
     return {
       genreId: 'kdrama',
       icon: <Tv className="w-4 h-4 text-pink-400" />,
-      tagline: 'Addictive Korean dramas & emotional storytelling',
+      tagline: 'Addictive Korean & Asian dramas, emotional storytelling',
       accentColor: 'from-pink-500 to-purple-500'
     };
   }
-  if (lower.includes('romance') || lower.includes('love') || lower.includes('passion')) {
+  if (lower.includes('romance') || lower.includes('love') || lower.includes('passion') || lower.includes('bl story') || lower.includes('teen romance')) {
     return {
       genreId: 'romance',
       icon: <Heart className="w-4 h-4 text-rose-400" />,
-      tagline: 'Heartfelt romances, chemistry & emotional journeys',
+      tagline: 'Heartfelt romances, chemistry & passionate stories',
       accentColor: 'from-rose-500 to-pink-500'
     };
   }
@@ -123,23 +123,23 @@ const getCategoryMeta = (catName: string) => {
     return {
       genreId: 'animation',
       icon: <Video className="w-4 h-4 text-cyan-400" />,
-      tagline: 'Stunning animated features for all ages',
+      tagline: 'Stunning animated features & top Japanese anime',
       accentColor: 'from-cyan-500 to-blue-500'
     };
   }
-  if (lower.includes('comedy') || lower.includes('laugh')) {
+  if (lower.includes('comedy') || lower.includes('laugh') || lower.includes('sitcom')) {
     return {
       genreId: 'comedy',
       icon: <Smile className="w-4 h-4 text-yellow-400" />,
-      tagline: 'Laugh-out-loud comedies and feel-good entertainment',
+      tagline: 'Laugh-out-loud comedies, sitcoms & feel-good entertainment',
       accentColor: 'from-yellow-500 to-amber-500'
     };
   }
-  if (lower.includes('sci-fi') || lower.includes('fantasy')) {
+  if (lower.includes('sci-fi') || lower.includes('fantasy') || lower.includes('superhero') || lower.includes('epic fantasy')) {
     return {
       genreId: 'scifi',
       icon: <Zap className="w-4 h-4 text-blue-400" />,
-      tagline: 'Visionary science fiction & epic fantasy worlds',
+      tagline: 'Visionary sci-fi, superheroes & epic fantasy worlds',
       accentColor: 'from-blue-500 to-indigo-500'
     };
   }
@@ -151,6 +151,14 @@ const getCategoryMeta = (catName: string) => {
       accentColor: 'from-red-500 to-rose-600'
     };
   }
+  if (lower.includes('crime') || lower.includes('gangster') || lower.includes('mystery') || lower.includes('heist')) {
+    return {
+      genreId: 'crime',
+      icon: <Clapperboard className="w-4 h-4 text-orange-400" />,
+      tagline: 'Underworld crime, gangster sagas & detective suspense',
+      accentColor: 'from-orange-500 to-amber-600'
+    };
+  }
   if (lower.includes('top rated') || lower.includes('acclaimed') || lower.includes('award')) {
     return {
       genreId: 'top_rated',
@@ -159,7 +167,7 @@ const getCategoryMeta = (catName: string) => {
       accentColor: 'from-amber-500 to-yellow-500'
     };
   }
-  if (lower.includes('popular') || lower.includes('hot')) {
+  if (lower.includes('popular') || lower.includes('hot') || lower.includes('coming soon') || lower.includes('bet+')) {
     return {
       genreId: 'popular',
       icon: <Flame className="w-4 h-4 text-amber-400" />,
@@ -195,6 +203,10 @@ interface MovieCacheState {
     series: { id: string; category: string; genreId: string; items: MovieInfo[] }[];
   };
   genreSections: Record<string, MovieInfo[]>;
+  searchResults: {
+    movie: MovieInfo[];
+    series: MovieInfo[];
+  };
   movieDetails: Map<string, MovieInfo>;
   savedScrollY: number;
   savedMainScrollTop: number;
@@ -202,13 +214,13 @@ interface MovieCacheState {
   activeTab: 'search' | 'library';
   selectedGenre: string;
   query: string;
-  searchResults: MovieInfo[];
   activeSection: ActiveSectionState | null;
 }
 
 const movieGlobalCache: MovieCacheState = {
   trendingRows: { movie: [], series: [] },
   genreSections: {},
+  searchResults: { movie: [], series: [] },
   movieDetails: new Map(),
   savedScrollY: 0,
   savedMainScrollTop: 0,
@@ -216,7 +228,6 @@ const movieGlobalCache: MovieCacheState = {
   activeTab: 'search',
   selectedGenre: 'all',
   query: '',
-  searchResults: [],
   activeSection: null
 };
 
@@ -229,9 +240,9 @@ const MovieDownloader: React.FC = () => {
   const [searchType, setSearchType] = useState<'movie' | 'series'>(movieGlobalCache.searchType);
   const [activeTab, setActiveTab] = useState<'search' | 'library'>(movieGlobalCache.activeTab);
   
-  const hasCachedTrending = movieGlobalCache.trendingRows[movieGlobalCache.searchType]?.length > 0;
+  const hasCachedTrending = (movieGlobalCache.trendingRows[movieGlobalCache.searchType]?.length || 0) > 0;
   const [isSearching, setIsSearching] = useState(!hasCachedTrending && movieGlobalCache.activeTab === 'search');
-  const [searchResults, setSearchResults] = useState<MovieInfo[]>(movieGlobalCache.searchResults);
+  const [searchResults, setSearchResults] = useState<MovieInfo[]>(movieGlobalCache.searchResults[movieGlobalCache.searchType] || []);
   const [searchPage, setSearchPage] = useState(1);
   const [searchHasMore, setSearchHasMore] = useState(true);
   const [isLoadingMoreSearch, setIsLoadingMoreSearch] = useState(false);
@@ -300,6 +311,16 @@ const MovieDownloader: React.FC = () => {
         }
       });
     }
+  };
+
+  // Smooth scroll directly to the movie flyer tiles / discovery section
+  const scrollToTiles = (smooth: boolean = true) => {
+    requestAnimationFrame(() => {
+      const el = document.getElementById('movie-flyer-tiles');
+      if (el) {
+        el.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant', block: 'start' });
+      }
+    });
   };
 
   // Restore scroll on mount if coming back from another tab or view
@@ -410,11 +431,11 @@ const MovieDownloader: React.FC = () => {
   const formatRowsFromFlat = (items: MovieInfo[], type: 'movie' | 'series') => {
     if (!items || items.length === 0) return [];
     
-    // Deduplicate items by ID
+    // Deduplicate items by ID and strictly assign mediaType
     const uniqueMap = new Map<string, MovieInfo>();
     items.forEach(item => {
       if (item.id && !uniqueMap.has(item.id)) {
-        uniqueMap.set(item.id, item);
+        uniqueMap.set(item.id, { ...item, mediaType: type });
       }
     });
     const pool = Array.from(uniqueMap.values());
@@ -429,38 +450,38 @@ const MovieDownloader: React.FC = () => {
     const rows = [
       {
         id: 'trending',
-        category: type === 'movie' ? '🔥 Trending Movies' : '🔥 Trending TV Series',
+        category: type === 'movie' ? '🔥 Trending Blockbusters' : '🔥 Trending TV Series',
         genreId: 'trending',
         items: trendingList.length > 0 ? trendingList : pool.slice(0, 40)
       },
       {
         id: 'top_rated',
-        category: '🌟 Critically Acclaimed & Top Rated',
+        category: type === 'movie' ? '🌟 Top Rated Masterpieces' : '🌟 Critically Acclaimed TV Shows',
         genreId: 'top_rated',
         items: topRatedList.length > 0 ? topRatedList : pool.slice(0, 40)
       },
       {
         id: 'popular',
-        category: '🍿 Popular on StreamAura Cinema',
+        category: type === 'movie' ? '🍿 Popular Movies on StreamAura' : '🍿 Popular Series on StreamAura',
         genreId: 'popular',
         items: popularPicks.length > 0 ? popularPicks : pool.slice(0, 40)
       },
       {
         id: 'action',
-        category: '⚡ Action & High-Octane Thrillers',
+        category: type === 'movie' ? '⚡ Action & Thriller Movies' : '⚡ Action & Drama Series',
         genreId: 'action',
         items: actionPicks.length > 0 ? actionPicks : pool.slice(0, 40)
       },
       {
         id: 'fresh',
-        category: '✨ Fresh & New Releases',
+        category: type === 'movie' ? '✨ Fresh Movie Releases' : '✨ Fresh Series Releases',
         genreId: 'all',
         items: recentReleases.length > 0 ? recentReleases : pool.slice(0, 40)
       },
       {
         id: 'international',
-        category: '🌍 Global Cinema, Nollywood & K-Drama',
-        genreId: 'african',
+        category: type === 'movie' ? '🌍 Nollywood & Global Cinema' : '🌍 K-Drama, Anime & Global Series',
+        genreId: type === 'movie' ? 'african' : 'kdrama',
         items: internationalPicks.length > 0 ? internationalPicks : pool.slice(0, 40)
       }
     ];
@@ -468,13 +489,17 @@ const MovieDownloader: React.FC = () => {
     return rows;
   };
 
-  const loadTrending = async (force: boolean = false) => {
-    const cached = movieGlobalCache.trendingRows[searchType];
+  const loadTrending = async (force: boolean = false, typeOverride?: 'movie' | 'series') => {
+    const currentType = typeOverride || searchType;
+    const cached = movieGlobalCache.trendingRows[currentType];
     if (cached && cached.length > 0 && !force) {
       setTrendingRows(cached);
       setIsSearching(false);
       setIsTrending(true);
     } else {
+      if (!cached || cached.length === 0) {
+        setTrendingRows([]);
+      }
       setIsSearching(true);
     }
 
@@ -485,32 +510,36 @@ const MovieDownloader: React.FC = () => {
     movieGlobalCache.activeSection = null;
 
     try {
-      const result = await mediaApi.getTrendingMovies(searchType);
+      const result = await mediaApi.getTrendingMovies(currentType);
       if (result.success && Array.isArray(result.data)) {
         let rows: { id: string; category: string; genreId: string; items: MovieInfo[] }[] = [];
         if (result.isRows || (result.data.length > 0 && (result.data[0] as any).category)) {
           // Backend returned categorized rows (MovieBox operatingList)
           rows = (result.data as any[]).map((cat, idx) => {
             const meta = getCategoryMeta(cat.category || '');
+            const cleanItems = (cat.items || []).map((m: MovieInfo) => ({
+              ...m,
+              mediaType: currentType
+            }));
             return {
               id: `row-${idx}-${meta.genreId}`,
               category: cat.category,
               genreId: meta.genreId,
-              items: cat.items || []
+              items: cleanItems
             };
           }).filter(r => r.items && r.items.length > 0);
           
           if (rows.length === 0) {
-            rows = formatRowsFromFlat(result.data, searchType);
+            rows = formatRowsFromFlat(result.data, currentType);
           }
         } else {
           // Flat list fallback
-          rows = formatRowsFromFlat(result.data, searchType);
+          rows = formatRowsFromFlat(result.data, currentType);
         }
         
         if (rows.length > 0) {
           setTrendingRows(rows);
-          movieGlobalCache.trendingRows[searchType] = rows;
+          movieGlobalCache.trendingRows[currentType] = rows;
         }
         setSearchResults([]);
         setIsTrending(true);
@@ -525,10 +554,11 @@ const MovieDownloader: React.FC = () => {
     }
   };
 
-  const handleSearch = async (overrideQuery?: string, pageNum: number = 1) => {
+  const handleSearch = async (overrideQuery?: string, pageNum: number = 1, typeOverride?: 'movie' | 'series') => {
     const q = overrideQuery !== undefined ? overrideQuery : query;
+    const currentType = typeOverride || searchType;
     if (!q.trim()) {
-      loadTrending();
+      loadTrending(false, currentType);
       return;
     }
     
@@ -545,21 +575,24 @@ const MovieDownloader: React.FC = () => {
 
     try {
       if (pageNum === 1) {
-        logSearch(q, searchType === 'movie' ? 'movie' : 'series', user?.uid);
+        logSearch(q, currentType, user?.uid);
       }
-      const result = await mediaApi.searchMovies(q, searchType, pageNum, 40);
+      const result = await mediaApi.searchMovies(q, currentType, pageNum, 40);
       if (result.success && result.data) {
-        const newItems = result.data || [];
+        const newItems = (result.data || []).map((m: MovieInfo) => ({
+          ...m,
+          mediaType: currentType
+        }));
         if (pageNum === 1) {
           setSearchResults(newItems);
-          movieGlobalCache.searchResults = newItems;
+          movieGlobalCache.searchResults[currentType] = newItems;
           movieGlobalCache.query = q;
         } else {
           setSearchResults(prev => {
             const seen = new Set(prev.map(p => p.id));
             const fresh = newItems.filter(i => !seen.has(i.id));
             const merged = [...prev, ...fresh];
-            movieGlobalCache.searchResults = merged;
+            movieGlobalCache.searchResults[currentType] = merged;
             return merged;
           });
         }
@@ -585,18 +618,58 @@ const MovieDownloader: React.FC = () => {
     handleSearch(undefined, nextPage);
   };
 
+  // Dedicated Type Switcher Handler
+  const handleTypeSwitch = (newType: 'movie' | 'series') => {
+    if (newType === searchType) return;
+    setSearchType(newType);
+    movieGlobalCache.searchType = newType;
+    setSpotlightIndex(0);
+    setSelectedMovie(null);
+    setHighlightedMovieId(null);
+    
+    // Always synchronize trendingRows with the target mediaType cache immediately
+    const cachedTrending = movieGlobalCache.trendingRows[newType] || [];
+    setTrendingRows(cachedTrending);
+    
+    // 1. If currently inside a dedicated Genre / Category section:
+    if (activeSection) {
+      handleOpenSection(activeSection.title, activeSection.genreId, [], newType);
+      if (cachedTrending.length === 0) {
+        loadTrending(false, newType);
+      }
+      return;
+    }
+    
+    // 2. If a search query is active:
+    if (query.trim()) {
+      handleSearch(query, 1, newType);
+      return;
+    }
+    
+    // 3. Main Discovery view:
+    if (cachedTrending.length > 0) {
+      setIsSearching(false);
+      setIsTrending(true);
+    } else {
+      setIsSearching(true);
+      setIsTrending(true);
+      loadTrending(false, newType);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'search') {
       if (query.trim()) {
-        handleSearch(query, 1);
+        handleSearch(query, 1, searchType);
       } else {
-        loadTrending();
+        loadTrending(false, searchType);
       }
     }
-  }, [searchType, activeTab]);
+  }, [activeTab]);
 
   // Open dedicated Netflix/MovieBox Category/Genre View section
-  const handleOpenSection = async (title: string, genreId: string, initialItems: MovieInfo[] = []) => {
+  const handleOpenSection = async (title: string, genreId: string, initialItems: MovieInfo[] = [], typeOverride?: 'movie' | 'series') => {
+    const currentType = typeOverride || searchType;
     // 1. Capture scroll before opening section
     const wScroll = window.scrollY || window.pageYOffset || 0;
     const mainEl = document.querySelector('main');
@@ -609,19 +682,19 @@ const MovieDownloader: React.FC = () => {
     setQuery('');
     const meta = getCategoryMeta(title);
 
-    let itemsToDisplay = [...initialItems];
+    let itemsToDisplay = initialItems.map(m => ({ ...m, mediaType: currentType }));
 
     // Check cached genre items first
-    const cachedGenre = movieGlobalCache.genreSections[`${genreId}_${searchType}`];
+    const cachedGenre = movieGlobalCache.genreSections[`${genreId}_${currentType}`];
     if (cachedGenre && cachedGenre.length > 0) {
       itemsToDisplay = cachedGenre;
     } else if (itemsToDisplay.length < 20 && genreId !== 'all') {
       setIsSearching(true);
       try {
-        const res = await mediaApi.getMoviesByGenre(genreId, searchType, 1, 40);
+        const res = await mediaApi.getMoviesByGenre(genreId, currentType, 1, 40);
         if (res.success && res.data && res.data.length > 0) {
-          itemsToDisplay = res.data;
-          movieGlobalCache.genreSections[`${genreId}_${searchType}`] = res.data;
+          itemsToDisplay = res.data.map(m => ({ ...m, mediaType: currentType }));
+          movieGlobalCache.genreSections[`${genreId}_${currentType}`] = itemsToDisplay;
         }
       } catch (err) {
         console.error('Failed to pre-fetch genre:', err);
@@ -647,8 +720,7 @@ const MovieDownloader: React.FC = () => {
     movieGlobalCache.activeSection = sectionState;
     movieGlobalCache.selectedGenre = genreId;
 
-    window.scrollTo({ top: 0, behavior: 'instant' });
-    mainEl?.scrollTo({ top: 0, behavior: 'instant' });
+    scrollToTiles(true);
   };
 
   const handleCloseSection = () => {
@@ -657,9 +729,16 @@ const MovieDownloader: React.FC = () => {
     setSelectedGenre('all');
     movieGlobalCache.selectedGenre = 'all';
 
-    requestAnimationFrame(() => {
-      restoreScrollPosition(true);
-    });
+    const cached = movieGlobalCache.trendingRows[searchType] || [];
+    if (cached.length > 0) {
+      setTrendingRows(cached);
+      setIsTrending(true);
+      setIsSearching(false);
+    } else {
+      loadTrending(false, searchType);
+    }
+
+    scrollToTiles(true);
   };
 
   // Load 40 more titles inside the dedicated genre / category section
@@ -672,7 +751,7 @@ const MovieDownloader: React.FC = () => {
     try {
       const res = await mediaApi.getMoviesByGenre(activeSection.genreId, searchType, nextPage, 40);
       if (res.success && res.data && res.data.length > 0) {
-        const incoming = res.data;
+        const incoming = res.data.map((m: MovieInfo) => ({ ...m, mediaType: searchType }));
         setActiveSection(prev => {
           if (!prev) return null;
           const seen = new Set(prev.items.map(m => m.id));
@@ -703,18 +782,14 @@ const MovieDownloader: React.FC = () => {
     setSelectedMovie(null);
 
     if (genre.id === 'all') {
-      handleCloseSection();
       setQuery('');
-      if (trendingRows.length === 0) {
-        loadTrending();
-      } else {
-        setIsTrending(true);
-      }
+      handleCloseSection();
       return;
     }
 
-    // Check if we have matching items locally in trendingRows
-    const matchedRow = trendingRows.find(r => 
+    // Check if we have matching items locally in trendingRows for this searchType
+    const currentRows = movieGlobalCache.trendingRows[searchType] || trendingRows;
+    const matchedRow = currentRows.find(r => 
       r.id === genre.id || 
       r.genreId === genre.id || 
       r.category.toLowerCase().includes(genre.id.toLowerCase()) ||
@@ -722,19 +797,46 @@ const MovieDownloader: React.FC = () => {
     );
 
     const initial = matchedRow ? matchedRow.items : [];
-    await handleOpenSection(genre.label, genre.id, initial);
+    await handleOpenSection(genre.label, genre.id, initial, searchType);
   };
 
-  // Hero Spotlight Featured Items
+  // Hero Spotlight Featured Items - Strictly isolated by searchType
   const spotlightItems = useMemo(() => {
-    if (trendingRows.length === 0) return searchResults.slice(0, 6);
+    const targetType = searchType;
+    const pool: MovieInfo[] = [];
+
+    // 1. Gather all items matching targetType from trendingRows
     for (const r of trendingRows) {
       if (r.items && r.items.length > 0) {
-        return r.items.slice(0, 6);
+        for (const item of r.items) {
+          if (!item.mediaType || item.mediaType === targetType) {
+            pool.push({ ...item, mediaType: targetType });
+          }
+        }
       }
     }
-    return searchResults.slice(0, 6);
-  }, [trendingRows, searchResults]);
+
+    // 2. If pool is empty, look into searchResults
+    if (pool.length === 0) {
+      for (const item of searchResults) {
+        if (!item.mediaType || item.mediaType === targetType) {
+          pool.push({ ...item, mediaType: targetType });
+        }
+      }
+    }
+
+    // Deduplicate pool by ID
+    const seen = new Set<string>();
+    const uniquePool: MovieInfo[] = [];
+    for (const item of pool) {
+      if (item.id && !seen.has(String(item.id))) {
+        seen.add(String(item.id));
+        uniquePool.push(item);
+      }
+    }
+
+    return uniquePool.slice(0, 8);
+  }, [trendingRows, searchResults, searchType]);
 
   // Auto-rotate spotlight
   useEffect(() => {
@@ -1043,9 +1145,6 @@ const MovieDownloader: React.FC = () => {
             
             <div>
               <div className="flex items-center justify-center md:justify-start gap-2">
-                <span className="px-2.5 py-0.5 rounded-full bg-white/10 border border-white/10 text-[10px] font-black uppercase tracking-widest text-cyan-300">
-                  ● 4K Cinema Hub
-                </span>
                 <span className="text-[10px] font-bold text-amber-400 flex items-center gap-1">
                   <Star className="w-3 h-3 fill-current" /> Instant Streaming & Pre-Orders
                 </span>
@@ -1095,24 +1194,24 @@ const MovieDownloader: React.FC = () => {
 
             {/* Type Switcher: Movies vs TV Series */}
             {activeTab === 'search' && (
-              <div className="flex p-1 bg-black/40 rounded-2xl border border-white/10">
+              <div className="flex p-1 bg-black/50 rounded-2xl border border-white/10 shadow-inner">
                 <button 
-                  onClick={() => setSearchType('movie')}
-                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  onClick={() => handleTypeSwitch('movie')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95 ${
                     searchType === 'movie' 
-                      ? 'bg-cyan-500 text-white shadow-md shadow-cyan-500/20' 
-                      : 'text-white/50 hover:text-white'
+                      ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25 ring-1 ring-white/20' 
+                      : 'text-white/60 hover:text-white hover:bg-white/5'
                   }`}
                 >
                   <Film className="w-3.5 h-3.5" />
                   <span>Movies</span>
                 </button>
                 <button 
-                  onClick={() => setSearchType('series')}
-                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  onClick={() => handleTypeSwitch('series')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95 ${
                     searchType === 'series' 
-                      ? 'bg-purple-500 text-white shadow-md shadow-purple-500/20' 
-                      : 'text-white/50 hover:text-white'
+                      ? 'bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg shadow-purple-500/25 ring-1 ring-white/20' 
+                      : 'text-white/60 hover:text-white hover:bg-white/5'
                   }`}
                 >
                   <Tv className="w-3.5 h-3.5" />
@@ -1646,7 +1745,7 @@ const MovieDownloader: React.FC = () => {
             )}
 
           {/* B. DISCOVERY & SECTION TREE (Always preserved in DOM to retain scroll positions & image decodes) */}
-          <div className={selectedMovie ? "hidden" : "space-y-8"}>
+          <div id="movie-flyer-tiles" className={selectedMovie ? "hidden" : "space-y-8 scroll-mt-24"}>
             {activeSection ? (
               /* DEDICATED CATEGORY / GENRE FULL SECTION VIEW (Netflix & MovieBox Style) */
               <div
@@ -1788,23 +1887,20 @@ const MovieDownloader: React.FC = () => {
                     )}
 
                     <div className="relative z-10 p-6 sm:p-8 md:p-10 w-full max-w-3xl space-y-3 sm:space-y-4">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {currentSpotlight.rating && (
-                          <span className="px-2.5 py-0.5 rounded-lg bg-amber-500 text-black font-black text-[11px] flex items-center gap-1 shadow-md">
-                            <Star className="w-3 h-3 fill-current" /> {currentSpotlight.rating}
-                          </span>
-                        )}
-                        {currentSpotlight.year && (
-                          <span className="px-2.5 py-0.5 rounded-lg bg-black/70 border border-white/15 text-white/90 font-mono text-[11px] font-bold">
-                            {currentSpotlight.year}
-                          </span>
-                        )}
-                        {currentSpotlight.genres && currentSpotlight.genres.length > 0 && (
-                          <span className="px-2.5 py-0.5 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] font-black uppercase tracking-wider">
-                            {currentSpotlight.genres[0]}
-                          </span>
-                        )}
-                      </div>
+                      {(currentSpotlight.year || (currentSpotlight.genres && currentSpotlight.genres.length > 0)) && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          {currentSpotlight.year && (
+                            <span className="px-2.5 py-0.5 rounded-lg bg-black/70 border border-white/15 text-white/90 font-mono text-[11px] font-bold">
+                              {currentSpotlight.year}
+                            </span>
+                          )}
+                          {currentSpotlight.genres && currentSpotlight.genres.length > 0 && (
+                            <span className="px-2.5 py-0.5 rounded-lg bg-white/10 text-white/90 border border-white/15 text-[10px] font-black uppercase tracking-wider">
+                              {currentSpotlight.genres[0]}
+                            </span>
+                          )}
+                        </div>
+                      )}
 
                       <h1 className="text-2xl sm:text-4xl md:text-5xl font-black uppercase text-white tracking-tight leading-tight drop-shadow-xl max-w-2xl">
                         {currentSpotlight.title}
@@ -1816,20 +1912,24 @@ const MovieDownloader: React.FC = () => {
                         </p>
                       ) : null}
 
-                      <div className="flex flex-wrap items-center gap-3 pt-1">
+                      <div className="flex flex-row items-center gap-2.5 sm:gap-3 flex-nowrap pt-1 overflow-x-auto [scrollbar-width:none]">
                         <button
                           onClick={() => handleSelectMovie(currentSpotlight)}
-                          className="px-6 py-3 rounded-2xl bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-xl shadow-cyan-500/25 transition-all cursor-pointer active:scale-95"
+                          className={`px-5 sm:px-6 py-2.5 sm:py-3 rounded-2xl text-white font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-xl transition-all cursor-pointer active:scale-95 whitespace-nowrap shrink-0 ${
+                            searchType === 'series'
+                              ? 'bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 shadow-purple-500/25'
+                              : 'bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 shadow-cyan-500/25'
+                          }`}
                         >
-                          <Play className="w-4 h-4 fill-current" />
-                          <span>Watch & Details</span>
+                          <Play className="w-4 h-4 fill-current shrink-0" />
+                          <span>{searchType === 'series' ? 'Watch Series' : 'Watch Movie'}</span>
                         </button>
 
                         <button
                           onClick={() => handleSelectMovie(currentSpotlight)}
-                          className="px-5 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wider border border-white/20 transition-all cursor-pointer active:scale-95 backdrop-blur-md"
+                          className="px-4 sm:px-5 py-2.5 sm:py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wider border border-white/20 transition-all cursor-pointer active:scale-95 backdrop-blur-md whitespace-nowrap shrink-0"
                         >
-                          <span>Explore Season & 4K Info</span>
+                          <span>{searchType === 'series' ? 'Seasons & Info' : '4K & Details'}</span>
                         </button>
                       </div>
 
@@ -1839,7 +1939,9 @@ const MovieDownloader: React.FC = () => {
                             key={`spotlight-dot-${i}`}
                             onClick={() => setSpotlightIndex(i)}
                             className={`h-1.5 rounded-full transition-all cursor-pointer ${
-                              i === spotlightIndex ? 'w-8 bg-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.7)]' : 'w-2 bg-white/30 hover:bg-white/60'
+                              i === spotlightIndex 
+                                ? (searchType === 'series' ? 'w-8 bg-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.7)]' : 'w-8 bg-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.7)]') 
+                                : 'w-2 bg-white/30 hover:bg-white/60'
                             }`}
                             title={`Featured Title ${i + 1}`}
                           />

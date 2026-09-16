@@ -1978,8 +1978,23 @@ async def search_movies(
                 if isinstance(res, list): return res
                 if isinstance(res, dict):
                     return res.get('items') or res.get('list') or res.get('resData', {}).get('list') or []
-                return getattr(res, 'items', []) or getattr(res, 'list', [])
-            
+            target_sub_type = 1 if search_type_str == "movie" else 2
+
+            def filter_items_by_type(raw_list):
+                res = []
+                for it in raw_list:
+                    st_val = get_val(it, 'subjectType')
+                    if st_val is None:
+                        st_val = get_val(it, 'subject_type')
+                    if st_val is not None:
+                        try:
+                            if int(st_val) != target_sub_type:
+                                continue
+                        except (ValueError, TypeError):
+                            pass
+                    res.append(it)
+                return res
+
             if auth_token:
                 # 1. Try v2 Search (Web API - compatible with Chrome-captured web tokens)
                 try:
@@ -1999,7 +2014,7 @@ async def search_movies(
                         try:
                             search = SearchV2(sess, search_query, subject_type=st_v2, page=p, per_page=24)
                             res = await search.get_content()
-                            all_raw.extend(extract_items(res))
+                            all_raw.extend(filter_items_by_type(extract_items(res)))
                         except Exception:
                             pass
                     if all_raw:
@@ -2023,12 +2038,12 @@ async def search_movies(
                             try:
                                 search = SearchV2V3(client, search_query, subject_type=st, tab_id=tab, page=p, per_page=24)
                                 res = await search.get_content()
-                                all_raw.extend(extract_items(res))
+                                all_raw.extend(filter_items_by_type(extract_items(res)))
                             except Exception:
                                 try:
                                     search = SearchV3(client, search_query, subject_type=st, page=p, per_page=24)
                                     res = await search.get_content()
-                                    all_raw.extend(extract_items(res))
+                                    all_raw.extend(filter_items_by_type(extract_items(res)))
                                 except Exception:
                                     pass
                         if all_raw:
@@ -2042,13 +2057,13 @@ async def search_movies(
                     sess_no_auth = Session(verify=False)
                     search = Search(sess_no_auth, search_query, subject_type=st, page=p, per_page=24)
                     res = await search.get_content()
-                    all_raw.extend(extract_items(res))
+                    all_raw.extend(filter_items_by_type(extract_items(res)))
                 except Exception:
                     try:
                         sess_no_auth = Session(verify=False)
                         search = Search(sess_no_auth, search_query, subject_type=st, page=p, per_page=24)
                         model = await search.get_content_model()
-                        all_raw.extend(extract_items(model))
+                        all_raw.extend(filter_items_by_type(extract_items(model)))
                     except Exception:
                         pass
             return all_raw
@@ -2065,41 +2080,17 @@ async def search_movies(
         # 1. Search in the requested category (type)
         items = await perform_search(type, query, target_count=per_page, page_num=page)
         
-        # 2. If no results found in the requested category
+        # 2. If no results found in the requested category, try cleaned/broader queries within the same type
         if not items:
-            other_type = "series" if type == "movie" else "movie"
-            other_items = await perform_search(other_type, query, target_count=per_page, page_num=page)
+            cleaned_query = clean_query_for_related(query)
+            if cleaned_query and cleaned_query.lower() != query.lower():
+                items = await perform_search(type, cleaned_query, target_count=per_page, page_num=page)
             
-            if other_items:
-                cleaned_query = clean_query_for_related(query)
-                if cleaned_query and cleaned_query.lower() != query.lower():
-                    items = await perform_search(type, cleaned_query, target_count=per_page, page_num=page)
-                
-                if not items and cleaned_query:
-                    words = [w for w in re.split(r'\s+', cleaned_query) if len(w) > 2]
-                    if words:
-                        broad_query = " ".join(words[:2])
-                        items = await perform_search(type, broad_query, target_count=per_page, page_num=page)
-                
-                if not items:
-                    from moviebox_api.v1 import Trending
-                    tr = Trending(client_session, page=page, per_page=24)
-                    tr_res = await tr.get_content()
-                    raw_trending = tr_res.get('subjectList', []) or []
-                    target_sub_type = 1 if type == "movie" else 2
-                    items = [i for i in raw_trending if get_val(i, 'subjectType') == target_sub_type][:per_page]
-            else:
-                cleaned_query = clean_query_for_related(query)
-                if cleaned_query and cleaned_query.lower() != query.lower():
-                    items = await perform_search(type, cleaned_query, target_count=per_page, page_num=page)
-                
-                if not items:
-                    from moviebox_api.v1 import Trending
-                    tr = Trending(client_session, page=page, per_page=24)
-                    tr_res = await tr.get_content()
-                    raw_trending = tr_res.get('subjectList', []) or []
-                    target_sub_type = 1 if type == "movie" else 2
-                    items = [i for i in raw_trending if get_val(i, 'subjectType') == target_sub_type][:per_page]
+            if not items and cleaned_query:
+                words = [w for w in re.split(r'\s+', cleaned_query) if len(w) > 2]
+                if words:
+                    broad_query = " ".join(words[:2])
+                    items = await perform_search(type, broad_query, target_count=per_page, page_num=page)
 
         formatted_results = []
         seen_ids = set()
@@ -2170,8 +2161,8 @@ async def get_movies_by_genre(
 
         # Genre to search keyword mappings for deep catalogues
         genre_map = {
-            "all": "popular",
-            "trending": "",
+            "all": "movie" if type == "movie" else "series",
+            "trending": "movie" if type == "movie" else "series",
             "popular": "popular",
             "action": "action",
             "african": "nollywood",
@@ -2190,29 +2181,16 @@ async def get_movies_by_genre(
         }
         
         target_keyword = genre_map.get(genre_lower, genre_lower)
-
-        if genre_lower in ["trending", "all", "popular"] and not target_keyword:
-            from moviebox_api.v1 import Trending
-            pages = [(page - 1) * 2, (page - 1) * 2 + 1]
-            tasks = [Trending(client_session, page=p, per_page=24).get_content() for p in pages]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            raw_trending = []
-            for r in results:
-                if isinstance(r, dict):
-                    raw_trending.extend(r.get('subjectList', []) or [])
-            target_sub_type = 1 if type == "movie" else 2
-            items = [i for i in raw_trending if get_val(i, 'subjectType') == target_sub_type]
-        else:
-            # Search with keyword and page
-            search_query = target_keyword or genre_lower
-            # Forward to search_movies handler logic with page & per_page
-            res = await search_movies(query=search_query, type=type, page=page, per_page=per_page)
-            if isinstance(res, dict) and res.get('success'):
-                _genre_cache[cache_key] = {"time": now, "data": res}
-                return res
-            elif isinstance(res, JSONResponse):
-                return res
-            items = []
+        search_query = target_keyword or ("movie" if type == "movie" else "series")
+        
+        # Forward to search_movies handler logic with page & per_page
+        res = await search_movies(query=search_query, type=type, page=page, per_page=per_page)
+        if isinstance(res, dict) and res.get('success'):
+            _genre_cache[cache_key] = {"time": now, "data": res}
+            return res
+        elif isinstance(res, JSONResponse):
+            return res
+        items = []
 
         formatted_results = []
         seen_ids = set()
@@ -2285,33 +2263,40 @@ async def get_trending_movies(type: str = "movie"):
 
         target_sub_type = 1 if type == "movie" else 2
 
-        # A. Try fetching Homepage operating categories (60+ rows including Nollywood, Action, Thrillers, Romance, Popular, etc.)
+        # A. Try fetching Homepage operating categories
         try:
             from moviebox_api.v2.core import Homepage
             hp = Homepage(client_session)
             hp_res = await hp.get_content()
-            operating_list = hp_res.get('operatingList', [])
+            operating_list = hp_res.get('operatingList', []) or []
             
             formatted_categories = []
             
             for row in operating_list:
                 title = row.get('title') or row.get('name')
-                if not title or title.startswith("Banner_") or "hot tv" in title.lower() or "football" in title.lower() or "categories" in title.lower():
+                if not title or title.startswith("Banner_") or "football" in title.lower() or "categories" in title.lower():
                     continue
                 
-                # Clean up outdated past years in category titles (e.g. "2024 Popular Movies" -> "Popular Movies")
-                cleaned_title = re.sub(r'\b(201\d|202[0-5])\b', '', title).strip()
+                title_lower = title.lower()
+                if type == "movie":
+                    if any(k in title_lower for k in ["tv show", "tv series", "series", "k-drama", "anime series", "sitcom", "c-drama", "shows", "drama series", "superhero series"]):
+                        continue
+                else:
+                    if any(k in title_lower for k in ["movie", "films", "cinema", "blockbuster", "nollywood movie", "popular movie", "action movies", "horror movies"]):
+                        continue
+
+                cleaned_title = re.sub(r'[\?\uFFFD]+', '', title).strip()
+                cleaned_title = re.sub(r'\b(201\d|202[0-5])\b', '', cleaned_title).strip()
                 cleaned_title = re.sub(r'\s+', ' ', cleaned_title).strip()
+                if cleaned_title.lower() == 'romance':
+                    cleaned_title = 'Romance & Love'
                 if cleaned_title:
                     title = cleaned_title
                     
                 subjects = row.get('subjects', []) or []
+                # STRICT TYPE FILTERING: strictly only keep matching subjectType
                 filtered_subjects = [s for s in subjects if get_val(s, 'subjectType') == target_sub_type]
                 
-                # If filtered subjects empty, but subjects exist and match general content, take up to 40
-                if not filtered_subjects and subjects:
-                    filtered_subjects = subjects
-                    
                 if not filtered_subjects:
                     continue
                     
@@ -2344,7 +2329,6 @@ async def get_trending_movies(type: str = "movie"):
                         "mediaType": type
                     })
                 
-                # Only include rows that have at least 4 items for full rich display
                 if formatted_items and len(formatted_items) >= 4:
                     formatted_categories.append({
                         "category": title,
@@ -2356,19 +2340,36 @@ async def get_trending_movies(type: str = "movie"):
                 _trending_cache[type] = {"time": now, "data": resp_obj}
                 return resp_obj
         except Exception as hp_exc:
-            print(f"Homepage rows fetch failed, falling back to Trending list: {hp_exc}")
+            print(f"Homepage rows fetch failed: {hp_exc}")
 
-        # B. Fallback to Trending list
+        # B. Fallback to Dedicated Type-Specific Trending & Curated Rows
         from moviebox_api.v1 import Trending
         tr = Trending(client_session)
         tr_res = await tr.get_content()
         raw_trending = tr_res.get('subjectList', []) or []
         items = [i for i in raw_trending if get_val(i, 'subjectType') == target_sub_type]
         
+        # If Trending has few or no items (e.g. for movies), search for top items
+        if len(items) < 8:
+            try:
+                st = SubjectType.MOVIES if type == "movie" else SubjectType.TV_SERIES
+                search_kw = "movie" if type == "movie" else "series"
+                s_obj = Search(client_session, search_kw, subject_type=st, page=0, per_page=40)
+                s_res = await s_obj.get_content()
+                s_items = s_res.get('items', []) or s_res.get('subjectList', []) or []
+                for s_it in s_items:
+                    st_val = get_val(s_it, 'subjectType') or get_val(s_it, 'subject_type')
+                    if st_val in [target_sub_type, None]:
+                        items.append(s_it)
+            except Exception as s_exc:
+                print(f"Trending fallback search error: {s_exc}")
+
         formatted_results = []
+        seen_flat_ids = set()
         for item in items:
             movie_id = str(get_val(item, 'subjectId', ''))
-            if not movie_id: continue
+            if not movie_id or movie_id in seen_flat_ids: continue
+            seen_flat_ids.add(movie_id)
 
             poster_data = get_val(item, 'cover') or get_val(item, 'poster') or {}
             poster_url = get_val(poster_data, 'url') if isinstance(poster_data, dict) else poster_data
