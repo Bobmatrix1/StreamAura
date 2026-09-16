@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useAuth } from './contexts/AuthContext';
 import Layout from '@/sections/Layout';
 import Home from '@/sections/Home';
@@ -298,37 +298,29 @@ export const AppContent: React.FC = () => {
     <>
       <Layout activeTab={activeView} onTabChange={handleTabChange}>
         <GlobalAdLayer currentView={activeView} onNavigate={handleTabChange} />
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeView}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
-          >
-            {activeView === 'home' && <Home onNavigate={handleTabChange} />}
-            {activeView === 'video' && <VideoDownloader />}
-            {activeView === 'music' && <MusicDownloader />}
-            {activeView === 'movie' && <MovieDownloader />}
-            {activeView === 'cinema' && <CinemaRoom />}
-            {activeView === 'games' && <Games />}
-            {activeView === 'wallet' && <Wallet />}
-            {activeView === 'bulk' && <BulkDownloader />}
-            {activeView === 'referral' && <Referral />}
-            {activeView === 'profile' && <Profile />}
-            {activeView === 'notifications' && <Notifications />}
-            {activeView === 'history' && <History />}
-            {activeView === 'about' && <About />}
-            {activeView === 'privacy' && <PrivacyPolicy />}
-            {activeView === 'terms' && <TermsOfUse />}
-            {activeView === 'cookies' && <CookiePolicy />}
-            {activeView === 'contact' && <ContactUs />}
-            {activeView === 'admin' && isAdmin && <AdminDashboard />}
-            {activeView === 'admin' && !isAdmin && <VideoDownloader />}
-            {activeView === 'vendor' && (isAdmin || user?.isVendor) && <VendorDashboard />}
-            {activeView === 'vendor' && !(isAdmin || user?.isVendor) && <Home onNavigate={handleTabChange} />}
-          </motion.div>
-        </AnimatePresence>
+        <div key={activeView} className="animate-in fade-in duration-150">
+          {activeView === 'home' && <Home onNavigate={handleTabChange} />}
+          {activeView === 'video' && <VideoDownloader />}
+          {activeView === 'music' && <MusicDownloader />}
+          {activeView === 'movie' && <MovieDownloader />}
+          {activeView === 'cinema' && <CinemaRoom />}
+          {activeView === 'games' && <Games />}
+          {activeView === 'wallet' && <Wallet />}
+          {activeView === 'bulk' && <BulkDownloader />}
+          {activeView === 'referral' && <Referral />}
+          {activeView === 'profile' && <Profile />}
+          {activeView === 'notifications' && <Notifications />}
+          {activeView === 'history' && <History />}
+          {activeView === 'about' && <About />}
+          {activeView === 'privacy' && <PrivacyPolicy />}
+          {activeView === 'terms' && <TermsOfUse />}
+          {activeView === 'cookies' && <CookiePolicy />}
+          {activeView === 'contact' && <ContactUs />}
+          {activeView === 'admin' && isAdmin && <AdminDashboard />}
+          {activeView === 'admin' && !isAdmin && <VideoDownloader />}
+          {activeView === 'vendor' && (isAdmin || user?.isVendor) && <VendorDashboard />}
+          {activeView === 'vendor' && !(isAdmin || user?.isVendor) && <Home onNavigate={handleTabChange} />}
+        </div>
       </Layout>
       <InstallPWA />
       <CookieBanner onNavigate={handleTabChange} />

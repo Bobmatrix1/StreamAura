@@ -181,7 +181,11 @@ export const getMovieDetails = async (
   title?: string,
   season?: number,
   episode?: number,
-  detailPath?: string
+  detailPath?: string,
+  thumbnail?: string,
+  year?: string,
+  rating?: string,
+  description?: string
 ): Promise<ApiResponse<MovieInfo>> => {
   try {
     let url = `${API_BASE_URL}/api/movies/details?subject_id=${encodeURIComponent(subjectId)}&type=${type}`;
@@ -189,6 +193,10 @@ export const getMovieDetails = async (
     if (season !== undefined) url += `&season=${season}`;
     if (episode !== undefined) url += `&episode=${episode}`;
     if (detailPath) url += `&detail_path=${encodeURIComponent(detailPath)}`;
+    if (thumbnail) url += `&thumbnail=${encodeURIComponent(thumbnail)}`;
+    if (year) url += `&year=${encodeURIComponent(year)}`;
+    if (rating) url += `&rating=${encodeURIComponent(rating)}`;
+    if (description) url += `&description=${encodeURIComponent(description)}`;
     
     const response = await fetch(url);
     

@@ -464,7 +464,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
       {/* Main Content */}
       <main 
         ref={mainRef}
-        className={`flex-1 md:h-screen md:overflow-y-auto overflow-x-hidden custom-scrollbar transition-all duration-300 ${isMobileMenuOpen ? 'blur-sm brightness-90 md:blur-none md:brightness-100' : ''}`}
+        className={`flex-1 md:h-screen md:overflow-y-auto overflow-x-hidden custom-scrollbar ${isMobileMenuOpen ? 'blur-sm brightness-90 md:blur-none md:brightness-100' : ''}`}
       >
         <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
           <AnimatePresence>

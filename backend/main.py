@@ -2374,29 +2374,39 @@ def make_slug(t: str) -> str:
     return s or "detail"
 
 async def fetch_tmdb_details(title: str, media_type: str, year: Optional[str] = None) -> Optional[dict]:
-    token = os.getenv("TMDB_READ_ACCESS_TOKEN", "").strip()
+    token = os.getenv("TMDB_READ_ACCESS_TOKEN", "").strip() or os.getenv("TMDB_API_KEY", "").strip()
     if not token or not title:
         return None
         
+    is_bearer = token.startswith("eyJ") or len(token) > 50
     headers = {
-        "Authorization": f"Bearer {token}",
         "Accept": "application/json"
     }
+    if is_bearer:
+        headers["Authorization"] = f"Bearer {token}"
     
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10.0) as client:
         search_type = "movie" if media_type == "movie" else "tv"
-        clean_title = re.sub(r'S\d+.*$', '', title).strip() # Lucifer S6 -> Lucifer
-        clean_title = re.sub(r'\(\d{4}\)', '', clean_title).strip() # Avatar (2009) -> Avatar
-        
-        search_params = {"query": clean_title, "include_adult": "false"}
-        if year and year.isdigit():
-            if search_type == "movie":
-                search_params["year"] = year
-            else:
-                search_params["first_air_date_year"] = year
-                
+        # Smart TMDB Title Cleaner
+        clean_title = clean_query_for_related(title or "")
+        clean_title = re.sub(r'\[.*?\]|\(.*?\)', '', clean_title)
+        clean_title = re.sub(r'\b(season \d+|s\d+|4k|uhd|hd|dubbed|subbed|episode \d+|series)\b', '', clean_title, flags=re.I)
+        clean_title = re.sub(r'[^\w\s\:\-\'\"]', ' ', clean_title)
+        clean_title = re.sub(r'\s+', ' ', clean_title).strip() or title
+
         search_url = f"https://api.themoviedb.org/3/search/{search_type}"
-        
+        search_params: dict = {
+            "query": clean_title,
+            "language": "en-US",
+            "page": 1,
+            "include_adult": False
+        }
+        if not is_bearer:
+            search_params["api_key"] = token
+
+        if year and str(year).isdigit():
+            search_params["year" if search_type == "movie" else "first_air_date_year"] = str(year)
+
         try:
             r = await client.get(search_url, headers=headers, params=search_params)
             res = r.json()
@@ -2405,6 +2415,13 @@ async def fetch_tmdb_details(title: str, media_type: str, year: Optional[str] = 
             if not results and year:
                 search_params.pop("year", None)
                 search_params.pop("first_air_date_year", None)
+                r = await client.get(search_url, headers=headers, params=search_params)
+                res = r.json()
+                results = res.get('results', [])
+
+            if not results and clean_title != title:
+                # Try raw title without cleaning
+                search_params["query"] = title
                 r = await client.get(search_url, headers=headers, params=search_params)
                 res = r.json()
                 results = res.get('results', [])
@@ -2418,7 +2435,8 @@ async def fetch_tmdb_details(title: str, media_type: str, year: Optional[str] = 
                 return None
                 
             detail_url = f"https://api.themoviedb.org/3/{search_type}/{tmdb_id}?append_to_response=videos,credits,reviews,similar"
-            rd = await client.get(detail_url, headers=headers)
+            detail_params = {} if is_bearer else {"api_key": token}
+            rd = await client.get(detail_url, headers=headers, params=detail_params)
             details = rd.json()
             
             formatted_cast = []
@@ -2452,19 +2470,23 @@ async def fetch_tmdb_details(title: str, media_type: str, year: Optional[str] = 
                 poster_path = s.get('poster_path')
                 s_title = s.get('title') or s.get('name')
                 s_date = s.get('release_date') or s.get('first_air_date') or ''
-                s_year = s_date.split('-')[0] if s_date else 'N/A'
+                s_year = s_date.split('-')[0] if s_date else ''
                 formatted_similar.append({
                     "id": s_id,
                     "title": s_title,
                     "thumbnail": f"https://image.tmdb.org/t/p/w342{poster_path}" if poster_path else None,
                     "year": s_year,
-                    "rating": str(round(s.get('vote_average', 0.0), 1)),
+                    "rating": str(round(s.get('vote_average', 0.0), 1)) if s.get('vote_average') else '7.0',
                     "mediaType": media_type
                 })
                 
+            tmdb_rating = str(round(details.get('vote_average', 0.0), 1)) if details.get('vote_average') else '7.5'
+            release_date = details.get('release_date') or details.get('first_air_date') or ''
+            tmdb_year = release_date.split('-')[0] if release_date else ''
+
             return {
                 "id": tmdb_id,
-                "rating": str(round(details.get('vote_average', 0.0), 1)),
+                "rating": tmdb_rating if tmdb_rating != '0.0' else '7.5',
                 "voteCount": details.get('vote_count', 0),
                 "overview": details.get('overview'),
                 "tagline": details.get('tagline'),
@@ -2475,6 +2497,7 @@ async def fetch_tmdb_details(title: str, media_type: str, year: Optional[str] = 
                 "similar": formatted_similar,
                 "backdrop": f"https://image.tmdb.org/t/p/w1280{details.get('backdrop_path')}" if details.get('backdrop_path') else None,
                 "poster": f"https://image.tmdb.org/t/p/w500{details.get('poster_path')}" if details.get('poster_path') else None,
+                "year": tmdb_year
             }
         except Exception as e:
             print(f"TMDB Fetch Error for {title}: {e}")
@@ -2487,7 +2510,11 @@ async def get_movie_details(
     title: Optional[str] = Query(None),
     season: Optional[int] = None,
     episode: Optional[int] = None,
-    detail_path: Optional[str] = Query(None)
+    detail_path: Optional[str] = Query(None),
+    thumbnail: Optional[str] = Query(None),
+    year: Optional[str] = Query(None),
+    rating: Optional[str] = Query(None),
+    description: Optional[str] = Query(None)
 ):
     try:
         auth_token = os.getenv("MOVIEBOX_AUTH_TOKEN", "").strip()
@@ -2516,15 +2543,16 @@ async def get_movie_details(
                 return t
             return clean(t1) == clean(t2)
 
-        # 1. Resolve subject_id (numeric string) to a valid URL format for moviebox-api compatibility
+        # 1. Resolve subject_id to a valid URL format for moviebox-api compatibility
+        resolved_path = None
         if detail_path:
             if not detail_path.startswith("/detail/"):
-                subject_id = f"/detail/{detail_path}"
+                resolved_path = f"/detail/{detail_path}"
             else:
-                subject_id = detail_path
+                resolved_path = detail_path
+        elif subject_id.startswith("/detail/"):
+            resolved_path = subject_id
         elif subject_id.isdigit():
-            resolved_path = None
-            
             # A. Try title search first
             if title:
                 st = SubjectType.MOVIES if type == "movie" else SubjectType.TV_SERIES
@@ -2540,10 +2568,9 @@ async def get_movie_details(
                         item_id = str(get_val(item, 'subjectId', ''))
                         item_title = get_val(item, 'title') or get_val(item, 'name') or ''
                         if item_id == subject_id or (title and titles_match(item_title, title)):
-                            resolved_path = get_val(item, 'detailPath')
-                            if resolved_path:
-                                if not resolved_path.startswith("/detail/"):
-                                    resolved_path = f"/detail/{resolved_path}"
+                            p = get_val(item, 'detailPath')
+                            if p:
+                                resolved_path = p if p.startswith("/detail/") else f"/detail/{p}"
                                 break
                 except:
                     pass
@@ -2565,10 +2592,9 @@ async def get_movie_details(
                             item_id = str(get_val(item, 'subjectId', ''))
                             item_title = get_val(item, 'title') or get_val(item, 'name') or ''
                             if item_id == subject_id or (title and titles_match(item_title, title)):
-                                resolved_path = get_val(item, 'detailPath')
-                                if resolved_path:
-                                    if not resolved_path.startswith("/detail/"):
-                                        resolved_path = f"/detail/{resolved_path}"
+                                p = get_val(item, 'detailPath')
+                                if p:
+                                    resolved_path = p if p.startswith("/detail/") else f"/detail/{p}"
                                     break
                     except:
                         pass
@@ -2584,10 +2610,9 @@ async def get_movie_details(
                         item_id = str(get_val(item, 'subjectId', ''))
                         item_title = get_val(item, 'title') or get_val(item, 'name') or ''
                         if item_id == subject_id or (title and titles_match(item_title, title)):
-                            resolved_path = get_val(item, 'detailPath')
-                            if resolved_path:
-                                if not resolved_path.startswith("/detail/"):
-                                    resolved_path = f"/detail/{resolved_path}"
+                            p = get_val(item, 'detailPath')
+                            if p:
+                                resolved_path = p if p.startswith("/detail/") else f"/detail/{p}"
                                 break
                 except:
                     pass
@@ -2596,17 +2621,31 @@ async def get_movie_details(
             if not resolved_path:
                 slug = make_slug(title or "detail")
                 resolved_path = f"/detail/{slug}?id={subject_id}"
-                
-            subject_id = resolved_path
+        else:
+            resolved_path = f"/detail/{make_slug(title or 'detail')}?id={subject_id}"
 
-        # 2. Fetch the movie/series details
-        moviebox_details = None
+        target_lookup_path = resolved_path or subject_id
+
+        # 2. Initialize moviebox_details with all baseline card details
+        moviebox_details = {
+            "id": subject_id,
+            "detailPath": target_lookup_path,
+            "title": title or "Unknown Title",
+            "description": description or "4K streaming & high-speed cloud download available for pre-order.",
+            "thumbnail": thumbnail or "",
+            "year": year or "",
+            "rating": rating or "7.5",
+            "qualities": [],
+            "seasons": [],
+            "mediaType": type
+        }
+
         seasons_info = []
         qualities = []
         
         try:
             if type == "series":
-                md_instance = TVSeriesDetails(subject_id, client_session)
+                md_instance = TVSeriesDetails(target_lookup_path, client_session)
                 details = await md_instance.get_content()
                 resData = details.get('resData', {})
                 subject = resData.get('subject', {})
@@ -2627,7 +2666,7 @@ async def get_movie_details(
 
                 details_data = subject
             else:
-                md_instance = MovieDetails(subject_id, client_session)
+                md_instance = MovieDetails(target_lookup_path, client_session)
                 details_data = await md_instance.get_content()
                 md_model = await md_instance.get_content_model()
                 downloadable_files = DownloadableMovieFilesDetail(client_session, md_model)
@@ -2642,51 +2681,52 @@ async def get_movie_details(
                     "url": f.get('path') or f.get('url')
                 })
                 
-            moviebox_details = {
-                "id": subject_id,
-                "title": details_data.get('name') or details_data.get('title') or title or "Unknown Title",
-                "description": details_data.get('description') or details_data.get('introduction') or '',
-                "thumbnail": details_data.get('poster') or details_data.get('cover') or '',
-                "year": details_data.get('year') or details_data.get('releaseDate', 'N/A').split('-')[0],
-                "rating": str(details_data.get('rating', details_data.get('imdbRatingValue', '0.0'))),
-                "qualities": qualities,
-                "seasons": seasons_info if type == "series" else [],
-                "mediaType": type
-            }
-        except Exception as mb_exc:
-            print(f"Moviebox API details fetch failed: {mb_exc}")
+            res_poster = details_data.get('poster') or details_data.get('cover')
+            if isinstance(res_poster, dict):
+                res_poster = res_poster.get('url') or res_poster.get('path')
+            
+            res_year = str(details_data.get('year') or details_data.get('releaseDate', '')).split('-')[0]
+            res_rating = str(details_data.get('rating', details_data.get('imdbRatingValue', '')))
+            res_title = details_data.get('name') or details_data.get('title')
+            res_desc = details_data.get('description') or details_data.get('introduction')
 
-        if not moviebox_details:
-            moviebox_details = {
-                "id": subject_id,
-                "title": title or "Unknown Title",
-                "description": "Not available in our cloud yet. Pre-order to request upload.",
-                "thumbnail": "",
-                "year": "N/A",
-                "rating": "0.0",
-                "qualities": [],
-                "seasons": [],
-                "mediaType": type
-            }
+            if res_title:
+                moviebox_details["title"] = res_title
+            if res_desc:
+                moviebox_details["description"] = res_desc
+            if res_poster and isinstance(res_poster, str) and res_poster.strip():
+                moviebox_details["thumbnail"] = res_poster
+            if res_year and res_year != 'N/A' and res_year != '0':
+                moviebox_details["year"] = res_year
+            if res_rating and res_rating != '0.0' and res_rating != '0':
+                moviebox_details["rating"] = res_rating
+            if qualities:
+                moviebox_details["qualities"] = qualities
+            if seasons_info:
+                moviebox_details["seasons"] = seasons_info
+        except Exception as mb_exc:
+            print(f"Moviebox API details fetch notice: {mb_exc}")
 
         # TMDB Enrichment
         tmdb_data = None
         try:
-            m_title = moviebox_details.get("title")
-            m_year = moviebox_details.get("year")
-            if m_year == "N/A":
+            m_title = moviebox_details.get("title") or title
+            m_year = moviebox_details.get("year") or year
+            if m_year == "N/A" or not m_year:
                 m_year = None
             tmdb_data = await fetch_tmdb_details(m_title, type, m_year)
             
             if tmdb_data:
-                if not moviebox_details["title"] or moviebox_details["title"] == "Unknown Title":
-                    moviebox_details["title"] = tmdb_data.get("title") or moviebox_details["title"]
-                if not moviebox_details["description"] or moviebox_details["description"] == "Not available in our cloud yet. Pre-order to request upload.":
-                    moviebox_details["description"] = tmdb_data.get("overview") or moviebox_details["description"]
-                if not moviebox_details["thumbnail"] and tmdb_data.get("poster"):
-                    moviebox_details["thumbnail"] = tmdb_data.get("poster")
-                if moviebox_details["year"] == "N/A" and tmdb_data.get("year"):
-                    moviebox_details["year"] = tmdb_data.get("year")
+                if (not moviebox_details.get("title") or moviebox_details["title"] == "Unknown Title") and tmdb_data.get("title"):
+                    moviebox_details["title"] = tmdb_data["title"]
+                if (not moviebox_details.get("description") or "pre-order" in moviebox_details["description"]) and tmdb_data.get("overview"):
+                    moviebox_details["description"] = tmdb_data["overview"]
+                if not moviebox_details.get("thumbnail") and tmdb_data.get("poster"):
+                    moviebox_details["thumbnail"] = tmdb_data["poster"]
+                if (not moviebox_details.get("year") or moviebox_details["year"] == "N/A") and tmdb_data.get("year"):
+                    moviebox_details["year"] = tmdb_data["year"]
+                if (not moviebox_details.get("rating") or moviebox_details["rating"] == "0.0") and tmdb_data.get("rating"):
+                    moviebox_details["rating"] = tmdb_data["rating"]
         except Exception as tmdb_err:
             print(f"TMDB Enrichment Error: {tmdb_err}")
 

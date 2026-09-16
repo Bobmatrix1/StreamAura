@@ -188,23 +188,62 @@ interface ActiveSectionState {
   sortBy: 'default' | 'rating' | 'year' | 'title';
 }
 
+// Module-level persistent cache across mounts / tab switches (0ms load time & zero blank screen)
+interface MovieCacheState {
+  trendingRows: {
+    movie: { id: string; category: string; genreId: string; items: MovieInfo[] }[];
+    series: { id: string; category: string; genreId: string; items: MovieInfo[] }[];
+  };
+  genreSections: Record<string, MovieInfo[]>;
+  movieDetails: Map<string, MovieInfo>;
+  savedScrollY: number;
+  savedMainScrollTop: number;
+  searchType: 'movie' | 'series';
+  activeTab: 'search' | 'library';
+  selectedGenre: string;
+  query: string;
+  searchResults: MovieInfo[];
+  activeSection: ActiveSectionState | null;
+}
+
+const movieGlobalCache: MovieCacheState = {
+  trendingRows: { movie: [], series: [] },
+  genreSections: {},
+  movieDetails: new Map(),
+  savedScrollY: 0,
+  savedMainScrollTop: 0,
+  searchType: 'movie',
+  activeTab: 'search',
+  selectedGenre: 'all',
+  query: '',
+  searchResults: [],
+  activeSection: null
+};
+
+// Global set of image URLs that have been successfully loaded across the session
+const preloadedImageUrls = new Set<string>();
+
 const MovieDownloader: React.FC = () => {
   const { user, requireAuth } = useAuth();
-  const [query, setQuery] = useState('');
-  const [searchType, setSearchType] = useState<'movie' | 'series'>('movie');
-  const [activeTab, setActiveTab] = useState<'search' | 'library'>('search');
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<MovieInfo[]>([]);
+  const [query, setQuery] = useState(movieGlobalCache.query);
+  const [searchType, setSearchType] = useState<'movie' | 'series'>(movieGlobalCache.searchType);
+  const [activeTab, setActiveTab] = useState<'search' | 'library'>(movieGlobalCache.activeTab);
+  
+  const hasCachedTrending = movieGlobalCache.trendingRows[movieGlobalCache.searchType]?.length > 0;
+  const [isSearching, setIsSearching] = useState(!hasCachedTrending && movieGlobalCache.activeTab === 'search');
+  const [searchResults, setSearchResults] = useState<MovieInfo[]>(movieGlobalCache.searchResults);
   const [searchPage, setSearchPage] = useState(1);
   const [searchHasMore, setSearchHasMore] = useState(true);
   const [isLoadingMoreSearch, setIsLoadingMoreSearch] = useState(false);
 
   const [isTrending, setIsTrending] = useState(true);
-  const [trendingRows, setTrendingRows] = useState<{ id: string; category: string; genreId: string; items: MovieInfo[] }[]>([]);
-  const [selectedGenre, setSelectedGenre] = useState<string>('all');
+  const [trendingRows, setTrendingRows] = useState<{ id: string; category: string; genreId: string; items: MovieInfo[] }[]>(
+    movieGlobalCache.trendingRows[movieGlobalCache.searchType] || []
+  );
+  const [selectedGenre, setSelectedGenre] = useState<string>(movieGlobalCache.selectedGenre);
   
   // Dedicated Netflix/MovieBox Category/Genre View Section
-  const [activeSection, setActiveSection] = useState<ActiveSectionState | null>(null);
+  const [activeSection, setActiveSection] = useState<ActiveSectionState | null>(movieGlobalCache.activeSection);
 
   // Hero Spotlight Index
   const [spotlightIndex, setSpotlightIndex] = useState(0);
@@ -213,6 +252,12 @@ const MovieDownloader: React.FC = () => {
   // Detail View Section Ref for smooth scrolling & selection tracking
   const detailsSectionRef = useRef<HTMLDivElement>(null);
   const activeSelectionRef = useRef<string | null>(null);
+
+  // Scroll Position Retention Ref
+  const savedScrollRef = useRef<{ window: number; main: number }>({
+    window: movieGlobalCache.savedScrollY,
+    main: movieGlobalCache.savedMainScrollTop
+  });
 
   const [myPreOrders, setMyPreOrders] = useState<PreOrder[]>([]);
   const [isLoadingLibrary, setIsLoadingLibrary] = useState(false);
@@ -237,6 +282,61 @@ const MovieDownloader: React.FC = () => {
 
   const { showError, showSuccess } = useToast();
 
+  // Scroll position restorer
+  const restoreScrollPosition = (instant: boolean = true) => {
+    const targetWindow = savedScrollRef.current.window || movieGlobalCache.savedScrollY;
+    const targetMain = savedScrollRef.current.main || movieGlobalCache.savedMainScrollTop;
+    
+    if (targetWindow > 0 || targetMain > 0) {
+      requestAnimationFrame(() => {
+        const mainEl = document.querySelector('main');
+        if (mainEl && targetMain > 0) {
+          mainEl.scrollTo({ top: targetMain, behavior: instant ? 'instant' : 'smooth' });
+        }
+        if (targetWindow > 0) {
+          window.scrollTo({ top: targetWindow, behavior: instant ? 'instant' : 'smooth' });
+        }
+      });
+    }
+  };
+
+  // Restore scroll on mount if coming back from another tab or view
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      restoreScrollPosition(true);
+    }, 60);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Track active scroll position continuously when not on detail page
+  useEffect(() => {
+    const handleScrollCapture = () => {
+      if (selectedMovie) return; // Never overwrite scroll while viewing details!
+      
+      const wScroll = window.scrollY || window.pageYOffset || 0;
+      const mainEl = document.querySelector('main');
+      const mScroll = mainEl ? mainEl.scrollTop : 0;
+      
+      if (wScroll > 0 || mScroll > 0) {
+        savedScrollRef.current = { window: wScroll, main: mScroll };
+        movieGlobalCache.savedScrollY = wScroll;
+        movieGlobalCache.savedMainScrollTop = mScroll;
+      }
+    };
+
+    window.addEventListener('scroll', handleScrollCapture, { passive: true });
+    const mainEl = document.querySelector('main');
+    if (mainEl) {
+      mainEl.addEventListener('scroll', handleScrollCapture, { passive: true });
+    }
+    return () => {
+      window.removeEventListener('scroll', handleScrollCapture);
+      if (mainEl) {
+        mainEl.removeEventListener('scroll', handleScrollCapture);
+      }
+    };
+  }, [selectedMovie]);
+
   const loadLibrary = async () => {
     if (!user) return;
     setIsLoadingLibrary(true);
@@ -254,7 +354,12 @@ const MovieDownloader: React.FC = () => {
     if (activeTab === 'library') {
       loadLibrary();
     }
+    movieGlobalCache.activeTab = activeTab;
   }, [activeTab, user?.uid]);
+
+  useEffect(() => {
+    movieGlobalCache.searchType = searchType;
+  }, [searchType]);
 
   useEffect(() => {
     const checkAutoWatch = () => {
@@ -361,17 +466,29 @@ const MovieDownloader: React.FC = () => {
     return rows;
   };
 
-  const loadTrending = async () => {
-    setIsSearching(true);
+  const loadTrending = async (force: boolean = false) => {
+    const cached = movieGlobalCache.trendingRows[searchType];
+    if (cached && cached.length > 0 && !force) {
+      setTrendingRows(cached);
+      setIsSearching(false);
+      setIsTrending(true);
+    } else {
+      setIsSearching(true);
+    }
+
     setSelectedMovie(null);
     setActiveSection(null);
     setSelectedGenre('all');
+    movieGlobalCache.selectedGenre = 'all';
+    movieGlobalCache.activeSection = null;
+
     try {
       const result = await mediaApi.getTrendingMovies(searchType);
       if (result.success && Array.isArray(result.data)) {
+        let rows: { id: string; category: string; genreId: string; items: MovieInfo[] }[] = [];
         if (result.isRows || (result.data.length > 0 && (result.data[0] as any).category)) {
           // Backend returned categorized rows (MovieBox operatingList)
-          const rows = (result.data as any[]).map((cat, idx) => {
+          rows = (result.data as any[]).map((cat, idx) => {
             const meta = getCategoryMeta(cat.category || '');
             return {
               id: `row-${idx}-${meta.genreId}`,
@@ -381,25 +498,26 @@ const MovieDownloader: React.FC = () => {
             };
           }).filter(r => r.items && r.items.length > 0);
           
-          if (rows.length > 0) {
-            setTrendingRows(rows);
-          } else {
-            setTrendingRows(formatRowsFromFlat(result.data, searchType));
+          if (rows.length === 0) {
+            rows = formatRowsFromFlat(result.data, searchType);
           }
         } else {
           // Flat list fallback
-          const structured = formatRowsFromFlat(result.data, searchType);
-          setTrendingRows(structured);
+          rows = formatRowsFromFlat(result.data, searchType);
+        }
+        
+        if (rows.length > 0) {
+          setTrendingRows(rows);
+          movieGlobalCache.trendingRows[searchType] = rows;
         }
         setSearchResults([]);
         setIsTrending(true);
-      } else {
-        setTrendingRows([]);
-        setSearchResults([]);
       }
     } catch (err) {
       console.error('Failed to load trending:', err);
-      setTrendingRows([]);
+      if (!cached || cached.length === 0) {
+        setTrendingRows([]);
+      }
     } finally {
       setIsSearching(false);
     }
@@ -432,11 +550,15 @@ const MovieDownloader: React.FC = () => {
         const newItems = result.data || [];
         if (pageNum === 1) {
           setSearchResults(newItems);
+          movieGlobalCache.searchResults = newItems;
+          movieGlobalCache.query = q;
         } else {
           setSearchResults(prev => {
             const seen = new Set(prev.map(p => p.id));
             const fresh = newItems.filter(i => !seen.has(i.id));
-            return [...prev, ...fresh];
+            const merged = [...prev, ...fresh];
+            movieGlobalCache.searchResults = merged;
+            return merged;
           });
         }
         if (newItems.length < 20) {
@@ -473,19 +595,31 @@ const MovieDownloader: React.FC = () => {
 
   // Open dedicated Netflix/MovieBox Category/Genre View section
   const handleOpenSection = async (title: string, genreId: string, initialItems: MovieInfo[] = []) => {
+    // 1. Capture scroll before opening section
+    const wScroll = window.scrollY || window.pageYOffset || 0;
+    const mainEl = document.querySelector('main');
+    const mScroll = mainEl ? mainEl.scrollTop : 0;
+    savedScrollRef.current = { window: wScroll, main: mScroll };
+    movieGlobalCache.savedScrollY = wScroll;
+    movieGlobalCache.savedMainScrollTop = mScroll;
+
     setSelectedMovie(null);
     setQuery('');
     const meta = getCategoryMeta(title);
 
     let itemsToDisplay = [...initialItems];
 
-    // If initial items have fewer than 40 items, immediately fetch 40 titles from genre API
-    if (itemsToDisplay.length < 20 && genreId !== 'all') {
+    // Check cached genre items first
+    const cachedGenre = movieGlobalCache.genreSections[`${genreId}_${searchType}`];
+    if (cachedGenre && cachedGenre.length > 0) {
+      itemsToDisplay = cachedGenre;
+    } else if (itemsToDisplay.length < 20 && genreId !== 'all') {
       setIsSearching(true);
       try {
         const res = await mediaApi.getMoviesByGenre(genreId, searchType, 1, 40);
         if (res.success && res.data && res.data.length > 0) {
           itemsToDisplay = res.data;
+          movieGlobalCache.genreSections[`${genreId}_${searchType}`] = res.data;
         }
       } catch (err) {
         console.error('Failed to pre-fetch genre:', err);
@@ -494,7 +628,7 @@ const MovieDownloader: React.FC = () => {
       }
     }
 
-    setActiveSection({
+    const sectionState: ActiveSectionState = {
       title,
       genreId,
       tagline: meta.tagline,
@@ -505,9 +639,25 @@ const MovieDownloader: React.FC = () => {
       isLoadingMore: false,
       searchFilter: '',
       sortBy: 'default'
-    });
+    };
 
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setActiveSection(sectionState);
+    movieGlobalCache.activeSection = sectionState;
+    movieGlobalCache.selectedGenre = genreId;
+
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    mainEl?.scrollTo({ top: 0, behavior: 'instant' });
+  };
+
+  const handleCloseSection = () => {
+    setActiveSection(null);
+    movieGlobalCache.activeSection = null;
+    setSelectedGenre('all');
+    movieGlobalCache.selectedGenre = 'all';
+
+    requestAnimationFrame(() => {
+      restoreScrollPosition(true);
+    });
   };
 
   // Load 40 more titles inside the dedicated genre / category section
@@ -525,9 +675,11 @@ const MovieDownloader: React.FC = () => {
           if (!prev) return null;
           const seen = new Set(prev.items.map(m => m.id));
           const uniqueIncoming = incoming.filter(m => !seen.has(m.id));
+          const updatedItems = [...prev.items, ...uniqueIncoming];
+          movieGlobalCache.genreSections[`${prev.genreId}_${searchType}`] = updatedItems;
           return {
             ...prev,
-            items: [...prev.items, ...uniqueIncoming],
+            items: updatedItems,
             page: nextPage,
             isLoadingMore: false,
             hasMore: uniqueIncoming.length > 0
@@ -545,10 +697,11 @@ const MovieDownloader: React.FC = () => {
   // Genre filter pill selection handler
   const handleGenreSelect = async (genre: GenreItem) => {
     setSelectedGenre(genre.id);
+    movieGlobalCache.selectedGenre = genre.id;
     setSelectedMovie(null);
 
     if (genre.id === 'all') {
-      setActiveSection(null);
+      handleCloseSection();
       setQuery('');
       if (trendingRows.length === 0) {
         loadTrending();
@@ -600,13 +753,28 @@ const MovieDownloader: React.FC = () => {
     setSelectedMovie(null);
     setCloudData(null);
     setIsCheckingCloud(false);
+
+    // Smooth instantaneous scroll restoration without resetting to top
+    requestAnimationFrame(() => {
+      restoreScrollPosition(true);
+    });
   };
 
   const handleSelectMovie = async (movie: MovieInfo) => {
+    // 1. Capture exact current scroll position before opening details
+    const wScroll = window.scrollY || window.pageYOffset || 0;
+    const mainEl = document.querySelector('main');
+    const mScroll = mainEl ? mainEl.scrollTop : 0;
+    savedScrollRef.current = { window: wScroll, main: mScroll };
+    movieGlobalCache.savedScrollY = wScroll;
+    movieGlobalCache.savedMainScrollTop = mScroll;
+
     const requestId = `${movie.id}_${Date.now()}`;
     activeSelectionRef.current = requestId;
 
-    setSelectedMovie(movie);
+    // Check if we have cached details for 0ms instant display
+    const cachedDetails = movieGlobalCache.movieDetails.get(movie.id);
+    setSelectedMovie(cachedDetails || movie);
     setCloudData(null);
     setPreOrderSuccess(false);
     setSelectedSeason(null);
@@ -614,34 +782,57 @@ const MovieDownloader: React.FC = () => {
     setIsManualMode(false);
     setIsCheckingCloud(true);
     
-    // Smoothly scroll to detail view
-    setTimeout(() => {
-      if (activeSelectionRef.current === requestId) {
-        detailsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }, 80);
+    // Scroll smoothly to top of detail view
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    mainEl?.scrollTo({ top: 0, behavior: 'instant' });
 
     try {
-      const result = await mediaApi.getMovieDetails(movie.id, movie.mediaType || searchType, movie.title, undefined, undefined, movie.detailPath);
+      const result = await mediaApi.getMovieDetails(
+        movie.id, 
+        movie.mediaType || searchType, 
+        movie.title, 
+        undefined, 
+        undefined, 
+        movie.detailPath,
+        movie.thumbnail,
+        movie.year,
+        movie.rating,
+        movie.description
+      );
       
       if (activeSelectionRef.current !== requestId) return;
 
       if (result.success && result.data) {
-        const fullMovieData = result.data;
-        setSelectedMovie(fullMovieData);
+        const fetchedData = result.data;
+        // MERGE: Preserve original card details so image, rating, year, and description never disappear
+        const merged: MovieInfo = {
+          ...movie,
+          ...fetchedData,
+          thumbnail: (fetchedData.thumbnail && fetchedData.thumbnail.trim()) || (movie.thumbnail && movie.thumbnail.trim()) || '',
+          title: (fetchedData.title && fetchedData.title !== 'Unknown Title' && fetchedData.title.trim()) || movie.title || '',
+          year: (fetchedData.year && fetchedData.year !== 'N/A' && fetchedData.year !== '0' && fetchedData.year.trim()) || movie.year || '',
+          rating: (fetchedData.rating && fetchedData.rating !== '0.0' && fetchedData.rating.trim()) || movie.rating || '7.5',
+          description: (fetchedData.description && fetchedData.description !== 'No description available.' && fetchedData.description !== '4K streaming & high-speed cloud download available for pre-order.' && fetchedData.description.trim()) || movie.description || fetchedData.description || '4K streaming & high-speed cloud download available for pre-order.',
+          tmdb: fetchedData.tmdb || movie.tmdb,
+          qualities: fetchedData.qualities && fetchedData.qualities.length > 0 ? fetchedData.qualities : (movie.qualities || []),
+          seasons: fetchedData.seasons && fetchedData.seasons.length > 0 ? fetchedData.seasons : (movie.seasons || [])
+        };
+
+        movieGlobalCache.movieDetails.set(movie.id, merged);
+        setSelectedMovie(merged);
         
-        if (fullMovieData.mediaType === 'series') {
-           if (fullMovieData.seasons && fullMovieData.seasons.length > 0) {
-              const firstSeason = fullMovieData.seasons[0];
+        if (merged.mediaType === 'series') {
+           if (merged.seasons && merged.seasons.length > 0) {
+              const firstSeason = merged.seasons[0];
               setSelectedSeason(firstSeason.season.toString());
               if (firstSeason.episodes && firstSeason.episodes.length > 0) {
-                await handleSelectEpisode(firstSeason.season.toString(), firstSeason.episodes[0].toString(), fullMovieData.id, fullMovieData.title);
+                await handleSelectEpisode(firstSeason.season.toString(), firstSeason.episodes[0].toString(), merged.id, merged.title);
               }
            } else {
               setIsManualMode(true);
            }
-        } else if (fullMovieData.mediaType === 'movie') {
-          const cloud = await checkCloudMovie(fullMovieData.id);
+        } else if (merged.mediaType === 'movie') {
+          const cloud = await checkCloudMovie(merged.id);
           if (activeSelectionRef.current !== requestId) return;
           if (cloud) setCloudData(cloud);
         }
@@ -675,7 +866,18 @@ const MovieDownloader: React.FC = () => {
       if (cloud) {
         setCloudData(cloud);
       } else {
-        await mediaApi.getMovieDetails(movieId, 'series', movieTitle, Number(season), Number(episode), selectedMovie?.detailPath || (movieId.startsWith('/detail/') ? movieId : undefined));
+        await mediaApi.getMovieDetails(
+          movieId, 
+          'series', 
+          movieTitle, 
+          Number(season), 
+          Number(episode), 
+          selectedMovie?.detailPath || (movieId.startsWith('/detail/') ? movieId : undefined),
+          selectedMovie?.thumbnail,
+          selectedMovie?.year,
+          selectedMovie?.rating,
+          selectedMovie?.description
+        );
       }
     } catch (err) {
       console.error('Error checking episode cloud');
@@ -965,17 +1167,17 @@ const MovieDownloader: React.FC = () => {
             </div>
           </div>
 
-          {/* 3. Main Views: Movie Detail OR Dedicated Genre Section OR Discovery Rows OR Search Grid */}
-          <AnimatePresence mode="wait">
-            {selectedMovie ? (
+          {/* 3. Main Views: Movie Detail View (animated on top) AND Discovery/Section Tree (preserved in DOM) */}
+          <AnimatePresence>
+            {selectedMovie && (
               /* A. MOVIE DETAILS VIEW */
               <motion.div 
                 key="details" 
                 ref={detailsSectionRef}
-                initial={{ opacity: 0, y: 15 }} 
+                initial={{ opacity: 0, y: 10 }} 
                 animate={{ opacity: 1, y: 0 }} 
-                exit={{ opacity: 0, y: -15 }} 
-                transition={{ duration: 0.2 }}
+                exit={{ opacity: 0, y: -10 }} 
+                transition={{ duration: 0.15 }}
                 className="space-y-6"
               >
                 {/* Back Button */}
@@ -1105,8 +1307,8 @@ const MovieDownloader: React.FC = () => {
                               onClick={() => setIsManualMode(!isManualMode)}
                               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
                                 isManualMode 
-                                  ? 'bg-purple-600 text-white shadow-md' 
-                                  : 'bg-white/10 text-white/70 hover:text-white'
+                                    ? 'bg-purple-600 text-white shadow-md' 
+                                    : 'bg-white/10 text-white/70 hover:text-white'
                               }`}
                             >
                               {isManualMode ? <List className="w-3.5 h-3.5" /> : <Edit3 className="w-3.5 h-3.5" />}
@@ -1406,14 +1608,15 @@ const MovieDownloader: React.FC = () => {
                   )}
                 </div>
               </motion.div>
-            ) : activeSection ? (
-              /* B. DEDICATED CATEGORY / GENRE FULL SECTION VIEW (Netflix & MovieBox Style) */
-              <motion.div
+            )}
+          </AnimatePresence>
+
+          {/* B. DISCOVERY & SECTION TREE (Always preserved in DOM to retain scroll positions & image decodes) */}
+          <div className={selectedMovie ? "hidden" : "space-y-8"}>
+            {activeSection ? (
+              /* DEDICATED CATEGORY / GENRE FULL SECTION VIEW (Netflix & MovieBox Style) */
+              <div
                 key={`section-${activeSection.genreId}`}
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -15 }}
-                transition={{ duration: 0.2 }}
                 className="space-y-6"
               >
                 {/* Dedicated Section Top Header Bar */}
@@ -1421,7 +1624,7 @@ const MovieDownloader: React.FC = () => {
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
                       <button
-                        onClick={() => setActiveSection(null)}
+                        onClick={handleCloseSection}
                         className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-black uppercase tracking-wider flex items-center gap-2 border border-white/15 transition-all cursor-pointer active:scale-95 shadow-md flex-shrink-0"
                       >
                         <ArrowLeft className="w-4 h-4" /> <span>Back to Browse</span>
@@ -1525,10 +1728,10 @@ const MovieDownloader: React.FC = () => {
                     )}
                   </div>
                 )}
-              </motion.div>
+              </div>
             ) : (
               /* C. MAIN DISCOVERY OVERVIEW OR SEARCH RESULTS */
-              <motion.div key="grid" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-10">
+              <div key="grid" className="space-y-10">
                 {/* 4. Featured Hero Spotlight Banner */}
                 {isTrending && currentSpotlight && !query.trim() && (
                   <div className="relative rounded-3xl overflow-hidden border border-white/15 bg-[#070a18] shadow-2xl group min-h-[380px] sm:min-h-[460px] md:min-h-[500px] flex flex-col justify-end">
@@ -1631,7 +1834,7 @@ const MovieDownloader: React.FC = () => {
                           We couldn't find matches for your query. Try searching by actor name or choose a genre chip above.
                         </p>
                         <button
-                          onClick={loadTrending}
+                          onClick={() => loadTrending(true)}
                           className="px-5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                         >
                           Reset & View Trending
@@ -1679,9 +1882,9 @@ const MovieDownloader: React.FC = () => {
                     )}
                   </>
                 )}
-              </motion.div>
+              </div>
             )}
-          </AnimatePresence>
+          </div>
         </>
       ) : (
         /* 6. My Library & Pre-Orders Tab */
@@ -1936,23 +2139,42 @@ const MovieDownloader: React.FC = () => {
   );
 };
 
-// Reusable Performance-Engineered Movie Poster Card (Zero lag, React.memo, pure GPU CSS transitions, lazy loading)
-const MovieCard = React.memo<{ movie: MovieInfo; onSelect: (m: MovieInfo) => void }>(({ movie, onSelect }) => {
+// Reusable Performance-Engineered Movie Poster Card (Zero lag, React.memo, pure GPU CSS transitions, instant preloading)
+const MovieCard = React.memo<{ 
+  movie: MovieInfo; 
+  onSelect: (m: MovieInfo) => void;
+  priority?: boolean;
+}>(({ movie, onSelect, priority = false }) => {
+  const rawSrc = movie.thumbnail && movie.thumbnail.trim() ? movie.thumbnail : null;
+  const isPreloaded = rawSrc ? preloadedImageUrls.has(rawSrc) : false;
   const [imgError, setImgError] = useState(false);
-  const imgSrc = !imgError && movie.thumbnail && movie.thumbnail.trim() ? movie.thumbnail : null;
+  const [isLoaded, setIsLoaded] = useState(isPreloaded);
+
+  const imgSrc = !imgError && rawSrc ? rawSrc : null;
 
   return (
     <div 
       onClick={() => onSelect(movie)} 
-      className="group cursor-pointer overflow-hidden rounded-2xl border border-white/10 hover:border-cyan-500/50 transition-all duration-300 shadow-md hover:shadow-cyan-500/10 flex flex-col h-full bg-[#080d1a] select-none transform-gpu hover:-translate-y-1 active:scale-[0.98] will-change-transform [content-visibility:auto] [contain-intrinsic-size:160px_240px]"
+      className="group cursor-pointer overflow-hidden rounded-2xl border border-white/10 hover:border-cyan-500/50 transition-all duration-200 shadow-md hover:shadow-cyan-500/10 flex flex-col h-full bg-[#080d1a] select-none transform-gpu hover:-translate-y-1 active:scale-[0.98] will-change-transform relative"
     >
-      <div className="aspect-[2/3] relative overflow-hidden bg-[#050812]">
+      <div className="aspect-[2/3] relative overflow-hidden bg-[#0a0f20]">
+        {/* Sleek Skeleton Placeholder when loading */}
+        {!isLoaded && imgSrc && (
+          <div className="absolute inset-0 bg-gradient-to-b from-[#0e172e] via-[#0a1020] to-[#070c18] animate-pulse flex items-center justify-center">
+            <Film className="w-6 h-6 text-white/10 animate-pulse" />
+          </div>
+        )}
+
         {imgSrc ? (
           <img 
             src={imgSrc} 
             alt={movie.title}
-            loading="lazy"
+            loading={priority || isPreloaded ? "eager" : "lazy"}
             decoding="async"
+            onLoad={() => {
+              if (imgSrc) preloadedImageUrls.add(imgSrc);
+              setIsLoaded(true);
+            }}
             onError={() => setImgError(true)}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
           />
@@ -2049,9 +2271,9 @@ const MovieRow = React.memo<{
 
       {/* Smooth Netflix-Style Horizontal Touch/Swipe Slider */}
       <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-3 pt-1 snap-x snap-mandatory scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden overscroll-x-contain touch-pan-x select-none">
-        {displayItems.map((movie) => (
+        {displayItems.map((movie, idx) => (
           <div key={`carousel-${movie.id}`} className="w-32 sm:w-44 flex-shrink-0 snap-start select-none">
-            <MovieCard movie={movie} onSelect={onSelectMovie} />
+            <MovieCard movie={movie} onSelect={onSelectMovie} priority={idx < 6} />
           </div>
         ))}
 
