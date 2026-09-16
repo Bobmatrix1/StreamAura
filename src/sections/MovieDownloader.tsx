@@ -1125,7 +1125,88 @@ const MovieDownloader: React.FC = () => {
         />
       )}
       
-      {/* 1. Header Banner & Mode Switches */}
+      {/* 1. Featured Hero Spotlight Carousel (At Very Top of Page) */}
+      {activeTab === 'search' && isTrending && currentSpotlight && !query.trim() && !selectedMovie && !activeSection && (
+        <div className="relative rounded-3xl overflow-hidden border border-white/15 bg-[#070a18] shadow-2xl group min-h-[380px] sm:min-h-[460px] md:min-h-[500px] flex flex-col justify-end">
+          {spotlightThumbnail && (
+            <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-0">
+              <img 
+                src={spotlightThumbnail} 
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover object-top sm:object-center transition-transform duration-700 ease-out group-hover:scale-105" 
+                alt={currentSpotlight.title} 
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#070a18] via-[#070a18]/70 via-40% to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-r from-[#070a18]/85 via-[#070a18]/25 to-transparent hidden sm:block" />
+            </div>
+          )}
+
+          <div className="relative z-10 p-6 sm:p-8 md:p-10 w-full max-w-3xl space-y-3 sm:space-y-4">
+            {(currentSpotlight.year || (currentSpotlight.genres && currentSpotlight.genres.length > 0)) && (
+              <div className="flex flex-wrap items-center gap-2">
+                {currentSpotlight.year && (
+                  <span className="px-2.5 py-0.5 rounded-lg bg-black/70 border border-white/15 text-white/90 font-mono text-[11px] font-bold">
+                    {currentSpotlight.year}
+                  </span>
+                )}
+                {currentSpotlight.genres && currentSpotlight.genres.length > 0 && (
+                  <span className="px-2.5 py-0.5 rounded-lg bg-white/10 text-white/90 border border-white/15 text-[10px] font-black uppercase tracking-wider">
+                    {currentSpotlight.genres[0]}
+                  </span>
+                )}
+              </div>
+            )}
+
+            <h1 className="text-2xl sm:text-4xl md:text-5xl font-black uppercase text-white tracking-tight leading-tight drop-shadow-xl max-w-2xl">
+              {currentSpotlight.title}
+            </h1>
+
+            {currentSpotlight.description ? (
+              <p className="text-xs sm:text-sm text-white/85 line-clamp-2 leading-relaxed max-w-xl drop-shadow-md">
+                {currentSpotlight.description}
+              </p>
+            ) : null}
+
+            <div className="flex flex-row items-center gap-2.5 sm:gap-3 flex-nowrap pt-1 overflow-x-auto [scrollbar-width:none]">
+              <button
+                onClick={() => handleSelectMovie(currentSpotlight)}
+                className={`px-5 sm:px-6 py-2.5 sm:py-3 rounded-2xl text-white font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-xl transition-all cursor-pointer active:scale-95 whitespace-nowrap shrink-0 ${
+                  searchType === 'series'
+                    ? 'bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 shadow-purple-500/25'
+                    : 'bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 shadow-cyan-500/25'
+                }`}
+              >
+                <Play className="w-4 h-4 fill-current shrink-0" />
+                <span>{searchType === 'series' ? 'Watch Series' : 'Watch Movie'}</span>
+              </button>
+
+              <button
+                onClick={() => handleSelectMovie(currentSpotlight)}
+                className="px-4 sm:px-5 py-2.5 sm:py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wider border border-white/20 transition-all cursor-pointer active:scale-95 backdrop-blur-md whitespace-nowrap shrink-0"
+              >
+                <span>{searchType === 'series' ? 'Seasons & Info' : '4K & Details'}</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              {spotlightItems.map((_, i) => (
+                <button
+                  key={`spotlight-dot-${i}`}
+                  onClick={() => setSpotlightIndex(i)}
+                  className={`h-1.5 rounded-full transition-all cursor-pointer ${
+                    i === spotlightIndex 
+                      ? (searchType === 'series' ? 'w-8 bg-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.7)]' : 'w-8 bg-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.7)]') 
+                      : 'w-2 bg-white/30 hover:bg-white/60'
+                  }`}
+                  title={`Featured Title ${i + 1}`}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Header Banner & Mode Switches (StreamAura Cinema Card) */}
       <div className="space-y-4">
         <div className="flex flex-col md:flex-row items-center justify-between gap-4 p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-[#0b1021] via-[#0d1630] to-[#120e29] border border-white/10 shadow-2xl relative overflow-hidden">
           {/* Ambient Lighting Gradients */}
@@ -1150,7 +1231,11 @@ const MovieDownloader: React.FC = () => {
                 </span>
               </div>
               <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight uppercase mt-0.5">
-                Stream<span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">Aura</span> Cinema
+                Stream<span className={`text-transparent bg-clip-text transition-all duration-300 ${
+                  searchType === 'series'
+                    ? 'bg-gradient-to-r from-purple-400 via-pink-400 to-indigo-400'
+                    : 'bg-gradient-to-r from-cyan-400 to-blue-500'
+                }`}>Aura</span> Cinema
               </h2>
             </div>
           </div>
@@ -1225,7 +1310,7 @@ const MovieDownloader: React.FC = () => {
 
       {activeTab === 'search' ? (
         <>
-          {/* 2. Interactive Search & Quick Genre Selector Bar */}
+          {/* 3. Interactive Search & Quick Genre Selector Bar */}
           <div className="space-y-4">
             {/* Search Input Box */}
             <div className="p-3 rounded-2xl flex flex-col sm:flex-row gap-3 border border-white/10 bg-[#090e1c] shadow-xl">
@@ -1241,7 +1326,7 @@ const MovieDownloader: React.FC = () => {
                     }
                   }}
                   onKeyDown={(e) => e.key === 'Enter' && handleSearch(undefined, 1)}
-                  placeholder={searchType === 'movie' ? "Search 10,000+ movies, 4K titles, actors, genres..." : "Search TV series, anime, drama seasons, episodes..."}
+                  placeholder={searchType === 'movie' ? "Search 10,000+ movies, 4K quality, actors, genres..." : "Search TV series, anime, drama seasons, episodes..."}
                   className="w-full bg-white/[0.04] border border-white/10 pl-12 pr-12 py-3.5 rounded-xl text-sm text-white placeholder:text-white/40 outline-none focus:border-cyan-500/50 transition-all font-medium"
                 />
                 {query && (
@@ -1870,87 +1955,6 @@ const MovieDownloader: React.FC = () => {
             ) : (
               /* C. MAIN DISCOVERY OVERVIEW OR SEARCH RESULTS */
               <div key="grid" className="space-y-10">
-                {/* 4. Featured Hero Spotlight Banner */}
-                {isTrending && currentSpotlight && !query.trim() && (
-                  <div className="relative rounded-3xl overflow-hidden border border-white/15 bg-[#070a18] shadow-2xl group min-h-[380px] sm:min-h-[460px] md:min-h-[500px] flex flex-col justify-end">
-                    {spotlightThumbnail && (
-                      <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-0">
-                        <img 
-                          src={spotlightThumbnail} 
-                          referrerPolicy="no-referrer"
-                          className="w-full h-full object-cover object-top sm:object-center transition-transform duration-700 ease-out group-hover:scale-105" 
-                          alt={currentSpotlight.title} 
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-[#070a18] via-[#070a18]/70 via-40% to-transparent" />
-                        <div className="absolute inset-0 bg-gradient-to-r from-[#070a18]/85 via-[#070a18]/25 to-transparent hidden sm:block" />
-                      </div>
-                    )}
-
-                    <div className="relative z-10 p-6 sm:p-8 md:p-10 w-full max-w-3xl space-y-3 sm:space-y-4">
-                      {(currentSpotlight.year || (currentSpotlight.genres && currentSpotlight.genres.length > 0)) && (
-                        <div className="flex flex-wrap items-center gap-2">
-                          {currentSpotlight.year && (
-                            <span className="px-2.5 py-0.5 rounded-lg bg-black/70 border border-white/15 text-white/90 font-mono text-[11px] font-bold">
-                              {currentSpotlight.year}
-                            </span>
-                          )}
-                          {currentSpotlight.genres && currentSpotlight.genres.length > 0 && (
-                            <span className="px-2.5 py-0.5 rounded-lg bg-white/10 text-white/90 border border-white/15 text-[10px] font-black uppercase tracking-wider">
-                              {currentSpotlight.genres[0]}
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      <h1 className="text-2xl sm:text-4xl md:text-5xl font-black uppercase text-white tracking-tight leading-tight drop-shadow-xl max-w-2xl">
-                        {currentSpotlight.title}
-                      </h1>
-
-                      {currentSpotlight.description ? (
-                        <p className="text-xs sm:text-sm text-white/85 line-clamp-2 leading-relaxed max-w-xl drop-shadow-md">
-                          {currentSpotlight.description}
-                        </p>
-                      ) : null}
-
-                      <div className="flex flex-row items-center gap-2.5 sm:gap-3 flex-nowrap pt-1 overflow-x-auto [scrollbar-width:none]">
-                        <button
-                          onClick={() => handleSelectMovie(currentSpotlight)}
-                          className={`px-5 sm:px-6 py-2.5 sm:py-3 rounded-2xl text-white font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-xl transition-all cursor-pointer active:scale-95 whitespace-nowrap shrink-0 ${
-                            searchType === 'series'
-                              ? 'bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 shadow-purple-500/25'
-                              : 'bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 shadow-cyan-500/25'
-                          }`}
-                        >
-                          <Play className="w-4 h-4 fill-current shrink-0" />
-                          <span>{searchType === 'series' ? 'Watch Series' : 'Watch Movie'}</span>
-                        </button>
-
-                        <button
-                          onClick={() => handleSelectMovie(currentSpotlight)}
-                          className="px-4 sm:px-5 py-2.5 sm:py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wider border border-white/20 transition-all cursor-pointer active:scale-95 backdrop-blur-md whitespace-nowrap shrink-0"
-                        >
-                          <span>{searchType === 'series' ? 'Seasons & Info' : '4K & Details'}</span>
-                        </button>
-                      </div>
-
-                      <div className="flex items-center gap-2 pt-1">
-                        {spotlightItems.map((_, i) => (
-                          <button
-                            key={`spotlight-dot-${i}`}
-                            onClick={() => setSpotlightIndex(i)}
-                            className={`h-1.5 rounded-full transition-all cursor-pointer ${
-                              i === spotlightIndex 
-                                ? (searchType === 'series' ? 'w-8 bg-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.7)]' : 'w-8 bg-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.7)]') 
-                                : 'w-2 bg-white/30 hover:bg-white/60'
-                            }`}
-                            title={`Featured Title ${i + 1}`}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 {/* 5. Themed Category Rows or Loading Skeleton */}
                 {isSearching && !query.trim() && (!trendingRows || trendingRows.length === 0) ? (
                   <SkeletonDiscovery />
@@ -2356,9 +2360,13 @@ const MovieCard = React.memo<{
             <Star className="w-2.5 h-2.5 fill-current" /> {movie.rating && movie.rating !== '0.0' ? movie.rating : '7.5'}
           </span>
 
-          {movie.mediaType === 'series' && (
+          {movie.mediaType === 'series' ? (
             <span className="px-2 py-0.5 rounded-md bg-purple-600 text-[8px] font-black text-white uppercase tracking-wider shadow-md">
               SERIES
+            </span>
+          ) : (
+            <span className="px-2 py-0.5 rounded-md bg-cyan-600 text-[8px] font-black text-white uppercase tracking-wider shadow-md">
+              MOVIE
             </span>
           )}
         </div>
@@ -2381,8 +2389,10 @@ const MovieCard = React.memo<{
         </h4>
         <div className="flex items-center justify-between mt-1 text-[10px] text-white/50 font-bold">
           <span className="uppercase">{movie.year && movie.year !== 'N/A' && movie.year !== '0' ? movie.year : ''}</span>
-          {movie.mediaType === 'series' && (
+          {movie.mediaType === 'series' ? (
             <span className="text-purple-400 font-mono text-[9px]">TV SHOW</span>
+          ) : (
+            <span className="text-cyan-400 font-mono text-[9px]">MOVIE</span>
           )}
         </div>
       </div>
