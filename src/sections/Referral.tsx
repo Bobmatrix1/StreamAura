@@ -567,8 +567,51 @@ const Referral: React.FC = () => {
         )}
       </AnimatePresence>
 
+      {/* Balance Card Section (Top of Page) */}
+      <div className="max-w-md mx-auto w-full">
+        <motion.div 
+          whileHover={{ scale: 1.02 }} 
+          className="relative aspect-[1.6/1] w-full rounded-3xl overflow-hidden shadow-2xl group cursor-pointer"
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-orange-600 via-rose-900 to-black p-6 flex flex-col justify-between overflow-hidden wallet-card">
+            <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-3xl group-hover:bg-white/20 transition-all duration-700" />
+            <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-primary/20 rounded-full blur-3xl" />
+            
+            <div className="flex justify-between items-start relative z-10">
+              <div className="space-y-1">
+                <p className="text-white/50 text-[10px] uppercase font-black tracking-[0.2em]">Withdrawable Commission</p>
+                <motion.h2 key={stats.balance} initial={{ y: 10, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="text-4xl font-black text-white">₦{stats.balance.toLocaleString()}</motion.h2>
+              </div>
+              <Button onClick={handleWithdrawClick} className="h-10 px-4 rounded-xl bg-white text-black font-black uppercase text-[10px] gap-2 hover:bg-emerald-500 hover:text-white transition-all">
+                 Withdraw <ArrowUpRight className="w-4 h-4" />
+              </Button>
+            </div>
+
+            <div className="space-y-4 relative z-10">
+              <div className="flex items-end justify-between">
+                <div className="space-y-1">
+                  <p className="text-[7px] uppercase font-black text-white/40 tracking-[0.3em]">Network Growth</p>
+                  <div className="flex items-center gap-2">
+                     <Users className="w-4 h-4 text-primary" />
+                     <span className="text-lg font-black text-white">{stats.totalReferred} Users</span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-[7px] uppercase font-black text-white/40 tracking-[0.3em]">Signup Bonus (Non-Withdrawable)</p>
+                  <p className="text-lg font-black text-emerald-400">₦{stats.bonusBalance.toLocaleString()}</p>
+                </div>
+              </div>
+              <div className="pt-2 flex items-center gap-2 border-t border-white/10">
+                <div className="w-6 h-6 rounded-full bg-emerald-500/20 flex items-center justify-center"><TrendingUp className="w-3 h-3 text-emerald-400" /></div>
+                <p className="text-[9px] font-bold text-white/70 uppercase tracking-wider">Tiered Revenue Sharing Active</p>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
       {/* Header Section */}
-      <div className="flex flex-col items-center text-center gap-6 mb-12">
+      <div className="flex flex-col items-center text-center gap-6 my-8">
         <div className="w-20 h-20 rounded-3xl bg-orange-500/10 flex items-center justify-center border border-orange-500/20 shadow-[0_0_40px_rgba(249,115,22,0.15)]">
           <Share2 className="w-10 h-10 text-orange-500" />
         </div>
@@ -586,48 +629,23 @@ const Referral: React.FC = () => {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Balance Card Section */}
-        <div className="lg:col-span-1 space-y-6">
-          <motion.div 
-            whileHover={{ scale: 1.02 }} 
-            className="relative aspect-[1.6/1] w-full rounded-3xl overflow-hidden shadow-2xl group cursor-pointer"
-          >
-            <div className="absolute inset-0 bg-gradient-to-br from-orange-600 via-rose-900 to-black p-6 flex flex-col justify-between overflow-hidden wallet-card">
-              <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-3xl group-hover:bg-white/20 transition-all duration-700" />
-              <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-primary/20 rounded-full blur-3xl" />
-              
-              <div className="flex justify-between items-start relative z-10">
-                <div className="space-y-1">
-                  <p className="text-white/50 text-[10px] uppercase font-black tracking-[0.2em]">Withdrawable Commission</p>
-                  <motion.h2 key={stats.balance} initial={{ y: 10, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="text-4xl font-black text-white">₦{stats.balance.toLocaleString()}</motion.h2>
-                </div>
-                <Button onClick={handleWithdrawClick} className="h-10 px-4 rounded-xl bg-white text-black font-black uppercase text-[10px] gap-2 hover:bg-emerald-500 hover:text-white transition-all">
-                   Withdraw <ArrowUpRight className="w-4 h-4" />
-                </Button>
-              </div>
-
-              <div className="space-y-4 relative z-10">
-                <div className="flex items-end justify-between">
-                  <div className="space-y-1">
-                    <p className="text-[7px] uppercase font-black text-white/40 tracking-[0.3em]">Network Growth</p>
-                    <div className="flex items-center gap-2">
-                       <Users className="w-4 h-4 text-primary" />
-                       <span className="text-lg font-black text-white">{stats.totalReferred} Users</span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[7px] uppercase font-black text-white/40 tracking-[0.3em]">Signup Bonus (Non-Withdrawable)</p>
-                    <p className="text-lg font-black text-emerald-400">₦{stats.bonusBalance.toLocaleString()}</p>
-                  </div>
-                </div>
-                <div className="pt-2 flex items-center gap-2 border-t border-white/10">
-                  <div className="w-6 h-6 rounded-full bg-emerald-500/20 flex items-center justify-center"><TrendingUp className="w-3 h-3 text-emerald-400" /></div>
-                  <p className="text-[9px] font-bold text-white/70 uppercase tracking-wider">Tiered Revenue Sharing Active</p>
-                </div>
-              </div>
+      {/* My Referral Link Card (Top of Page) */}
+      <div className="max-w-md mx-auto w-full mb-8">
+        <Card className="p-6 glass-card border-white/10 space-y-4">
+          <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground text-center">My Referral Link</h3>
+          <div className="space-y-3">
+            <div className="relative group">
+              <input readOnly value={referralLink} className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-4 pr-12 text-[10px] font-mono outline-none focus:border-primary/50 text-muted-foreground" />
+              <button onClick={handleCopyLink} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 hover:bg-white/10 rounded-lg text-primary transition-colors"><Copy className="w-4 h-4" /></button>
             </div>
-          </motion.div>
+            <p className="text-[8px] text-center text-muted-foreground uppercase tracking-widest font-bold">Share this link. When they earn, you get a 10% lifetime cut (90 days).</p>
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Left Column */}
+        <div className="lg:col-span-1 space-y-6">
 
           {/* Active Referrals List */}
           <Card className="glass-card border-white/10 flex flex-col overflow-hidden">
@@ -730,17 +748,6 @@ const Referral: React.FC = () => {
                   </div>
                 )}
              </div>
-          </Card>
-
-          <Card className="p-6 glass-card border-white/10 space-y-4">
-            <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">My Referral Link</h3>
-            <div className="space-y-3">
-              <div className="relative group">
-                <input readOnly value={referralLink} className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-4 pr-12 text-[10px] font-mono outline-none focus:border-primary/50 text-muted-foreground" />
-                <button onClick={handleCopyLink} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 hover:bg-white/10 rounded-lg text-primary transition-colors"><Copy className="w-4 h-4" /></button>
-              </div>
-              <p className="text-[8px] text-center text-muted-foreground uppercase tracking-widest font-bold">Share this link. When they earn, you get a 10% lifetime cut (90 days).</p>
-            </div>
           </Card>
         </div>
 

@@ -308,7 +308,7 @@ export const AppContent: React.FC = () => {
           {activeView === 'wallet' && <Wallet />}
           {activeView === 'bulk' && <BulkDownloader />}
           {activeView === 'referral' && <Referral />}
-          {activeView === 'profile' && <Profile />}
+          {activeView === 'profile' && <Profile onNavigate={handleTabChange} />}
           {activeView === 'notifications' && <Notifications />}
           {activeView === 'history' && <History />}
           {activeView === 'about' && <About />}

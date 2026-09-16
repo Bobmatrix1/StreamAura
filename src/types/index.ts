@@ -8,7 +8,9 @@ export interface User {
   isVendor?: boolean;
   createdAt: number;
   referralBalance: number;
-  bonusBalance?: number; // Non-withdrawable signup bonuses (₦100 per referral)
+  bonusBalance?: number; // Legacy balance
+  auraCoins?: number; // AuraCoins accumulated from game room, rewards, etc.
+  auraCoin?: number;
   referredCount: number;
   referredBy: string | null;
 }

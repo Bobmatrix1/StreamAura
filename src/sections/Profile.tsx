@@ -14,7 +14,11 @@ import {
   AlertTriangle,
   Eye,
   EyeOff,
-  X
+  X,
+  Gamepad2,
+  Tv,
+  Film,
+  Sparkles
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -26,6 +30,7 @@ import { doc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore'
 import { updatePassword, updateProfile, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { fetchBanks, resolveBankAccount } from '../api/paymentApi';
 import { LoginRequired } from '../components/LoginRequired';
+import { AuraCoinIcon } from '../components/AuraCoinIcon';
 
 interface Bank {
   name: string;
@@ -33,7 +38,11 @@ interface Bank {
   slug?: string;
 }
 
-const Profile: React.FC = () => {
+interface ProfileProps {
+  onNavigate?: (tab: string) => void;
+}
+
+const Profile: React.FC<ProfileProps> = ({ onNavigate }) => {
   const { user, isAuthenticated, logout } = useAuth();
   const { showSuccess, showError } = useToast();
 
@@ -489,8 +498,15 @@ const Profile: React.FC = () => {
                <p className="text-lg font-black text-blue-600 dark:text-blue-400">{user?.referredCount || 0} Users</p>
             </div>
             <div className="text-center md:text-left border-l border-slate-200 dark:border-white/5 pl-4">
-               <p className="text-[8px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest mb-1">Bonus Credit</p>
-               <p className="text-lg font-black text-amber-600 dark:text-amber-400">₦{user?.bonusBalance?.toLocaleString() || 0}</p>
+               <p className="text-[8px] font-black uppercase text-amber-600 dark:text-amber-400 tracking-widest mb-1 flex items-center justify-center md:justify-start gap-1">
+                  AuraCoin
+               </p>
+               <div className="flex items-center justify-center md:justify-start gap-1.5">
+                  <AuraCoinIcon size="sm" className="w-4 h-4" />
+                  <p className="text-lg font-black text-amber-600 dark:text-amber-400">
+                     {(user?.auraCoins ?? user?.auraCoin ?? user?.bonusBalance ?? 0).toLocaleString()}
+                  </p>
+               </div>
             </div>
             <div className="text-center md:text-left border-l border-slate-200 dark:border-white/5 pl-4">
                <p className="text-[8px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest mb-1">Status</p>
@@ -524,6 +540,81 @@ const Profile: React.FC = () => {
       <AnimatePresence mode="wait">
          {activeTab === 'info' && (
            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+              {/* AuraCoin Rewards & Utility Card */}
+              <Card className="glass-card p-6 md:p-8 border-amber-500/20 bg-gradient-to-br from-amber-500/5 via-orange-500/5 to-purple-500/5 dark:from-amber-500/10 dark:via-orange-500/5 dark:to-purple-500/10 shadow-2xl relative overflow-hidden">
+                 <div className="absolute -right-8 -top-8 w-36 h-36 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
+                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
+                    <div className="flex items-start gap-4">
+                       <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shadow-lg shadow-amber-500/10 shrink-0">
+                          <AuraCoinIcon size="lg" className="w-8 h-8" />
+                       </div>
+                       <div className="space-y-1">
+                          <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">AuraCoin Balance & Utility</h3>
+                          <p className="text-xs text-slate-600 dark:text-white/70 leading-relaxed max-w-xl">
+                             AuraCoins are accumulated from the <span className="font-bold text-amber-600 dark:text-amber-400">Game Room</span> and can be used to stream exclusive series or create and host your own <span className="font-bold text-blue-500 dark:text-blue-400">Virtual Cinema Rooms</span>.
+                          </p>
+                       </div>
+                    </div>
+                    
+                    <div className="flex flex-col sm:flex-row items-center gap-3 shrink-0">
+                       <div className="flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 w-full sm:w-auto justify-center">
+                          <AuraCoinIcon size="md" className="w-5 h-5" />
+                          <div className="text-left">
+                             <p className="text-[8px] font-black uppercase text-amber-600 dark:text-amber-400 tracking-wider">AuraCoin Balance</p>
+                             <p className="text-base font-black text-amber-600 dark:text-amber-400">
+                                {(user?.auraCoins ?? user?.auraCoin ?? user?.bonusBalance ?? 0).toLocaleString()} <span className="text-[10px] font-bold">COINS</span>
+                             </p>
+                          </div>
+                       </div>
+                       {onNavigate && (
+                          <div className="flex gap-2 w-full sm:w-auto">
+                             <Button 
+                                onClick={() => onNavigate('games')}
+                                size="sm"
+                                className="flex-1 sm:flex-none h-11 px-4 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black uppercase tracking-widest text-[9px] rounded-xl shadow-lg shadow-amber-500/20 flex items-center gap-1.5"
+                             >
+                                <Gamepad2 className="w-3.5 h-3.5" />
+                                Game Room
+                             </Button>
+                             <Button 
+                                onClick={() => onNavigate('cinema')}
+                                size="sm"
+                                variant="outline"
+                                className="flex-1 sm:flex-none h-11 px-4 border-amber-500/30 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 font-black uppercase tracking-widest text-[9px] rounded-xl flex items-center gap-1.5"
+                             >
+                                <Film className="w-3.5 h-3.5" />
+                                Cinema Room
+                             </Button>
+                          </div>
+                       )}
+                    </div>
+                 </div>
+
+                 {/* Perks Grid */}
+                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6 pt-6 border-t border-amber-500/10 text-slate-700 dark:text-white/80">
+                    <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-500/5 dark:bg-white/5 border border-slate-200 dark:border-white/5">
+                       <div className="p-1.5 rounded-lg bg-yellow-500/10 text-yellow-500"><Gamepad2 className="w-4 h-4" /></div>
+                       <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-900 dark:text-white">Accumulate In Games</p>
+                          <p className="text-[9px] text-slate-500 dark:text-white/50">Win matches and score in game rooms</p>
+                       </div>
+                    </div>
+                    <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-500/5 dark:bg-white/5 border border-slate-200 dark:border-white/5">
+                       <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-500"><Tv className="w-4 h-4" /></div>
+                       <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-900 dark:text-white">Watch Series</p>
+                          <p className="text-[9px] text-slate-500 dark:text-white/50">Unlock exclusive episodes & seasons</p>
+                       </div>
+                    </div>
+                    <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-500/5 dark:bg-white/5 border border-slate-200 dark:border-white/5">
+                       <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-500"><Film className="w-4 h-4" /></div>
+                       <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-900 dark:text-white">Create Cinema Rooms</p>
+                          <p className="text-[9px] text-slate-500 dark:text-white/50">Host private rooms & watch parties</p>
+                       </div>
+                    </div>
+                 </div>
+              </Card>
               <Card className="glass-card p-8 border-slate-200 dark:border-white/10 shadow-2xl">
                  <div className="flex items-center gap-3 mb-8 pb-4 border-b border-slate-200 dark:border-white/5">
                     <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500 border border-blue-500/20">
