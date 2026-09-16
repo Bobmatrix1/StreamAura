@@ -1952,6 +1952,8 @@ def clean_query_for_related(q: str) -> str:
     q = ' '.join(q.split())
     return q
 
+_search_cache: dict = {}
+
 @app.get("/api/movies/search")
 async def search_movies(
     query: str = Query(...), 
@@ -1960,6 +1962,11 @@ async def search_movies(
     per_page: int = 40
 ):
     try:
+        cache_key = f"{query.lower().strip()}_{type}_{page}_{per_page}"
+        now = time.time()
+        if cache_key in _search_cache and (now - _search_cache[cache_key].get("time", 0)) < 600:
+            return _search_cache[cache_key]["data"]
+
         client_session = Session(verify=False)
 
         async def perform_search(search_type_str, search_query, target_count=40, page_num=1):
@@ -2123,11 +2130,15 @@ async def search_movies(
             if len(formatted_results) >= per_page:
                 break
 
-        return {"success": True, "data": formatted_results}
+        resp = {"success": True, "data": formatted_results}
+        _search_cache[cache_key] = {"time": now, "data": resp}
+        return resp
     except Exception as e:
         print(f"Movie Search Critical Error: {str(e)}")
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+_genre_cache: dict = {}
 
 @app.get("/api/movies/genre")
 async def get_movies_by_genre(
@@ -2141,6 +2152,11 @@ async def get_movies_by_genre(
     """
     try:
         genre_lower = genre.lower().strip()
+        cache_key = f"{genre_lower}_{type}_{page}_{per_page}"
+        now = time.time()
+        if cache_key in _genre_cache and (now - _genre_cache[cache_key].get("time", 0)) < 1800:
+            return _genre_cache[cache_key]["data"]
+
         client_session = Session(verify=False)
 
         def get_val(obj, key, default=None):
@@ -2192,6 +2208,7 @@ async def get_movies_by_genre(
             # Forward to search_movies handler logic with page & per_page
             res = await search_movies(query=search_query, type=type, page=page, per_page=per_page)
             if isinstance(res, dict) and res.get('success'):
+                _genre_cache[cache_key] = {"time": now, "data": res}
                 return res
             elif isinstance(res, JSONResponse):
                 return res
@@ -2226,14 +2243,23 @@ async def get_movies_by_genre(
             if len(formatted_results) >= per_page:
                 break
 
-        return {"success": True, "data": formatted_results}
+        resp = {"success": True, "data": formatted_results}
+        _genre_cache[cache_key] = {"time": now, "data": resp}
+        return resp
     except Exception as e:
         print(f"Genre Fetch Error: {str(e)}")
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
+_trending_cache: dict = {}
+
 @app.get("/api/movies/trending")
 async def get_trending_movies(type: str = "movie"):
+    now = time.time()
+    cache_entry = _trending_cache.get(type)
+    if cache_entry and (now - cache_entry.get("time", 0)) < 1800:
+        return cache_entry.get("data", {})
+
     try:
         auth_token = os.getenv("MOVIEBOX_AUTH_TOKEN", "").strip()
         headers = {}
@@ -2326,7 +2352,9 @@ async def get_trending_movies(type: str = "movie"):
                     })
             
             if formatted_categories and len(formatted_categories) >= 3:
-                return {"success": True, "isRows": True, "data": formatted_categories}
+                resp_obj = {"success": True, "isRows": True, "data": formatted_categories}
+                _trending_cache[type] = {"time": now, "data": resp_obj}
+                return resp_obj
         except Exception as hp_exc:
             print(f"Homepage rows fetch failed, falling back to Trending list: {hp_exc}")
 
@@ -2361,7 +2389,9 @@ async def get_trending_movies(type: str = "movie"):
                 "mediaType": type
             })
             
-        return {"success": True, "isRows": False, "data": formatted_results}
+        fallback_resp = {"success": True, "isRows": False, "data": formatted_results}
+        _trending_cache[type] = {"time": now, "data": fallback_resp}
+        return fallback_resp
     except Exception as e:
         print(f"Trending Fetch Error: {str(e)}")
         traceback.print_exc()
@@ -2503,6 +2533,8 @@ async def fetch_tmdb_details(title: str, media_type: str, year: Optional[str] = 
             print(f"TMDB Fetch Error for {title}: {e}")
             return None
 
+_details_cache: dict = {}
+
 @app.get("/api/movies/details")
 async def get_movie_details(
     subject_id: str = Query(...), 
@@ -2517,6 +2549,11 @@ async def get_movie_details(
     description: Optional[str] = Query(None)
 ):
     try:
+        cache_key = f"{subject_id}_{type}_{season}_{episode}"
+        now = time.time()
+        if cache_key in _details_cache and (now - _details_cache[cache_key].get("time", 0)) < 1800:
+            return _details_cache[cache_key]["data"]
+
         auth_token = os.getenv("MOVIEBOX_AUTH_TOKEN", "").strip()
         headers = {}
         if auth_token:
@@ -2732,10 +2769,12 @@ async def get_movie_details(
 
         moviebox_details["tmdb"] = tmdb_data
 
-        return {
+        details_resp = {
             "success": True,
             "data": moviebox_details
         }
+        _details_cache[cache_key] = {"time": now, "data": details_resp}
+        return details_resp
     except Exception as e:
         print(f"Movie Details Error: {str(e)}")
         traceback.print_exc()

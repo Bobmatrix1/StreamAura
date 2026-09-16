@@ -252,6 +252,7 @@ const MovieDownloader: React.FC = () => {
   // Detail View Section Ref for smooth scrolling & selection tracking
   const detailsSectionRef = useRef<HTMLDivElement>(null);
   const activeSelectionRef = useRef<string | null>(null);
+  const clickedMovieRef = useRef<{ id: string; title: string } | null>(null);
 
   // Scroll Position Retention Ref
   const savedScrollRef = useRef<{ window: number; main: number }>({
@@ -262,6 +263,7 @@ const MovieDownloader: React.FC = () => {
   const [myPreOrders, setMyPreOrders] = useState<PreOrder[]>([]);
   const [isLoadingLibrary, setIsLoadingLibrary] = useState(false);
   const [selectedMovie, setSelectedMovie] = useState<MovieInfo | null>(null);
+  const [highlightedMovieId, setHighlightedMovieId] = useState<string | null>(null);
   const [isCheckingCloud, setIsCheckingCloud] = useState(false);
   const [showPlayer, setShowPlayer] = useState(false);
   const [activeTrailerKey, setActiveTrailerKey] = useState<string | null>(null);
@@ -749,15 +751,31 @@ const MovieDownloader: React.FC = () => {
   }, [spotlightItems.length]);
 
   const handleBackToDiscovery = () => {
+    const targetId = clickedMovieRef.current?.id || (selectedMovie?.id ? String(selectedMovie.id) : null);
     activeSelectionRef.current = null;
     setSelectedMovie(null);
     setCloudData(null);
     setIsCheckingCloud(false);
 
+    if (targetId) {
+      setHighlightedMovieId(targetId);
+      // Keep highlighted for 6 seconds so user clearly sees what they clicked
+      setTimeout(() => {
+        setHighlightedMovieId(prev => (prev === targetId ? null : prev));
+      }, 6000);
+    }
+
     // Smooth instantaneous scroll restoration without resetting to top
-    requestAnimationFrame(() => {
-      restoreScrollPosition(true);
-    });
+    restoreScrollPosition(true);
+
+    if (targetId) {
+      setTimeout(() => {
+        const el = document.getElementById(`movie-card-${targetId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        }
+      }, 40);
+    }
   };
 
   const handleSelectMovie = async (movie: MovieInfo) => {
@@ -769,7 +787,11 @@ const MovieDownloader: React.FC = () => {
     movieGlobalCache.savedScrollY = wScroll;
     movieGlobalCache.savedMainScrollTop = mScroll;
 
-    const requestId = `${movie.id}_${Date.now()}`;
+    const targetId = String(movie.id);
+    clickedMovieRef.current = { id: targetId, title: movie.title || '' };
+    setHighlightedMovieId(targetId);
+
+    const requestId = `${targetId}_${Date.now()}`;
     activeSelectionRef.current = requestId;
 
     // Check if we have cached details for 0ms instant display
@@ -782,9 +804,10 @@ const MovieDownloader: React.FC = () => {
     setIsManualMode(false);
     setIsCheckingCloud(true);
     
-    // Scroll smoothly to top of detail view
-    window.scrollTo({ top: 0, behavior: 'instant' });
-    mainEl?.scrollTo({ top: 0, behavior: 'instant' });
+    // Smoothly focus to the detail view poster area
+    setTimeout(() => {
+      detailsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 40);
 
     try {
       const result = await mediaApi.getMovieDetails(
@@ -1167,33 +1190,34 @@ const MovieDownloader: React.FC = () => {
             </div>
           </div>
 
-          {/* 3. Main Views: Movie Detail View (animated on top) AND Discovery/Section Tree (preserved in DOM) */}
-          <AnimatePresence>
-            {selectedMovie && (
-              /* A. MOVIE DETAILS VIEW */
-              <motion.div 
-                key="details" 
-                ref={detailsSectionRef}
-                initial={{ opacity: 0, y: 10 }} 
-                animate={{ opacity: 1, y: 0 }} 
-                exit={{ opacity: 0, y: -10 }} 
-                transition={{ duration: 0.15 }}
-                className="space-y-6"
+          {/* 3. Main Views: Movie Detail View OR Discovery/Section Tree */}
+          {selectedMovie && (
+            /* A. MOVIE DETAILS VIEW */
+            <div 
+              key={`details-${selectedMovie.id}`} 
+              ref={detailsSectionRef}
+              id="movie-details-section"
+              className="space-y-6 scroll-mt-24"
+            >
+              {/* Back Button */}
+              <button 
+                onClick={handleBackToDiscovery} 
+                className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs text-white flex items-center gap-2 font-black uppercase tracking-wider transition-all border border-white/15 cursor-pointer active:scale-95 shadow-md"
               >
-                {/* Back Button */}
-                <button 
-                  onClick={handleBackToDiscovery} 
-                  className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs text-white flex items-center gap-2 font-black uppercase tracking-wider transition-all border border-white/15 cursor-pointer active:scale-95 shadow-md"
-                >
-                  <ArrowLeft className="w-4 h-4" /> 
-                  <span>{activeSection ? `Back to ${activeSection.title}` : 'Back to Cinema Discovery'}</span>
-                </button>
+                <ArrowLeft className="w-4 h-4" /> 
+                <span>{activeSection ? `Back to ${activeSection.title}` : 'Back to Cinema Discovery'}</span>
+              </button>
                 
                 {/* Detail Glass Container */}
                 <div className="p-6 md:p-10 rounded-3xl border border-white/10 relative overflow-hidden shadow-2xl bg-[#070b19]">
                   {detailBackdropSrc && (
                     <div className="absolute inset-0 h-96 overflow-hidden rounded-t-3xl z-0 pointer-events-none">
-                      <img src={detailBackdropSrc} className="w-full h-full object-cover opacity-25" alt="Backdrop" />
+                      <img 
+                        src={detailBackdropSrc} 
+                        referrerPolicy="no-referrer" 
+                        className="w-full h-full object-cover opacity-30" 
+                        alt="Backdrop" 
+                      />
                       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#070b19]/80 to-[#070b19]" />
                     </div>
                   )}
@@ -1205,6 +1229,7 @@ const MovieDownloader: React.FC = () => {
                         {detailPosterSrc ? (
                           <img 
                             src={detailPosterSrc} 
+                            referrerPolicy="no-referrer"
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
                             alt={selectedMovie.title} 
                           />
@@ -1214,8 +1239,8 @@ const MovieDownloader: React.FC = () => {
                             <span className="text-[10px] uppercase font-bold">No Image Available</span>
                           </div>
                         )}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-80" />
-                        <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-[11px] font-bold">
+                        <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/90 via-black/30 to-transparent pointer-events-none" />
+                        <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-[11px] font-bold z-10">
                           <span className="px-2 py-0.5 rounded-md bg-amber-500 text-black font-black flex items-center gap-1">
                             <Star className="w-3 h-3 fill-current" /> {selectedMovie.rating || '7.5'}
                           </span>
@@ -1529,7 +1554,12 @@ const MovieDownloader: React.FC = () => {
                             <div key={`cast-${idx}`} className="w-24 flex-shrink-0 text-center space-y-2">
                               <div className="w-16 h-16 rounded-full overflow-hidden bg-white/5 border border-white/15 mx-auto shadow-md">
                                 {avatarSrc ? (
-                                  <img src={avatarSrc} className="w-full h-full object-cover" alt={c.name} />
+                                  <img 
+                                    src={avatarSrc} 
+                                    referrerPolicy="no-referrer"
+                                    className="w-full h-full object-cover" 
+                                    alt={c.name} 
+                                  />
                                 ) : (
                                   <div className="w-full h-full flex items-center justify-center text-xs font-black text-white/40 uppercase bg-white/5">
                                     {c.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
@@ -1564,7 +1594,12 @@ const MovieDownloader: React.FC = () => {
                             >
                               <div className="aspect-[2/3] rounded-2xl overflow-hidden bg-white/5 border border-white/10 relative shadow-md group-hover:border-cyan-500/50 transition-colors">
                                 {simThumbnail ? (
-                                  <img src={simThumbnail} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" alt={s.title} />
+                                  <img 
+                                    src={simThumbnail} 
+                                    referrerPolicy="no-referrer"
+                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+                                    alt={s.title} 
+                                  />
                                 ) : (
                                   <div className="w-full h-full flex items-center justify-center text-[10px] text-white/40 uppercase bg-white/5">No Image</div>
                                 )}
@@ -1607,9 +1642,8 @@ const MovieDownloader: React.FC = () => {
                     </div>
                   )}
                 </div>
-              </motion.div>
+              </div>
             )}
-          </AnimatePresence>
 
           {/* B. DISCOVERY & SECTION TREE (Always preserved in DOM to retain scroll positions & image decodes) */}
           <div className={selectedMovie ? "hidden" : "space-y-8"}>
@@ -1700,7 +1734,12 @@ const MovieDownloader: React.FC = () => {
                   <div className="space-y-8">
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
                       {filteredSectionItems.map(movie => (
-                        <MovieCard key={`section-${movie.id}`} movie={movie} onSelect={handleSelectMovie} />
+                        <MovieCard 
+                          key={`section-${movie.id}`} 
+                          movie={movie} 
+                          onSelect={handleSelectMovie} 
+                          isHighlighted={Boolean(highlightedMovieId && String(movie.id) === String(highlightedMovieId))}
+                        />
                       ))}
                     </div>
 
@@ -1739,6 +1778,7 @@ const MovieDownloader: React.FC = () => {
                       <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-0">
                         <img 
                           src={spotlightThumbnail} 
+                          referrerPolicy="no-referrer"
                           className="w-full h-full object-cover object-top sm:object-center transition-transform duration-700 ease-out group-hover:scale-105" 
                           alt={currentSpotlight.title} 
                         />
@@ -1820,6 +1860,7 @@ const MovieDownloader: React.FC = () => {
                         row={row}
                         onSelectMovie={handleSelectMovie}
                         onOpenSection={handleOpenSection}
+                        highlightedMovieId={highlightedMovieId}
                       />
                     ))}
                   </div>
@@ -1852,7 +1893,12 @@ const MovieDownloader: React.FC = () => {
 
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
                           {searchResults.map(movie => (
-                            <MovieCard key={movie.id} movie={movie} onSelect={handleSelectMovie} />
+                            <MovieCard 
+                              key={movie.id} 
+                              movie={movie} 
+                              onSelect={handleSelectMovie} 
+                              isHighlighted={Boolean(highlightedMovieId && String(movie.id) === String(highlightedMovieId))}
+                            />
                           ))}
                         </div>
 
@@ -1929,7 +1975,12 @@ const MovieDownloader: React.FC = () => {
 
                     <div className="w-24 h-32 rounded-xl overflow-hidden border border-white/15 flex-shrink-0 relative bg-black/60 shadow-md">
                       {orderImg ? (
-                        <img src={orderImg} className="w-full h-full object-cover" alt={order.title} />
+                        <img 
+                          src={orderImg} 
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover" 
+                          alt={order.title} 
+                        />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center bg-black/60 text-white/40">
                           <Film className="w-6 h-6" />
@@ -2139,54 +2190,63 @@ const MovieDownloader: React.FC = () => {
   );
 };
 
-// Reusable Performance-Engineered Movie Poster Card (Zero lag, React.memo, pure GPU CSS transitions, instant preloading)
+// Reusable Performance-Engineered Movie Poster Card (Zero lag, React.memo, pure CSS transitions, instant preloading)
 const MovieCard = React.memo<{ 
   movie: MovieInfo; 
   onSelect: (m: MovieInfo) => void;
   priority?: boolean;
-}>(({ movie, onSelect, priority = false }) => {
+  isHighlighted?: boolean;
+}>(({ movie, onSelect, priority = false, isHighlighted = false }) => {
   const rawSrc = movie.thumbnail && movie.thumbnail.trim() ? movie.thumbnail : null;
   const isPreloaded = rawSrc ? preloadedImageUrls.has(rawSrc) : false;
   const [imgError, setImgError] = useState(false);
-  const [isLoaded, setIsLoaded] = useState(isPreloaded);
+  const imgRef = useRef<HTMLImageElement>(null);
 
   const imgSrc = !imgError && rawSrc ? rawSrc : null;
 
   return (
     <div 
+      id={`movie-card-${movie.id}`}
       onClick={() => onSelect(movie)} 
-      className="group cursor-pointer overflow-hidden rounded-2xl border border-white/10 hover:border-cyan-500/50 transition-all duration-200 shadow-md hover:shadow-cyan-500/10 flex flex-col h-full bg-[#080d1a] select-none transform-gpu hover:-translate-y-1 active:scale-[0.98] will-change-transform relative"
+      className={`group cursor-pointer overflow-hidden rounded-2xl border transition-all duration-300 flex flex-col h-full select-none relative ${
+        isHighlighted 
+          ? 'border-cyan-400 ring-4 ring-cyan-400/90 shadow-[0_0_35px_rgba(6,182,212,0.9)] scale-[1.04] z-30 bg-[#0e172e]' 
+          : 'border-white/10 hover:border-cyan-500/50 bg-[#080d1a] hover:bg-[#0c1428] shadow-md hover:shadow-cyan-500/15 hover:-translate-y-1 active:scale-[0.98]'
+      }`}
     >
       <div className="aspect-[2/3] relative overflow-hidden bg-[#0a0f20]">
-        {/* Sleek Skeleton Placeholder when loading */}
-        {!isLoaded && imgSrc && (
-          <div className="absolute inset-0 bg-gradient-to-b from-[#0e172e] via-[#0a1020] to-[#070c18] animate-pulse flex items-center justify-center">
-            <Film className="w-6 h-6 text-white/10 animate-pulse" />
+        {/* Placeholder behind image during network transfer */}
+        {imgSrc && (
+          <div className="absolute inset-0 bg-white/[0.03] flex items-center justify-center z-0">
+            <Film className="w-6 h-6 text-white/10" />
           </div>
         )}
 
         {imgSrc ? (
           <img 
+            ref={imgRef}
             src={imgSrc} 
             alt={movie.title}
             loading={priority || isPreloaded ? "eager" : "lazy"}
             decoding="async"
+            referrerPolicy="no-referrer"
             onLoad={() => {
               if (imgSrc) preloadedImageUrls.add(imgSrc);
-              setIsLoaded(true);
             }}
-            onError={() => setImgError(true)}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+            onError={() => {
+              setImgError(true);
+            }}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 relative z-0" 
           />
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-[#0e1628] to-[#070b16] text-white/30 gap-1.5 p-2">
-            <Film className="w-8 h-8 text-white/20" />
-            <span className="text-[9px] uppercase font-bold text-center text-white/40">No Poster</span>
+          <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-[#0f172a] to-[#080d1a] text-white/40 gap-2 p-3 text-center">
+            <Film className="w-8 h-8 text-cyan-400/30" />
+            <span className="text-[10px] font-bold text-white/60 line-clamp-2 uppercase leading-tight">{movie.title}</span>
           </div>
         )}
         
-        {/* Subtle Vignette Gradient */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/20 opacity-70 group-hover:opacity-40 transition-opacity pointer-events-none" />
+        {/* Subtle bottom gradient for readability without darkening poster artwork */}
+        <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/85 via-black/30 to-transparent pointer-events-none z-[1]" />
 
         {/* Top Badges */}
         <div className="absolute top-2 left-2 right-2 flex items-center justify-between z-10 pointer-events-none">
@@ -2194,19 +2254,15 @@ const MovieCard = React.memo<{
             <Star className="w-2.5 h-2.5 fill-current" /> {movie.rating && movie.rating !== '0.0' ? movie.rating : '7.5'}
           </span>
 
-          {movie.mediaType === 'series' ? (
+          {movie.mediaType === 'series' && (
             <span className="px-2 py-0.5 rounded-md bg-purple-600 text-[8px] font-black text-white uppercase tracking-wider shadow-md">
               SERIES
-            </span>
-          ) : (
-            <span className="px-2 py-0.5 rounded-md bg-cyan-600 text-[8px] font-black text-white uppercase tracking-wider shadow-md">
-              4K MOVIE
             </span>
           )}
         </div>
 
         {/* Hover Action Overlay */}
-        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1.5 transition-opacity duration-200 p-2 text-center">
+        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1.5 transition-opacity duration-200 p-2 text-center z-10">
           <div className="w-9 h-9 rounded-full bg-cyan-500 text-white flex items-center justify-center shadow-lg shadow-cyan-500/40 transform group-hover:scale-110 transition-transform">
             <Play className="w-4 h-4 fill-current ml-0.5" />
           </div>
@@ -2222,8 +2278,10 @@ const MovieCard = React.memo<{
           {movie.title}
         </h4>
         <div className="flex items-center justify-between mt-1 text-[10px] text-white/50 font-bold">
-          <span className="uppercase">{movie.year && movie.year !== 'N/A' && movie.year !== '0' ? movie.year : '4K'}</span>
-          <span className="text-cyan-400/80 font-mono text-[9px]">4K UHD</span>
+          <span className="uppercase">{movie.year && movie.year !== 'N/A' && movie.year !== '0' ? movie.year : ''}</span>
+          {movie.mediaType === 'series' && (
+            <span className="text-purple-400 font-mono text-[9px]">TV SHOW</span>
+          )}
         </div>
       </div>
     </div>
@@ -2235,9 +2293,10 @@ const MovieRow = React.memo<{
   row: { id: string; category: string; genreId: string; items: MovieInfo[] };
   onSelectMovie: (movie: MovieInfo) => void;
   onOpenSection: (category: string, genreId: string, items: MovieInfo[]) => void;
-}>(({ row, onSelectMovie, onOpenSection }) => {
+  highlightedMovieId?: string | null;
+}>(({ row, onSelectMovie, onOpenSection, highlightedMovieId }) => {
   const meta = getCategoryMeta(row.category);
-  const displayItems = row.items.slice(0, 40);
+  const displayItems = row.items.slice(0, 18);
 
   return (
     <div className="space-y-3.5 relative">
@@ -2273,7 +2332,12 @@ const MovieRow = React.memo<{
       <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-3 pt-1 snap-x snap-mandatory scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden overscroll-x-contain touch-pan-x select-none">
         {displayItems.map((movie, idx) => (
           <div key={`carousel-${movie.id}`} className="w-32 sm:w-44 flex-shrink-0 snap-start select-none">
-            <MovieCard movie={movie} onSelect={onSelectMovie} priority={idx < 6} />
+            <MovieCard 
+              movie={movie} 
+              onSelect={onSelectMovie} 
+              priority={idx < 4} 
+              isHighlighted={Boolean(highlightedMovieId && String(movie.id) === String(highlightedMovieId))}
+            />
           </div>
         ))}
 
