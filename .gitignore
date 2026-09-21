@@ -48,3 +48,8 @@ scratch/
 # Documents & Presentations (Ignored from Git)
 *.docx
 *.doc
+*.pptx
+*.ppt
+*.xlsx
+*.xls
+*.pdf

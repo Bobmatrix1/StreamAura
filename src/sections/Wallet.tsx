@@ -809,8 +809,8 @@ const Wallet: React.FC = () => {
                     <div className="grid grid-cols-1 gap-6">
                        {hostRooms.length > 0 ? hostRooms.map(room => {
                          const gross = room.gross_revenue || 0;
-                         const net = room.total_earned || 0;
-                         const fee = gross * 0.3;
+                         const net = room.total_earned || (gross * 0.80);
+                         const fee = gross * 0.20;
                          
                          return (
                            <Card key={room.id} className="p-6 glass-card border-white/5 space-y-6 overflow-hidden relative">
@@ -837,8 +837,8 @@ const Wallet: React.FC = () => {
                                    { label: 'Visits', value: room.active_viewers || 0, icon: Users, color: 'text-blue-400' },
                                    { label: 'Sold', value: room.tickets_sold || 0, icon: Ticket, color: 'text-primary' },
                                    { label: 'Gross', value: `₦${gross.toLocaleString()}`, icon: DollarSign, color: 'text-white' },
-                                   { label: 'Net (70%)', value: `₦${net.toLocaleString()}`, icon: WalletIconLucide, color: 'text-emerald-400' },
-                                   { label: 'Fee (30%)', value: `-₦${fee.toLocaleString()}`, icon: ShieldAlert, color: 'text-orange-400' }
+                                   { label: 'Net (80%)', value: `₦${net.toLocaleString()}`, icon: WalletIconLucide, color: 'text-emerald-400' },
+                                   { label: 'Fee (20%)', value: `-₦${fee.toLocaleString()}`, icon: ShieldAlert, color: 'text-orange-400' }
                                  ].map((stat, i) => (
                                    <div key={i} className="p-3 rounded-xl bg-white/[0.02] border border-white/5 space-y-1">
                                       <div className="flex items-center gap-1.5 opacity-40">

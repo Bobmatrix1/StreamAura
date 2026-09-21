@@ -482,6 +482,7 @@ const Notifications: React.FC = () => {
         return notif.mediaType === 'series' 
           ? <Tv className="w-5 h-5 text-cyan-400" /> 
           : <Film className="w-5 h-5 text-cyan-400" />;
+      case 'download': return <Download className="w-5 h-5 text-emerald-400" />;
       case 'update': return <Zap className="w-5 h-5 text-rose-400" />;
       case 'alert': return <AlertTriangle className="w-5 h-5 text-orange-400" />;
       case 'success': return <CheckCircle2 className="w-5 h-5 text-emerald-400" />;

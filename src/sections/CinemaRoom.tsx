@@ -35,6 +35,7 @@ import { auth, db, uploadFile, logUserAction, logPaymentEvent, logInviteEvent } 
 import { doc, getDoc, collection, query, where, getDocs, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { initializePaystackPayment, verifyPaymentOnBackend } from '../api/paymentApi';
 import { CinemaLiveRoom } from './CinemaLiveRoom';
+import { setCinemaActive } from '@/lib/appLifecycle';
 
 interface CinemaSlide {
   id: string;
@@ -71,7 +72,7 @@ const CinemaRoom: React.FC = () => {
   const dateInputRef = React.useRef<HTMLInputElement>(null);
   const timeInputRef = React.useRef<HTMLInputElement>(null);
 
-  // URL Deep Link Logic
+  // URL Deep Link Logic & Room Session Recovery
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const roomId = params.get('room');
@@ -81,6 +82,12 @@ const CinemaRoom: React.FC = () => {
     if (roomId) {
       logInviteEvent('accepted', roomId, auth.currentUser?.uid);
       handleJoinRoomById(roomId);
+    } else {
+      // Seamlessly restore active cinema room if tab was backgrounded / resumed
+      const savedRoomId = sessionStorage.getItem('aura_active_cinema_room_id');
+      if (savedRoomId && !activeRoom) {
+        handleJoinRoomById(savedRoomId);
+      }
     }
 
     if (verifyRef && roomId) {
@@ -113,18 +120,30 @@ const CinemaRoom: React.FC = () => {
     }
   }, []);
 
+  // Listen for external leave cinema events
+  useEffect(() => {
+    const handleLeaveCinema = () => {
+      setCinemaActive(null);
+      setActiveRoom(null);
+    };
+    window.addEventListener('aura_leave_cinema', handleLeaveCinema);
+    return () => window.removeEventListener('aura_leave_cinema', handleLeaveCinema);
+  }, []);
+
   const handleJoinRoomById = async (roomId: string) => {
     try {
       const roomDoc = await getDoc(doc(db, 'cinema_rooms', roomId));
       if (!roomDoc.exists()) {
-        showError('Room not found');
+        showError('Room not found or no longer available');
+        setCinemaActive(null);
         return;
       }
-      const roomData = roomDoc.data();
+      const roomData: any = { id: roomDoc.id, ...roomDoc.data() };
       
       // If free, join immediately
       if (roomData.room_type === 'free') {
         setActiveRoom(roomData);
+        setCinemaActive(roomId);
         return;
       }
 
@@ -136,6 +155,7 @@ const CinemaRoom: React.FC = () => {
         
         if (!passDocs.empty || roomData.host_uid === auth.currentUser.uid || isAdmin) {
           setActiveRoom(roomData);
+          setCinemaActive(roomId);
         } else {
           // Trigger Payment Flow
           handlePaymentPrompt(roomData);
@@ -145,6 +165,7 @@ const CinemaRoom: React.FC = () => {
       }
     } catch (err) {
       showError('Failed to join room');
+      setCinemaActive(null);
     }
   };
 
@@ -283,6 +304,7 @@ const CinemaRoom: React.FC = () => {
   const [roomType, setRoomType] = useState<'free' | 'paid' | 'private'>('free');
   const [isLiveNow, setIsLiveNow] = useState(true);
   const [isUnlimited, setIsUnlimited] = useState(true);
+  const [limitedCapacity, setLimitedCapacity] = useState('50');
   const [privateSeats, setPrivateSeats] = useState(1);
   const [privateGuests, setPrivateGuests] = useState(['']);
   const [scheduledDate, setScheduledDate] = useState('');
@@ -539,6 +561,14 @@ const CinemaRoom: React.FC = () => {
       }
     }
 
+    if (!isUnlimited && roomType !== 'private') {
+      const parsedCap = parseInt(limitedCapacity, 10);
+      if (isNaN(parsedCap) || parsedCap < 1) {
+        showError('Please enter a valid room capacity of at least 1 seat.');
+        return;
+      }
+    }
+
     if (roomType === 'paid' && (!ticketPrice || parseFloat(ticketPrice) <= 0)) {
        showError('Please enter a valid ticket price for paid rooms.');
        return;
@@ -605,7 +635,7 @@ const CinemaRoom: React.FC = () => {
         episodes: episodesData,
         trailer_url: trailerUrl,
         description: movieDescription,
-        max_seats: isUnlimited ? null : (roomType === 'private' ? privateSeats : 100),
+        max_seats: isUnlimited ? null : (roomType === 'private' ? Math.max(1, privateSeats) : Math.max(1, parseInt(limitedCapacity, 10) || 50)),
         category: movieGenre,
         scheduled_start_time: isLiveNow ? null : new Date(`${scheduledDate}T${scheduledTime}`).getTime(),
         text_chat_enabled: true,
@@ -642,7 +672,7 @@ const CinemaRoom: React.FC = () => {
       } else {
       showSuccess(`Cinema Room Active!${result.invite_link ? ` Invite: ${result.invite_link}` : ''}`);
       }
-      setIsCreateModalOpen(false);
+      closeCreateModal();
 
     } catch (err: any) {
       showError(err.message || 'Error creating room.');
@@ -651,9 +681,38 @@ const CinemaRoom: React.FC = () => {
     }
   };
 
+  const resetCreateForm = () => {
+    setRoomName('');
+    setMovieTitle('');
+    setMovieGenre('');
+    setMovieDescription('');
+    setTicketPrice('');
+    setLimitedCapacity('50');
+    setIsUnlimited(true);
+    setIsLiveNow(true);
+    setScheduledDate('');
+    setScheduledTime('');
+    setPrivateSeats(1);
+    setPrivateGuests(['']);
+    setMovieFile(null);
+    setCoverFile(null);
+    setTrailerFile(null);
+    setPreFilledCoverUrl(null);
+    setPreFilledMovieUrl(null);
+    setEpisodes([{ number: 1, title: '', file: null }]);
+    setPaymentWallet('normal');
+    setPrivateWallet('normal');
+    setInsufficientFunds(null);
+    setContentType('movie');
+    setRoomType('free');
+    setUploadProgress(0);
+    setIsAutoStartDropdownOpen(false);
+    setIsGenreDropdownOpen(false);
+  };
+
   const handleGoToWallet = () => {
     setInsufficientFunds(null);
-    setIsCreateModalOpen(false);
+    closeCreateModal();
     sessionStorage.setItem('wallet_action', 'deposit');
     window.dispatchEvent(new CustomEvent('navigate', { detail: { view: 'wallet' } }));
   };
@@ -685,13 +744,23 @@ const CinemaRoom: React.FC = () => {
   };
 
   if (activeRoom) {
-    return <CinemaLiveRoom roomId={activeRoom.id} roomData={activeRoom} onLeave={() => setActiveRoom(null)} />;
+    return (
+      <CinemaLiveRoom
+        roomId={activeRoom.id}
+        roomData={activeRoom}
+        onLeave={() => {
+          setCinemaActive(null);
+          setActiveRoom(null);
+        }}
+      />
+    );
   }
 
   const closeCreateModal = () => {
     if (roomName.trim() || movieTitle.trim()) {
       logUserAction('room_creation_abandoned', 'cinema', { roomName, movieTitle }, auth.currentUser?.uid);
     }
+    resetCreateForm();
     setIsCreateModalOpen(false);
   };
 
@@ -1465,7 +1534,30 @@ const CinemaRoom: React.FC = () => {
                         </div>
                         {!isUnlimited && (
                           <div className="mt-2 relative">
-                            <input type="number" placeholder="Seats" className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-3 pr-10 text-xs outline-none focus:border-primary/50 font-black" />
+                            <input 
+                              type="number" 
+                              min="1"
+                              step="1"
+                              value={limitedCapacity}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === '') {
+                                  setLimitedCapacity('');
+                                } else {
+                                  const parsed = parseInt(val, 10);
+                                  if (!isNaN(parsed)) {
+                                    setLimitedCapacity(Math.max(1, parsed).toString());
+                                  }
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (['-', 'e', '+', '.', 'E'].includes(e.key)) {
+                                  e.preventDefault();
+                                }
+                              }}
+                              placeholder="Seats (e.g. 50)" 
+                              className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-3 pr-10 text-xs outline-none focus:border-primary/50 font-black text-white" 
+                            />
                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] text-muted-foreground font-bold">Seats</span>
                           </div>
                         )}
@@ -1563,7 +1655,26 @@ const CinemaRoom: React.FC = () => {
                                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Ticket Price</label>
                                <div className="relative">
                                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground">₦</span>
-                                 <input type="number" required={roomType === 'paid'} value={ticketPrice} onChange={e => setTicketPrice(e.target.value)} placeholder="0.00" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-9 pr-4 text-sm font-bold outline-none focus:border-primary/50" />
+                                 <input 
+                                   type="number" 
+                                   min="0"
+                                   step="any"
+                                   required={roomType === 'paid'} 
+                                   value={ticketPrice} 
+                                   onChange={e => {
+                                     const val = e.target.value;
+                                     if (val === '' || parseFloat(val) >= 0) {
+                                       setTicketPrice(val);
+                                     }
+                                   }}
+                                   onKeyDown={(e) => {
+                                     if (['-', 'e', '+', 'E'].includes(e.key)) {
+                                       e.preventDefault();
+                                     }
+                                   }}
+                                   placeholder="0.00" 
+                                   className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-9 pr-4 text-sm font-bold outline-none focus:border-primary/50" 
+                                 />
                                </div>
                              </div>
                              <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/20 flex gap-3 items-center">
@@ -1672,7 +1783,7 @@ const CinemaRoom: React.FC = () => {
                     
                     {/* Submit Action */}
                     <div className="pt-4 border-t border-white/10 flex justify-end gap-3 sticky bottom-0 bg-background p-4 -m-6 mt-0 shadow-[0_-20px_40px_rgba(0,0,0,0.8)]">
-                       <Button type="button" variant="ghost" onClick={() => setIsCreateModalOpen(false)} disabled={isSubmitting}>Cancel</Button>
+                       <Button type="button" variant="ghost" onClick={closeCreateModal} disabled={isSubmitting}>Cancel</Button>
                        <Button type="submit" disabled={isSubmitting} className="gradient-bg px-8 font-black gap-2 disabled:opacity-50 min-w-[200px]">
                          {isSubmitting ? (
                            <div className="flex flex-col items-center justify-center gap-1">

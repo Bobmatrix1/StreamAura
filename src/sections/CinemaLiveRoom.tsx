@@ -30,6 +30,7 @@ import { toast } from 'sonner';
 import { API_BASE_URL } from '../api/mediaApi';
 import { auth, db } from '../lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
+import { setCinemaActive } from '@/lib/appLifecycle';
 
 interface CinemaLiveRoomProps {
   roomId: string;
@@ -129,6 +130,59 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [activeReactionId]);
+
+  // Room Lifecycle and Active State Registration
+  useEffect(() => {
+    setCinemaActive(roomId);
+    return () => {
+      setCinemaActive(null);
+    };
+  }, [roomId]);
+
+  // MediaSession API Integration for background media continuity on mobile
+  useEffect(() => {
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: currentEpTitle,
+          artist: roomData?.room_name || 'StreamAura Cinema',
+          album: roomData?.movie_title || 'Virtual Cinema',
+          artwork: [
+            { src: roomData?.movie_cover_image || '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' },
+            { src: roomData?.movie_cover_image || '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' }
+          ]
+        });
+
+        navigator.mediaSession.playbackState = roomState?.status === 'playing' ? 'playing' : 'paused';
+
+        if (canControl) {
+          navigator.mediaSession.setActionHandler('play', () => handleVideoAction('play'));
+          navigator.mediaSession.setActionHandler('pause', () => handleVideoAction('pause'));
+        }
+      } catch (err) {
+        console.debug('MediaSession setup:', err);
+      }
+    }
+  }, [currentEpTitle, roomData, roomState?.status, canControl]);
+
+  // Tab Visibility Re-Sync: Keep playback aligned seamlessly when switching apps
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && videoRef.current && roomState) {
+        if (roomState.status === 'playing') {
+          if (videoRef.current.paused) {
+            videoRef.current.play().catch(() => {});
+          }
+          if (Math.abs(videoRef.current.currentTime - roomState.movieTime) > 2) {
+            videoRef.current.currentTime = roomState.movieTime;
+          }
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [roomState]);
 
   // Sync Video with Room State
   useEffect(() => {
@@ -456,7 +510,19 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
                  <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 p-8 text-center gap-4">
                     <Loader2 className="w-12 h-12 text-rose-500" />
                     <p className="text-white font-black uppercase tracking-widest text-xs">{videoError}</p>
-                    <Button variant="outline" onClick={() => window.location.reload()} className="border-white/10 text-white rounded-xl">Reload Stream</Button>
+                     <Button 
+                       variant="outline" 
+                       onClick={() => {
+                         setVideoError(null);
+                         if (videoRef.current) {
+                           videoRef.current.load();
+                           videoRef.current.play().catch(() => {});
+                         }
+                       }} 
+                       className="border-white/10 text-white rounded-xl"
+                     >
+                       Retry Stream
+                     </Button>
                  </div>
                )}
              </>

@@ -7,7 +7,6 @@ import {
   ShieldAlert,
   Info,
   TrendingUp,
-  Award,
   Timer,
   ExternalLink,
   ShieldCheck,
@@ -29,8 +28,9 @@ import { useToast } from '../contexts/ToastContext';
 import { LoginRequired } from '../components/LoginRequired';
 import { Badge } from '../components/ui/badge';
 import { db, auth } from '../lib/firebase';
-import { collection, query, where, orderBy, limit, getDocs, doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { fetchBanks, resolveBankAccount } from '../api/paymentApi';
+import { API_BASE_URL } from '../api/mediaApi';
 
 /**
  * Referral Section with Integrated Withdrawal
@@ -87,6 +87,10 @@ const Referral: React.FC = () => {
       setBankDetails(savedBankDetails);
       setBankSearch(savedBankDetails.bankName);
       setHasBankSet(true);
+    } else {
+      setBankDetails({ name: '', account: '', bankName: '', bankCode: '' });
+      setBankSearch('');
+      setHasBankSet(false);
     }
     setShowBankDropdown(false);
     setIsWithdrawModalOpen(false);
@@ -159,8 +163,8 @@ const Referral: React.FC = () => {
     const fetchReferrals = async () => {
       try {
         const token = await auth.currentUser?.getIdToken();
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/games/referrals/list`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+        const response = await fetch(`${API_BASE_URL}/api/games/referrals/list`, {
+          headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) }
         });
         const data = await response.json();
         if (data.success) {
@@ -173,19 +177,25 @@ const Referral: React.FC = () => {
       }
     };
 
-    const fetchHistory = async () => {
-      if (!user?.uid) return;
+    let unsubHistory: (() => void) | null = null;
+    if (user?.uid) {
       try {
         const activityRef = collection(db, 'game_wallets', user.uid, 'activity');
-        const q = query(activityRef, where('type', '==', 'referral_earning'), orderBy('timestamp', 'desc'), limit(50));
-        const snap = await getDocs(q);
-        setHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const q = query(activityRef, orderBy('timestamp', 'desc'), limit(100));
+        unsubHistory = onSnapshot(q, (snap) => {
+          const referralItems = snap.docs
+            .map(d => ({ id: d.id, ...d.data() } as any))
+            .filter(item => item.type === 'referral_earning' || item.type === 'referral_reward' || item.type === 'referral_bonus');
+          setHistory(referralItems);
+          setIsLoadingHistory(false);
+        }, (err) => {
+          console.error('Failed to stream history', err);
+          setIsLoadingHistory(false);
+        });
       } catch (err) {
-        console.error('Failed to fetch history', err);
-      } finally {
         setIsLoadingHistory(false);
       }
-    };
+    }
 
     const fetchWithdrawals = () => {
       if (!user?.uid) return;
@@ -201,10 +211,10 @@ const Referral: React.FC = () => {
     };
 
     fetchReferrals();
-    fetchHistory();
     const unsubscribeWithdrawals = fetchWithdrawals();
 
     return () => {
+      if (unsubHistory) unsubHistory();
       if (unsubscribeWithdrawals) unsubscribeWithdrawals();
     };
   }, [user?.uid]);
@@ -247,34 +257,10 @@ const Referral: React.FC = () => {
     }
   }, [bankDetails.account, bankDetails.bankCode, hasBankSet]);
 
-  const handleSelectBank = async (bank: any) => {
+  const handleSelectBank = (bank: any) => {
     setBankDetails(prev => ({ ...prev, bankName: bank.name, bankCode: bank.code, name: '' }));
     setBankSearch(bank.name);
     setShowBankDropdown(false);
-
-    if (bankDetails.account.length === 10) {
-      setIsResolving(true);
-      try {
-        const result = await resolveBankAccount(bankDetails.account, bank.code);
-        if (result.status && result.data?.account_name) {
-          setBankDetails(prev => ({
-            ...prev,
-            bankName: bank.name,
-            bankCode: bank.code,
-            name: result.data.account_name
-          }));
-          showSuccess("Account Verified!");
-        } else {
-          showError(result.message || "Could not verify account. Please check number and bank.");
-          setBankDetails(prev => ({ ...prev, name: '' }));
-        }
-      } catch (err) {
-        showError("Verification failed.");
-        setBankDetails(prev => ({ ...prev, name: '' }));
-      } finally {
-        setIsResolving(false);
-      }
-    }
   };
 
   const handleCopyLink = () => {
@@ -317,15 +303,16 @@ const Referral: React.FC = () => {
       const payload = {
         amount: parseFloat(withdrawAmount),
         bank_code: bankDetails.bankCode,
+        bank_name: bankDetails.bankName,
         account_number: bankDetails.account,
         account_name: bankDetails.name
       };
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/cinema/withdraw`, {
+      const response = await fetch(`${API_BASE_URL}/api/cinema/withdraw`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` 
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
         body: JSON.stringify({ ...payload, balance_type: 'referral' })
       });
@@ -334,6 +321,7 @@ const Referral: React.FC = () => {
       if (result.success) {
         showSuccess("Withdrawal request submitted! Payout processed within 24-48h.");
         setIsWithdrawModalOpen(false);
+        setWithdrawAmount('');
         // Save bank details for next time
         const userRef = doc(db, 'users', user!.uid);
         await updateDoc(userRef, { bankDetails });
@@ -351,12 +339,22 @@ const Referral: React.FC = () => {
 
   const getExpiryCountdown = (createdAt: any) => {
     let createdTs = 0;
-    if (createdAt && typeof createdAt === 'object' && '_seconds' in createdAt) {
-      createdTs = createdAt._seconds * 1000;
+    if (createdAt && typeof createdAt === 'object') {
+      if (typeof createdAt.toDate === 'function') {
+        createdTs = createdAt.toDate().getTime();
+      } else if ('seconds' in createdAt) {
+        createdTs = createdAt.seconds * 1000;
+      } else if ('_seconds' in createdAt) {
+        createdTs = createdAt._seconds * 1000;
+      }
     } else if (typeof createdAt === 'number') {
       createdTs = createdAt > 1e11 ? createdAt : createdAt * 1000;
-    } else {
-      return 'Unknown';
+    } else if (typeof createdAt === 'string') {
+      createdTs = new Date(createdAt).getTime();
+    }
+
+    if (!createdTs || isNaN(createdTs)) {
+      return 'Active';
     }
 
     const expiryTs = createdTs + (90 * 24 * 3600 * 1000); // 90 days
@@ -390,6 +388,13 @@ const Referral: React.FC = () => {
           <div className="fixed inset-0 z-[5000] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={handleCloseWithdrawModal} className="absolute inset-0 bg-black/90 backdrop-blur-md" />
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-md glass-card p-8 border-slate-200 dark:border-white/10 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto custom-scrollbar">
+               <button 
+                 type="button" 
+                 onClick={handleCloseWithdrawModal}
+                 className="absolute right-6 top-6 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-white/10 text-slate-500 dark:text-white/60 hover:text-slate-900 dark:hover:text-white transition-colors"
+               >
+                 <X className="w-5 h-5" />
+               </button>
                <div className="text-center space-y-2">
                   <h3 className="text-2xl font-black uppercase text-slate-900 dark:text-white">Withdraw Earnings</h3>
                   <p className="text-xs text-muted-foreground font-medium uppercase tracking-widest opacity-60">Commission Payout to Bank</p>
@@ -638,164 +643,131 @@ const Referral: React.FC = () => {
               <input readOnly value={referralLink} className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-4 pr-12 text-[10px] font-mono outline-none focus:border-primary/50 text-muted-foreground" />
               <button onClick={handleCopyLink} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 hover:bg-white/10 rounded-lg text-primary transition-colors"><Copy className="w-4 h-4" /></button>
             </div>
-            <p className="text-[8px] text-center text-muted-foreground uppercase tracking-widest font-bold">Share this link. When they earn, you get a 10% lifetime cut (90 days).</p>
+            <p className="text-[8px] text-center text-muted-foreground uppercase tracking-widest font-bold">Share this link. When they earn as a host, you earn a 10% commission for 3 months (90 days).</p>
           </div>
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column */}
-        <div className="lg:col-span-1 space-y-6">
+      {/* Activity & History Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
-          {/* Active Referrals List */}
-          <Card className="glass-card border-white/10 flex flex-col overflow-hidden">
-             <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
-                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60 flex items-center gap-2"><Users className="w-3 h-3" /> Active Referrals</h3>
-                <Badge variant="outline" className="text-[8px] h-4 font-black border-white/10">{referrals.length}</Badge>
-             </div>
-             <div className="flex-1 max-h-[300px] overflow-y-auto custom-scrollbar no-scrollbar">
-                {isLoadingReferrals ? (
-                  <div className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></div>
-                ) : referrals.length > 0 ? (
-                  <div className="divide-y divide-white/5">
-                    {referrals.map((ref) => (
-                      <div key={ref.uid} className="p-4 flex items-center gap-3 hover:bg-white/[0.02] transition-colors">
-                        <div className="w-8 h-8 rounded-full bg-zinc-800 border border-white/10 overflow-hidden"><img src={ref.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${ref.uid}`} alt="" className="w-full h-full object-cover" /></div>
-                        <div className="flex-1 min-w-0">
-                           <p className="text-[10px] font-black text-white truncate uppercase">{ref.displayName}</p>
-                           <div className="flex items-center gap-2 mt-0.5"><LucideHistory className="w-2.5 h-2.5 text-muted-foreground" /><p className="text-[8px] font-bold text-muted-foreground uppercase">{new Date(typeof ref.createdAt === 'object' ? ref.createdAt._seconds * 1000 : ref.createdAt).toLocaleDateString()}</p></div>
-                        </div>
-                        <div className="text-right">
-                           <div className="flex items-center gap-1 justify-end"><Timer className={`w-2.5 h-2.5 ${getExpiryCountdown(ref.createdAt) === 'Expired' ? 'text-rose-500' : 'text-emerald-500'}`} /><span className={`text-[9px] font-black uppercase ${getExpiryCountdown(ref.createdAt) === 'Expired' ? 'text-rose-500' : 'text-emerald-500'}`}>{getExpiryCountdown(ref.createdAt)}</span></div>
-                           <p className="text-[7px] font-black text-white/20 uppercase tracking-tighter mt-0.5">Commission Window</p>
-                        </div>
+        {/* Active Referrals List */}
+        <Card className="glass-card border-white/10 flex flex-col overflow-hidden">
+           <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60 flex items-center gap-2"><Users className="w-3 h-3" /> Active Referrals</h3>
+              <Badge variant="outline" className="text-[8px] h-4 font-black border-white/10">{referrals.length}</Badge>
+           </div>
+           <div className="flex-1 max-h-[350px] overflow-y-auto custom-scrollbar no-scrollbar">
+              {isLoadingReferrals ? (
+                <div className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></div>
+              ) : referrals.length > 0 ? (
+                <div className="divide-y divide-white/5">
+                  {referrals.map((ref) => (
+                    <div key={ref.uid} className="p-4 flex items-center gap-3 hover:bg-white/[0.02] transition-colors">
+                      <div className="w-8 h-8 rounded-full bg-zinc-800 border border-white/10 overflow-hidden"><img src={ref.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${ref.uid}`} alt="" className="w-full h-full object-cover" /></div>
+                      <div className="flex-1 min-w-0">
+                         <p className="text-[10px] font-black text-white truncate uppercase">{ref.displayName}</p>
+                         <div className="flex items-center gap-2 mt-0.5">
+                           <LucideHistory className="w-2.5 h-2.5 text-muted-foreground" />
+                           <p className="text-[8px] font-bold text-muted-foreground uppercase">
+                             {(() => {
+                               let d = 0;
+                               if (ref.createdAt && typeof ref.createdAt === 'object') {
+                                 d = typeof ref.createdAt.toDate === 'function' ? ref.createdAt.toDate().getTime() : (ref.createdAt.seconds || ref.createdAt._seconds || 0) * 1000;
+                               } else if (typeof ref.createdAt === 'number') {
+                                 d = ref.createdAt > 1e11 ? ref.createdAt : ref.createdAt * 1000;
+                               } else if (typeof ref.createdAt === 'string') {
+                                 d = new Date(ref.createdAt).getTime();
+                               }
+                               return d ? new Date(d).toLocaleDateString() : 'Recent';
+                             })()}
+                           </p>
+                         </div>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="p-12 text-center space-y-3"><Users className="w-8 h-8 mx-auto text-white/5" /><p className="text-[10px] font-bold text-white/20 uppercase tracking-widest">No referrals yet</p></div>
-                )}
-             </div>
-          </Card>
-
-          {/* Referral History List */}
-          <Card className="glass-card border-white/10 flex flex-col overflow-hidden">
-             <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
-                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60 flex items-center gap-2"><LucideHistory className="w-3.5 h-3.5" /> Referral History</h3>
-             </div>
-             <div className="flex-1 max-h-[300px] overflow-y-auto custom-scrollbar no-scrollbar">
-                {isLoadingHistory ? (
-                  <div className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></div>
-                ) : history.length > 0 ? (
-                  <div className="divide-y divide-white/5">
-                    {history.map((item) => (
-                      <div key={item.id} className="p-4 space-y-2 hover:bg-white/[0.02] transition-colors">
-                        <div className="flex justify-between items-start">
-                           <div className="space-y-0.5">
-                              <p className="text-[10px] font-black text-white uppercase tracking-tight">{item.desc}</p>
-                              <div className="flex items-center gap-1.5"><ExternalLink className="w-2.5 h-2.5 text-muted-foreground" /><p className="text-[8px] font-bold text-muted-foreground uppercase">{item.room || 'System'}</p></div>
-                           </div>
-                           <span className="text-[11px] font-black text-emerald-400">+₦{item.amount.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-[7px] font-black text-white/20 uppercase tracking-widest">
-                           <span>{item.timestamp ? new Date(item.timestamp.seconds * 1000).toLocaleDateString() : 'Recent'}</span>
-                           <div className="flex items-center gap-1"><ShieldCheck className="w-2 h-2" /><span>Verified</span></div>
-                        </div>
+                      <div className="text-right">
+                         <div className="flex items-center gap-1 justify-end"><Timer className={`w-2.5 h-2.5 ${getExpiryCountdown(ref.createdAt) === 'Expired' ? 'text-rose-500' : 'text-emerald-500'}`} /><span className={`text-[9px] font-black uppercase ${getExpiryCountdown(ref.createdAt) === 'Expired' ? 'text-rose-500' : 'text-emerald-500'}`}>{getExpiryCountdown(ref.createdAt)}</span></div>
+                         <p className="text-[7px] font-black text-white/20 uppercase tracking-tighter mt-0.5">Commission Window</p>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="p-12 text-center space-y-3"><LucideHistory className="w-8 h-8 mx-auto text-white/5" /><p className="text-[10px] font-bold text-white/20 uppercase tracking-widest">No earnings yet</p></div>
-                )}
-             </div>
-          </Card>
-
-          {/* Withdrawal Status Section */}
-          <Card className="glass-card border-white/10 flex flex-col overflow-hidden">
-             <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
-                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60 flex items-center gap-2">
-                  <Banknote className="w-3.5 h-3.5" /> Withdrawal Status
-                </h3>
-             </div>
-             <div className="flex-1 max-h-[300px] overflow-y-auto custom-scrollbar no-scrollbar">
-                {isLoadingWithdrawals ? (
-                  <div className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></div>
-                ) : withdrawals.length > 0 ? (
-                  <div className="divide-y divide-white/5">
-                    {withdrawals.map((wd) => (
-                      <div key={wd.id} className="p-4 space-y-2 hover:bg-white/[0.02] transition-colors">
-                        <div className="flex justify-between items-center">
-                           <span className="text-sm font-black text-white">₦{wd.amount?.toLocaleString()}</span>
-                           <Badge className={`text-[8px] font-black ${
-                             wd.status === 'pending' ? 'bg-orange-500/20 text-orange-400' :
-                             wd.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400' :
-                             'bg-rose-500/20 text-rose-400'
-                           }`}>
-                             {wd.status?.toUpperCase()}
-                           </Badge>
-                        </div>
-                        <div className="flex justify-between items-center text-[7px] font-black text-white/20 uppercase tracking-widest">
-                           <span>{wd.created_at?.toDate ? wd.created_at.toDate().toLocaleDateString() : 'Recent'}</span>
-                           <span>{wd.bank_name || 'Bank Payout'}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="p-12 text-center space-y-3">
-                     <Banknote className="w-8 h-8 mx-auto text-white/5" />
-                     <p className="text-[10px] font-bold text-white/20 uppercase tracking-widest">No withdrawals requested</p>
-                  </div>
-                )}
-             </div>
-          </Card>
-        </div>
-
-        {/* Benefits & Rules Section */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-             <Card className="p-6 glass-card border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent hover:border-primary/20 transition-all duration-500 group">
-                <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><TrendingUp className="w-6 h-6 text-primary" /></div>
-                <h4 className="text-sm font-black uppercase tracking-tight text-white mb-2">Revenue Sharing</h4>
-                <p className="text-xs text-muted-foreground leading-relaxed font-medium">Earn 10% of the Host's 70% share (7% of total sale) for every movie ticket sold or game round funded. Payouts go to your <strong className="text-white">Withdrawable Commission</strong> balance.</p>
-             </Card>
-
-             <Card className="p-6 glass-card border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent hover:border-emerald-500/20 transition-all duration-500 group">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Award className="w-6 h-6 text-emerald-500" /></div>
-                <h4 className="text-sm font-black uppercase tracking-tight text-white mb-2">Signup Bonus Perks</h4>
-                <p className="text-xs text-muted-foreground leading-relaxed font-medium">Earn ₦100 <strong className="text-white">Signup Bonus</strong> for each user. Strictly non-withdrawable, used for Season Movie room discounts (₦50/episode).</p>
-             </Card>
-
-             <Card className="p-6 glass-card border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent hover:border-purple-500/20 transition-all duration-500 group">
-                <div className="w-12 h-12 rounded-2xl bg-purple-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Timer className="w-6 h-6 text-purple-500" /></div>
-                <h4 className="text-sm font-black uppercase tracking-tight text-white mb-2">90-Day Window</h4>
-                <p className="text-xs text-muted-foreground leading-relaxed font-medium">Your 10% commission is active for the first 3 months (90 days) of each referred user. Track active windows in the sidebar.</p>
-             </Card>
-
-             <Card className="p-6 glass-card border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent hover:border-amber-500/20 transition-all duration-500 group">
-                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><ShieldAlert className="w-6 h-6 text-amber-500" /></div>
-                <h4 className="text-sm font-black uppercase tracking-tight text-white mb-2">Usage & Withdrawals</h4>
-                <p className="text-xs text-muted-foreground leading-relaxed font-medium">Commission balance can be withdrawn to bank OR used to fund rooms. Signup bonuses are utility-only.</p>
-             </Card>
-          </div>
-
-          {/* Reward Math Breakdown */}
-          <Card className="p-8 glass-card border-slate-200 dark:border-white/10 relative overflow-hidden">
-             <div className="absolute top-0 right-0 p-8 opacity-5"><Info className="w-32 h-32" /></div>
-             <div className="relative z-10 space-y-6">
-                <div className="flex items-center gap-3"><div className="w-1 h-8 bg-primary rounded-full" /><h3 className="text-lg font-black uppercase tracking-widest text-slate-900 dark:text-white">Revenue Split Breakdown</h3></div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                   <div className="p-6 rounded-[2.5rem] bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 flex flex-col items-center text-center"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground mb-4">Platform Cut</p><span className="text-4xl font-black text-slate-900 dark:text-white italic">30%</span><p className="text-[8px] font-bold text-slate-500 dark:text-white/30 uppercase mt-2 tracking-widest">Maintenance & Ops</p></div>
-                   <div className="p-6 rounded-[2.5rem] bg-primary/5 border border-primary/20 flex flex-col items-center text-center"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary mb-4">Host Final</p><span className="text-4xl font-black text-slate-900 dark:text-white italic">63%</span><p className="text-[8px] font-bold text-primary/40 uppercase mt-2 tracking-widest">90% of Host Share</p></div>
-                   <div className="p-6 rounded-[2.5rem] bg-emerald-500/5 border border-emerald-500/20 flex flex-col items-center text-center"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-500 mb-4">Referrer Cut</p><span className="text-4xl font-black text-slate-900 dark:text-white italic">7%</span><p className="text-[8px] font-bold text-emerald-500/40 uppercase mt-2 tracking-widest">10% of Host Share</p></div>
+                    </div>
+                  ))}
                 </div>
-                <div className="p-6 rounded-3xl bg-blue-500/5 border border-blue-500/10 flex items-start gap-4">
-                   <div className="w-10 h-10 rounded-2xl bg-blue-500/10 flex items-center justify-center shrink-0"><Info className="w-5 h-5 text-blue-400" /></div>
-                   <div className="space-y-1"><p className="text-xs font-black text-blue-900 dark:text-blue-100 uppercase italic">Commission Example</p><p className="text-[10px] text-blue-700 dark:text-blue-200/50 font-medium leading-relaxed uppercase tracking-wider">On a ₦10,000 sale, the Platform takes ₦3,000 (30%). From the remaining ₦7,000, you earn ₦700 (10% of host share) and the Host keeps ₦6,300. After 90 days, the Host keeps the full ₦7,000.</p></div>
+              ) : (
+                <div className="p-12 text-center space-y-3"><Users className="w-8 h-8 mx-auto text-white/5" /><p className="text-[10px] font-bold text-white/20 uppercase tracking-widest">No referrals yet</p></div>
+              )}
+           </div>
+        </Card>
+
+        {/* Referral History List */}
+        <Card className="glass-card border-white/10 flex flex-col overflow-hidden">
+           <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60 flex items-center gap-2"><LucideHistory className="w-3.5 h-3.5" /> Referral History</h3>
+           </div>
+           <div className="flex-1 max-h-[350px] overflow-y-auto custom-scrollbar no-scrollbar">
+              {isLoadingHistory ? (
+                <div className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></div>
+              ) : history.length > 0 ? (
+                <div className="divide-y divide-white/5">
+                  {history.map((item) => (
+                    <div key={item.id} className="p-4 space-y-2 hover:bg-white/[0.02] transition-colors">
+                      <div className="flex justify-between items-start">
+                         <div className="space-y-0.5">
+                            <p className="text-[10px] font-black text-white uppercase tracking-tight">{item.desc}</p>
+                            <div className="flex items-center gap-1.5"><ExternalLink className="w-2.5 h-2.5 text-muted-foreground" /><p className="text-[8px] font-bold text-muted-foreground uppercase">{item.room || 'System'}</p></div>
+                         </div>
+                         <span className="text-[11px] font-black text-emerald-400">+₦{item.amount.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-[7px] font-black text-white/20 uppercase tracking-widest">
+                         <span>{item.timestamp ? (typeof item.timestamp.toDate === 'function' ? item.timestamp.toDate().toLocaleDateString() : new Date((item.timestamp.seconds || item.timestamp._seconds || 0) * 1000).toLocaleDateString()) : 'Recent'}</span>
+                         <div className="flex items-center gap-1"><ShieldCheck className="w-2 h-2" /><span>Verified</span></div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-             </div>
-          </Card>
-        </div>
+              ) : (
+                <div className="p-12 text-center space-y-3"><LucideHistory className="w-8 h-8 mx-auto text-white/5" /><p className="text-[10px] font-bold text-white/20 uppercase tracking-widest">No earnings yet</p></div>
+              )}
+           </div>
+        </Card>
+
+        {/* Withdrawal Status Section */}
+        <Card className="glass-card border-white/10 flex flex-col overflow-hidden">
+           <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60 flex items-center gap-2">
+                <Banknote className="w-3.5 h-3.5" /> Withdrawal Status
+              </h3>
+           </div>
+           <div className="flex-1 max-h-[350px] overflow-y-auto custom-scrollbar no-scrollbar">
+              {isLoadingWithdrawals ? (
+                <div className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></div>
+              ) : withdrawals.length > 0 ? (
+                <div className="divide-y divide-white/5">
+                  {withdrawals.map((wd) => (
+                    <div key={wd.id} className="p-4 space-y-2 hover:bg-white/[0.02] transition-colors">
+                      <div className="flex justify-between items-center">
+                         <span className="text-sm font-black text-white">₦{wd.amount?.toLocaleString()}</span>
+                         <Badge className={`text-[8px] font-black ${
+                           wd.status === 'pending' ? 'bg-orange-500/20 text-orange-400' :
+                           wd.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400' :
+                           'bg-rose-500/20 text-rose-400'
+                         }`}>
+                           {wd.status?.toUpperCase()}
+                         </Badge>
+                      </div>
+                      <div className="flex justify-between items-center text-[7px] font-black text-white/20 uppercase tracking-widest">
+                         <span>{wd.created_at ? (typeof wd.created_at.toDate === 'function' ? wd.created_at.toDate().toLocaleDateString() : new Date((wd.created_at.seconds || wd.created_at._seconds || 0) * 1000).toLocaleDateString()) : 'Recent'}</span>
+                         <span>{wd.bank_name || 'Bank Payout'}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-12 text-center space-y-3">
+                   <Banknote className="w-8 h-8 mx-auto text-white/5" />
+                   <p className="text-[10px] font-bold text-white/20 uppercase tracking-widest">No withdrawals requested</p>
+                </div>
+              )}
+           </div>
+        </Card>
       </div>
     </div>
   );

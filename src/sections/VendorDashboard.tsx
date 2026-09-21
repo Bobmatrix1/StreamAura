@@ -409,8 +409,8 @@ export const VendorDashboard: React.FC = () => {
         : allOrders.filter(o => o.vendorId === user?.uid && o.status !== 'cancelled');
 
     const ordersGrossRevenue = relevantOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-    const ordersNetEarnings = ordersGrossRevenue * 0.70;
-    const ordersPlatformFees = ordersGrossRevenue * 0.30;
+    const ordersNetEarnings = ordersGrossRevenue * 0.80;
+    const ordersPlatformFees = ordersGrossRevenue * 0.20;
     const ordersItemsCount = relevantOrders.reduce((sum, o) => sum + (o.items?.reduce((s: number, i: any) => s + (i.quantity || 1), 0) || 0), 0);
 
     const totalRevenue = Math.max(vendorWallet.vendor_revenue || 0, ordersGrossRevenue);
@@ -642,9 +642,9 @@ export const VendorDashboard: React.FC = () => {
         ...localSales.map(s => ({
           id: s.id,
           type: 'sale',
-          amount: s.amount || (s.grossAmount ? s.grossAmount * 0.7 : 0),
-          grossAmount: s.grossAmount || (s.amount ? s.amount / 0.7 : 0),
-          platformFee: s.platformFee || (s.grossAmount ? s.grossAmount * 0.3 : 0),
+          amount: s.amount || (s.grossAmount ? s.grossAmount * 0.8 : 0),
+          grossAmount: s.grossAmount || (s.amount ? s.amount / 0.8 : 0),
+          platformFee: s.platformFee || (s.grossAmount ? s.grossAmount * 0.2 : 0),
           itemsCount: s.itemsCount || (s.items?.length || 1),
           date: s.timestamp?.toDate ? s.timestamp.toDate() : (s.timestamp ? new Date(s.timestamp) : new Date()),
           description: s.title || `Sales Earning from Order #${s.orderNumber || ''}`,
@@ -1097,6 +1097,21 @@ export const VendorDashboard: React.FC = () => {
     }
   };
 
+  const closeProductModal = () => {
+    setIsProductModalOpen(false);
+    setEditingProduct(null);
+    setProductForm({
+      name: '',
+      description: '',
+      price: '',
+      slashPrice: '',
+      category: 'snack',
+      image: '',
+      stockStatus: 'in_stock',
+      available: true
+    });
+  };
+
   // Open Add/Edit Product Modal
   const openProductModal = (product: Product | null = null) => {
     if (product) {
@@ -1289,7 +1304,7 @@ export const VendorDashboard: React.FC = () => {
 
               {/* Financial Stats Grid */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
-                {/* 1. Store Net Earnings (70%) */}
+                {/* 1. Store Net Earnings (80%) */}
                 <Card className="glass-card p-4 md:p-6 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] shadow-sm flex flex-col justify-between space-y-3 md:space-y-4">
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
@@ -1301,7 +1316,7 @@ export const VendorDashboard: React.FC = () => {
                         ₦{computedStats.totalEarnings.toLocaleString()}
                       </h3>
                       <p className="text-[8px] md:text-[9px] text-slate-500 dark:text-muted-foreground uppercase font-black">
-                        70% Vendor Share Credited
+                        80% Vendor Share Credited
                       </p>
                     </div>
                   </div>
@@ -1333,11 +1348,11 @@ export const VendorDashboard: React.FC = () => {
                   </div>
                 </Card>
 
-                {/* 3. Platform Commission (30%) */}
+                {/* 3. Platform Commission (20%) */}
                 <Card className="glass-card p-4 md:p-6 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] shadow-sm flex flex-col justify-between space-y-3 md:space-y-4">
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-[8px] md:text-[10px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest">Platform Fee (30%)</span>
+                      <span className="text-[8px] md:text-[10px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest">Platform Fee (20%)</span>
                       <Building className="w-4 h-4 md:w-5 md:h-5 text-indigo-500 dark:text-indigo-400" />
                     </div>
                     <div className="space-y-1">
@@ -1351,7 +1366,7 @@ export const VendorDashboard: React.FC = () => {
                   </div>
                   <div className="text-[8px] md:text-[9px] font-black uppercase flex justify-between bg-slate-100 dark:bg-white/5 p-2 rounded-lg border border-slate-200 dark:border-white/5">
                     <span className="text-slate-500 dark:text-muted-foreground">Platform Cut</span>
-                    <span className="text-indigo-600 dark:text-indigo-400 font-bold">30% of sales</span>
+                    <span className="text-indigo-600 dark:text-indigo-400 font-bold">20% of sales</span>
                   </div>
                 </Card>
 
@@ -1616,8 +1631,8 @@ export const VendorDashboard: React.FC = () => {
                   const itemsSummary = order.items?.map((it: any) => `${it.quantity || 1}x ${it.name}`).join(', ') || 'Snack items';
 
                   const grossAmount = order.totalAmount || 0;
-                  const netVendorEarnings = grossAmount * 0.70;
-                  const platformFee = grossAmount * 0.30;
+                  const netVendorEarnings = grossAmount * 0.80;
+                  const platformFee = grossAmount * 0.20;
 
                   return (
                     <Card 
@@ -1861,11 +1876,11 @@ export const VendorDashboard: React.FC = () => {
                                   <p className="font-mono font-bold text-slate-900 dark:text-white">₦{grossAmount.toLocaleString()}</p>
                                 </div>
                                 <div className="space-y-0.5 border-x border-slate-200 dark:border-white/5">
-                                  <span className="text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-400 tracking-wider">Store Net (70%)</span>
+                                  <span className="text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-400 tracking-wider">Store Net (80%)</span>
                                   <p className="font-mono font-bold text-emerald-600 dark:text-emerald-400">₦{netVendorEarnings.toLocaleString()}</p>
                                 </div>
                                 <div className="space-y-0.5">
-                                  <span className="text-[9px] font-black uppercase text-indigo-600 dark:text-indigo-400 tracking-wider">Fee (30%)</span>
+                                  <span className="text-[9px] font-black uppercase text-indigo-600 dark:text-indigo-400 tracking-wider">Fee (20%)</span>
                                   <p className="font-mono font-bold text-indigo-600 dark:text-indigo-300">₦{platformFee.toLocaleString()}</p>
                                 </div>
                               </div>
@@ -2184,7 +2199,7 @@ export const VendorDashboard: React.FC = () => {
 
                 <Card className="glass-card p-3.5 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] shadow-sm space-y-1">
                   <span className="text-[8px] sm:text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-wider flex items-center gap-1">
-                    <Percent className="w-3 h-3 text-amber-600 dark:text-amber-400" /> Net Credited (70%)
+                    <Percent className="w-3 h-3 text-amber-600 dark:text-amber-400" /> Net Credited (80%)
                   </span>
                   <p className="text-sm sm:text-base font-black text-amber-600 dark:text-amber-400">₦{computedStats.totalEarnings.toLocaleString()}</p>
                   <p className="text-[8px] text-slate-500 dark:text-muted-foreground uppercase font-mono">Credited to wallet</p>
@@ -2192,7 +2207,7 @@ export const VendorDashboard: React.FC = () => {
 
                 <Card className="glass-card p-3.5 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] shadow-sm space-y-1">
                   <span className="text-[8px] sm:text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-wider flex items-center gap-1">
-                    <Building className="w-3 h-3 text-indigo-500 dark:text-indigo-400" /> Platform Fee (30%)
+                    <Building className="w-3 h-3 text-indigo-500 dark:text-indigo-400" /> Platform Fee (20%)
                   </span>
                   <p className="text-sm sm:text-base font-black text-indigo-600 dark:text-indigo-300">₦{computedStats.totalFees.toLocaleString()}</p>
                   <p className="text-[8px] text-slate-500 dark:text-muted-foreground uppercase font-mono">StreamAura fee cut</p>
@@ -2213,7 +2228,7 @@ export const VendorDashboard: React.FC = () => {
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
                 {[
                   { id: 'all', label: 'All Activities', count: history.length },
-                  { id: 'sale', label: 'Store Sales (70%)', count: history.filter(h => h.type === 'sale').length },
+                  { id: 'sale', label: 'Store Sales (80%)', count: history.filter(h => h.type === 'sale').length },
                   { id: 'withdrawal', label: 'Payout Settlements', count: history.filter(h => h.type === 'withdrawal').length }
                 ].map(tab => (
                   <button
@@ -2279,7 +2294,7 @@ export const VendorDashboard: React.FC = () => {
                                 variant={isSale ? 'default' : 'secondary'} 
                                 className={`text-[8px] font-black uppercase tracking-widest ${isSale ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30' : 'bg-orange-500/20 text-orange-700 dark:text-orange-400 border-orange-500/30'}`}
                               >
-                                {isSale ? 'Sale Earning (70%)' : 'Settlement Payout'}
+                                {isSale ? 'Sale Earning (80%)' : 'Settlement Payout'}
                               </Badge>
                             </td>
 
@@ -2291,7 +2306,7 @@ export const VendorDashboard: React.FC = () => {
                               {isSale ? (
                                 <div className="space-y-0.5">
                                   <div>Gross: <span className="text-slate-900 dark:text-white font-bold">₦{(item.grossAmount || item.amount).toLocaleString()}</span></div>
-                                  <div>Fee (30%): <span className="text-indigo-600 dark:text-indigo-300 font-bold">-₦{(item.platformFee || 0).toLocaleString()}</span></div>
+                                  <div>Fee (20%): <span className="text-indigo-600 dark:text-indigo-300 font-bold">-₦{(item.platformFee || 0).toLocaleString()}</span></div>
                                 </div>
                               ) : (
                                 <div>Fee: <span className="text-slate-500 dark:text-muted-foreground">₦{(item.feeAmount || 0).toLocaleString()}</span></div>
@@ -2365,7 +2380,7 @@ export const VendorDashboard: React.FC = () => {
                             variant={isSale ? 'default' : 'secondary'} 
                             className={`text-[7px] font-black uppercase tracking-widest px-1 py-0.2 ${isSale ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400' : 'bg-orange-500/20 text-orange-700 dark:text-orange-400'}`}
                           >
-                            {isSale ? '70% Sale' : 'Payout'}
+                            {isSale ? '80% Sale' : 'Payout'}
                           </Badge>
                         </div>
                         <Badge 
@@ -2609,7 +2624,7 @@ export const VendorDashboard: React.FC = () => {
         {isProductModalOpen && (
           <div 
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[999] flex items-center justify-center p-4"
-            onClick={() => setIsProductModalOpen(false)}
+            onClick={closeProductModal}
           >
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
@@ -2623,7 +2638,7 @@ export const VendorDashboard: React.FC = () => {
                   {editingProduct ? 'Edit Product details' : 'Upload New Product'}
                 </h3>
                 <button 
-                  onClick={() => setIsProductModalOpen(false)} 
+                  onClick={closeProductModal} 
                   className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-400 hover:text-slate-700 dark:text-muted-foreground dark:hover:text-white transition-colors"
                 >
                   <X className="w-5 h-5" />
@@ -2832,7 +2847,7 @@ export const VendorDashboard: React.FC = () => {
                     type="button" 
                     variant="outline" 
                     className="flex-1 h-10 sm:h-12 rounded-xl text-[10px] sm:text-xs font-black uppercase border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5"
-                    onClick={() => setIsProductModalOpen(false)}
+                    onClick={closeProductModal}
                   >
                     Cancel
                   </Button>
@@ -3063,7 +3078,7 @@ export const VendorDashboard: React.FC = () => {
                   <div className="space-y-0.5">
                     <p className="text-[10px] font-black uppercase text-emerald-700 dark:text-emerald-300 tracking-wider">0% Additional Fee</p>
                     <p className="text-[8.5px] text-slate-600 dark:text-muted-foreground uppercase font-bold leading-tight">
-                      You receive 100% of your withdrawn amount. Platform fee (30%) was already settled on purchase.
+                      You receive 100% of your withdrawn amount. Platform fee (20%) was already settled on purchase.
                     </p>
                   </div>
                 </div>
@@ -3319,11 +3334,11 @@ export const VendorDashboard: React.FC = () => {
                       <span className="font-bold font-mono">₦{(selectedTxDetail.grossAmount || selectedTxDetail.amount).toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between items-center text-indigo-600 dark:text-indigo-300">
-                      <span className="uppercase text-[10px]">StreamAura Platform Commission (30%):</span>
-                      <span className="font-bold font-mono">-₦{(selectedTxDetail.platformFee || ((selectedTxDetail.grossAmount || selectedTxDetail.amount) * 0.3)).toLocaleString()}</span>
+                      <span className="uppercase text-[10px]">StreamAura Platform Commission (20%):</span>
+                      <span className="font-bold font-mono">-₦{(selectedTxDetail.platformFee || ((selectedTxDetail.grossAmount || selectedTxDetail.amount) * 0.2)).toLocaleString()}</span>
                     </div>
                     <div className="border-t border-slate-200 dark:border-white/5 pt-2 flex justify-between items-center text-emerald-600 dark:text-emerald-400 font-bold">
-                      <span className="uppercase text-[10px]">Net Credited to Vendor (70%):</span>
+                      <span className="uppercase text-[10px]">Net Credited to Vendor (80%):</span>
                       <span className="font-black font-mono">₦{selectedTxDetail.amount.toLocaleString()}</span>
                     </div>
                   </div>

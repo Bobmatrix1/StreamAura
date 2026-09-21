@@ -15,6 +15,14 @@ import { useToast } from './ToastContext';
 import { useAuth } from './AuthContext';
 import { saveDownloadHistory, logMediaInteraction, getUserHistory } from '@/lib/firebase';
 import mediaApi, { API_BASE_URL } from '@/api/mediaApi';
+import { setDownloadingActive } from '@/lib/appLifecycle';
+import { 
+  showDownloadStartingNotification, 
+  updateDownloadProgressNotification, 
+  showDownloadCompleteNotification, 
+  showDownloadFailedNotification,
+  createInAppDownloadNotification 
+} from '@/lib/downloadNotification';
 
 interface DownloadContextType {
   queue: DownloadItem[];
@@ -72,7 +80,7 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [isPaused] = useState(false);
   const [activeStage] = useState<string | undefined>();
   
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showInfo } = useToast();
   const { user } = useAuth();
   const abortControllerRef = useRef<AbortController | null>(null);
   const fetchAbortControllerRef = useRef<AbortController | null>(null);
@@ -81,6 +89,11 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
   useEffect(() => {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
   }, [history]);
+
+  // Sync active downloading state for lifecycle protection & wake lock
+  useEffect(() => {
+    setDownloadingActive(activeDownloads > 0);
+  }, [activeDownloads]);
 
   // 2. Fetch history from Firestore when user logs in
   useEffect(() => {
@@ -160,6 +173,17 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
     
     abortControllerRef.current = new AbortController();
     const signal = abortControllerRef.current.signal;
+    const downloadId = Math.random().toString(36).substring(2, 9);
+
+    const finalTitle = metadata?.title || (currentPreview ? currentPreview.title : filename);
+    const finalThumbnail = metadata?.thumbnail || (currentPreview ? currentPreview.thumbnail : undefined);
+    const finalMediaType = metadata?.mediaType || (currentPreview ? currentPreview.mediaType : (filename.endsWith('.mp3') ? 'music' : 'video'));
+
+    // 1. In-App notice to check notification tray
+    showInfo(`📥 Download started! Check your phone notification tray for live progress.`, 6000);
+
+    // 2. Initial Phone System Notification
+    showDownloadStartingNotification(downloadId, finalTitle, finalThumbnail);
 
     try {
       const baseUrl = API_BASE_URL || window.location.origin;
@@ -183,7 +207,9 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
         chunks.push(value);
         receivedLength += value.length;
         if (contentLength) {
-          setCurrentDownloadProgress(Math.round((receivedLength / contentLength) * 100));
+          const progressPercent = Math.round((receivedLength / contentLength) * 100);
+          setCurrentDownloadProgress(progressPercent);
+          updateDownloadProgressNotification(downloadId, finalTitle, progressPercent, finalThumbnail);
         }
       }
 
@@ -229,15 +255,22 @@ export const DownloadProvider: React.FC<{ children: ReactNode }> = ({ children }
         }
       }
 
-      showSuccess('Download complete!');
+      // 3. System & In-App Completion Notifications
+      showDownloadCompleteNotification(downloadId, finalTitle, finalThumbnail);
+      createInAppDownloadNotification(user?.uid, finalTitle, finalThumbnail, finalMediaType);
+
+      showSuccess(`🎉 Download complete: "${finalTitle}"`);
     } catch (error: any) {
-      if (error.name !== 'AbortError') showError(error.message);
+      if (error.name !== 'AbortError') {
+        showDownloadFailedNotification(downloadId, finalTitle, finalThumbnail);
+        showError(error.message);
+      }
     } finally {
       setActiveDownloads(prev => Math.max(0, prev - 1));
       setCurrentDownloadProgress(0);
       abortControllerRef.current = null;
     }
-  }, [showSuccess, showError, currentPreview, user, addToHistory]);
+  }, [showSuccess, showError, showInfo, currentPreview, user, addToHistory]);
 
   const addToQueue = useCallback((urls: string[]) => {
     const newItems: DownloadItem[] = urls.map(url => ({

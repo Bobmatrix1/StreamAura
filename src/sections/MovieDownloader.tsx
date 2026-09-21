@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Film, 
@@ -27,7 +28,8 @@ import {
   Video,
   ChevronRight,
   ArrowLeft,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Loader2
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -278,6 +280,7 @@ const MovieDownloader: React.FC = () => {
   const [isCheckingCloud, setIsCheckingCloud] = useState(false);
   const [showPlayer, setShowPlayer] = useState(false);
   const [activeTrailerKey, setActiveTrailerKey] = useState<string | null>(null);
+  const [isLoadingTrailer, setIsLoadingTrailer] = useState(false);
 
   // Series Specific State
   const [selectedSeason, setSelectedSeason] = useState<string | null>(null);
@@ -838,14 +841,14 @@ const MovieDownloader: React.FC = () => {
     return uniquePool.slice(0, 8);
   }, [trendingRows, searchResults, searchType]);
 
-  // Auto-rotate spotlight
+  // Auto-rotate spotlight (5 seconds)
   useEffect(() => {
     if (spotlightItems.length <= 1) return;
     if (spotlightTimerRef.current) clearInterval(spotlightTimerRef.current);
 
     spotlightTimerRef.current = setInterval(() => {
       setSpotlightIndex(prev => (prev + 1) % spotlightItems.length);
-    }, 8000);
+    }, 5000);
 
     return () => {
       if (spotlightTimerRef.current) clearInterval(spotlightTimerRef.current);
@@ -1034,11 +1037,47 @@ const MovieDownloader: React.FC = () => {
       );
       setPreOrderSuccess(true);
       showSuccess('Pre-order placed successfully!');
-      setShowPreOrderModal(false);
+      handleClosePreOrderModal();
     } catch (err: any) {
       showError(err.message || 'Failed to place pre-order');
     } finally {
       setIsPreOrdering(false);
+    }
+  };
+
+  const handleClosePreOrderModal = () => {
+    setShowPreOrderModal(false);
+    setMovieToPreOrder(null);
+    setPreOrderSuccess(false);
+    setIsPreOrdering(false);
+  };
+
+  const handleWatchTrailer = async (movie: MovieInfo) => {
+    // 1. If TMDB videos already contain trailer key
+    const existingTrailer = movie.tmdb?.videos?.find(v => (v.type === 'Trailer' || v.type === 'Teaser') && v.key) || movie.tmdb?.videos?.[0];
+    if (existingTrailer?.key) {
+      setActiveTrailerKey(existingTrailer.key);
+      return;
+    }
+
+    try {
+      setIsLoadingTrailer(true);
+      const res = await mediaApi.getMovieTrailer(
+        movie.title || '',
+        movie.year && movie.year !== 'N/A' && movie.year !== '0' ? movie.year : undefined,
+        movie.mediaType || searchType || 'movie'
+      );
+      const key = res.data?.key || (res as any)?.key;
+      if (res.success && key) {
+        setActiveTrailerKey(key);
+        return;
+      }
+      setActiveTrailerKey(`search:${movie.title} official trailer`);
+    } catch (err) {
+      console.error('Trailer lookup error:', err);
+      setActiveTrailerKey(`search:${movie.title} official trailer`);
+    } finally {
+      setIsLoadingTrailer(false);
     }
   };
 
@@ -1167,24 +1206,42 @@ const MovieDownloader: React.FC = () => {
               </p>
             ) : null}
 
-            <div className="flex flex-row items-center gap-2.5 sm:gap-3 flex-nowrap pt-1 overflow-x-auto [scrollbar-width:none]">
+            <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 pt-1">
               <button
                 onClick={() => handleSelectMovie(currentSpotlight)}
-                className={`px-5 sm:px-6 py-2.5 sm:py-3 rounded-2xl text-white font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-xl transition-all cursor-pointer active:scale-95 whitespace-nowrap shrink-0 ${
+                className={`px-4 sm:px-6 py-2.5 sm:py-3 rounded-2xl text-white font-black text-xs uppercase tracking-wider flex items-center gap-1.5 sm:gap-2 shadow-xl transition-all cursor-pointer active:scale-95 whitespace-nowrap shrink-0 ${
                   searchType === 'series'
                     ? 'bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 shadow-purple-500/25'
                     : 'bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 shadow-cyan-500/25'
                 }`}
               >
-                <Play className="w-4 h-4 fill-current shrink-0" />
+                <Play className="w-3.5 sm:w-4 h-3.5 sm:h-4 fill-current shrink-0" />
                 <span>{searchType === 'series' ? 'Watch Series' : 'Watch Movie'}</span>
               </button>
 
               <button
                 onClick={() => handleSelectMovie(currentSpotlight)}
-                className="px-4 sm:px-5 py-2.5 sm:py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wider border border-white/20 transition-all cursor-pointer active:scale-95 backdrop-blur-md whitespace-nowrap shrink-0"
+                className="px-3.5 sm:px-5 py-2.5 sm:py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wider border border-white/20 transition-all cursor-pointer active:scale-95 backdrop-blur-md whitespace-nowrap shrink-0"
               >
                 <span>{searchType === 'series' ? 'Seasons & Info' : '4K & Details'}</span>
+              </button>
+
+              <button
+                onClick={() => handleWatchTrailer(currentSpotlight)}
+                disabled={isLoadingTrailer}
+                className="px-3.5 sm:px-5 py-2.5 sm:py-3 rounded-2xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 font-bold text-xs uppercase tracking-wider border border-cyan-500/30 transition-all cursor-pointer active:scale-95 backdrop-blur-md whitespace-nowrap shrink-0 flex items-center justify-center gap-1.5 min-w-[86px] sm:min-w-[96px] disabled:opacity-50"
+              >
+                {isLoadingTrailer ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                    <span>Loading...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3.5 h-3.5 fill-current shrink-0" />
+                    <span>Trailer</span>
+                  </>
+                )}
               </button>
             </div>
 
@@ -1470,20 +1527,21 @@ const MovieDownloader: React.FC = () => {
                             4K Ultra HD
                           </span>
 
-                          {selectedMovie.tmdb?.videos && selectedMovie.tmdb.videos.length > 0 && (
-                            <button 
-                              onClick={() => {
-                                const tmdb = selectedMovie.tmdb;
-                                if (tmdb && tmdb.videos) {
-                                  const trailer = tmdb.videos.find(v => v.type === 'Trailer') || tmdb.videos[0];
-                                  if (trailer) setActiveTrailerKey(trailer.key);
-                                }
-                              }}
-                              className="px-3.5 py-1 rounded-full bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 text-xs font-black border border-cyan-500/30 flex items-center gap-1.5 uppercase transition-all active:scale-95 cursor-pointer"
-                            >
-                              <Play className="w-3 h-3 fill-current" /> Watch Trailer
-                            </button>
-                          )}
+                          <button 
+                            onClick={() => handleWatchTrailer(selectedMovie)}
+                            disabled={isLoadingTrailer}
+                            className="px-3.5 py-1 rounded-full bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 text-xs font-black border border-cyan-500/30 flex items-center gap-1.5 uppercase transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+                          >
+                            {isLoadingTrailer ? (
+                              <>
+                                <Loader2 className="w-3 h-3 animate-spin" /> Loading Trailer...
+                              </>
+                            ) : (
+                              <>
+                                <Play className="w-3 h-3 fill-current" /> Watch Trailer
+                              </>
+                            )}
+                          </button>
                         </div>
 
                         {/* Genre Chips */}
@@ -2187,111 +2245,149 @@ const MovieDownloader: React.FC = () => {
       )}
 
       {/* 7. Pre-order Confirmation Modal */}
-      <AnimatePresence>
-        {showPreOrderModal && (
-          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="w-full max-w-md p-7 text-center space-y-5 rounded-3xl border border-white/15 shadow-2xl bg-[#0b0f1d]">
-              <div className="w-16 h-16 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400 shadow-lg">
-                <Info className="w-8 h-8" />
-              </div>
-              <div className="space-y-2">
-                <h3 className="text-xl font-black uppercase tracking-tight text-white">
-                  Pre-Order {selectedEpisode ? 'Episode' : 'Title'}
-                </h3>
-                <p className="text-xs text-white/70 leading-relaxed">
-                  You are placing a cloud request for <strong className="text-white">"{movieToPreOrder?.title}"</strong>
-                  {selectedEpisode && ` (Season ${selectedSeason}, Episode ${selectedEpisode})`}. 
-                  Our system will prioritize this upload and alert you when it is live.
-                </p>
-              </div>
-              <div className="flex gap-3 pt-2">
-                <Button 
-                  onClick={() => setShowPreOrderModal(false)} 
-                  variant="ghost" 
-                  className="flex-1 h-12 rounded-xl font-bold uppercase tracking-wider text-xs border border-white/10 hover:bg-white/5 text-white/80"
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={confirmPreOrder} 
-                  disabled={isPreOrdering} 
-                  className="flex-[2] h-12 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-black font-black uppercase tracking-wider text-xs shadow-lg shadow-amber-500/20"
-                >
-                  {isPreOrdering ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : 'Confirm Pre-Order'}
-                </Button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {showPreOrderModal && (
+            <div 
+              className="fixed inset-0 w-screen h-screen z-[99999] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
+              onClick={handleClosePreOrderModal}
+            >
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }} 
+                animate={{ scale: 1, opacity: 1 }} 
+                exit={{ scale: 0.9, opacity: 0 }} 
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-md p-7 text-center space-y-5 rounded-3xl border border-white/15 shadow-2xl bg-[#0b0f1d]"
+              >
+                <div className="w-16 h-16 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400 shadow-lg">
+                  <Info className="w-8 h-8" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-black uppercase tracking-tight text-white">
+                    Pre-Order {selectedEpisode ? 'Episode' : 'Title'}
+                  </h3>
+                  <p className="text-xs text-white/70 leading-relaxed">
+                    You are placing a cloud request for <strong className="text-white">"{movieToPreOrder?.title}"</strong>
+                    {selectedEpisode && ` (Season ${selectedSeason}, Episode ${selectedEpisode})`}. 
+                    Our system will prioritize this upload and alert you when it is live.
+                  </p>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <Button 
+                    onClick={handleClosePreOrderModal} 
+                    variant="ghost" 
+                    className="flex-1 h-12 rounded-xl font-bold uppercase tracking-wider text-xs border border-white/10 hover:bg-white/5 text-white/80"
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    onClick={confirmPreOrder} 
+                    disabled={isPreOrdering} 
+                    className="flex-[2] h-12 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-black font-black uppercase tracking-wider text-xs shadow-lg shadow-amber-500/20"
+                  >
+                    {isPreOrdering ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : 'Confirm Pre-Order'}
+                  </Button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       {/* 8. 4K Video Player Modal */}
-      <AnimatePresence>
-        {showPlayer && cloudData && (
-          <div className="fixed inset-0 z-[2000] bg-black/95 backdrop-blur-md flex flex-col">
-            <div className="p-4 flex justify-between items-center bg-black/80 border-b border-white/10">
-              <div className="flex items-center gap-3">
-                <Play className="text-cyan-400 w-5 h-5 fill-current" />
-                <h4 className="font-black text-white uppercase tracking-tight text-sm">
-                  {cloudData.title} {selectedEpisode && `(S${selectedSeason} E${selectedEpisode})`}
-                </h4>
-                <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 text-[10px] font-black uppercase border border-cyan-500/30">
-                  4K Stream
-                </span>
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {showPlayer && cloudData && (
+            <div className="fixed inset-0 w-screen h-screen z-[99999] bg-black/95 backdrop-blur-md flex flex-col">
+              <div className="p-4 flex justify-between items-center bg-black/80 border-b border-white/10">
+                <div className="flex items-center gap-3">
+                  <Play className="text-cyan-400 w-5 h-5 fill-current" />
+                  <h4 className="font-black text-white uppercase tracking-tight text-sm">
+                    {cloudData.title} {selectedEpisode && `(S${selectedSeason} E${selectedEpisode})`}
+                  </h4>
+                  <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 text-[10px] font-black uppercase border border-cyan-500/30">
+                    4K Stream
+                  </span>
+                </div>
+                <button 
+                  onClick={() => setShowPlayer(false)} 
+                  className="p-2 hover:bg-white/10 rounded-full text-white transition-all cursor-pointer"
+                >
+                  <X className="w-6 h-6" />
+                </button>
               </div>
-              <button 
-                onClick={() => setShowPlayer(false)} 
-                className="p-2 hover:bg-white/10 rounded-full text-white transition-all cursor-pointer"
-              >
-                <X className="w-6 h-6" />
-              </button>
+              <div className="flex-1 flex items-center justify-center p-2 sm:p-6">
+                <video 
+                  controls 
+                  autoPlay 
+                  className="w-full max-w-5xl max-h-[80vh] rounded-2xl shadow-2xl border border-white/10 bg-black"
+                >
+                  <source src={cloudData.streamUrl} type="video/mp4" />
+                  Your browser does not support the video tag.
+                </video>
+              </div>
+              <div className="p-4 text-center border-t border-white/5">
+                <p className="text-[10px] text-white/40 uppercase font-black tracking-widest">
+                  StreamAura High-Bitrate Cinema Cloud Delivery
+                </p>
+              </div>
             </div>
-            <div className="flex-1 flex items-center justify-center p-2 sm:p-6">
-              <video 
-                controls 
-                autoPlay 
-                className="w-full max-w-5xl max-h-[80vh] rounded-2xl shadow-2xl border border-white/10 bg-black"
-              >
-                <source src={cloudData.streamUrl} type="video/mp4" />
-                Your browser does not support the video tag.
-              </video>
-            </div>
-            <div className="p-4 text-center border-t border-white/5">
-              <p className="text-[10px] text-white/40 uppercase font-black tracking-widest">
-                StreamAura High-Bitrate Cinema Cloud Delivery
-              </p>
-            </div>
-          </div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       {/* 9. YouTube Trailer Modal */}
-      <AnimatePresence>
-        {activeTrailerKey && (
-          <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-[3000] p-4">
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }} 
-              animate={{ scale: 1, opacity: 1 }} 
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="relative w-full max-w-4xl aspect-video rounded-3xl overflow-hidden border border-white/15 shadow-2xl bg-black"
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {activeTrailerKey && (
+            <div 
+              className="fixed inset-0 w-screen h-screen bg-black/90 backdrop-blur-md flex items-center justify-center z-[99999] p-3 sm:p-4"
+              onClick={() => setActiveTrailerKey(null)}
             >
-              <button 
-                onClick={() => setActiveTrailerKey(null)}
-                className="absolute top-4 right-4 z-[3010] p-2 rounded-full bg-black/70 text-white hover:bg-black border border-white/20 transition-all cursor-pointer"
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }} 
+                animate={{ scale: 1, opacity: 1 }} 
+                exit={{ scale: 0.9, opacity: 0 }}
+                onClick={(e) => e.stopPropagation()}
+                className="relative w-full max-w-4xl rounded-3xl overflow-hidden border border-white/15 shadow-2xl bg-black flex flex-col"
               >
-                <X className="w-5 h-5" />
-              </button>
-              <iframe
-                src={`https://www.youtube.com/embed/${activeTrailerKey}?autoplay=1`}
-                className="w-full h-full border-0"
-                allow="autoplay; encrypted-media; picture-in-picture"
-                allowFullScreen
-                title="Trailer Player"
-              />
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+                <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-[#0a0e1c] border-b border-white/10 z-[3010]">
+                  <div className="flex items-center gap-2">
+                    <Play className="w-4 h-4 text-cyan-400 fill-current" />
+                    <span className="text-xs sm:text-sm font-black uppercase text-white tracking-wider">
+                      Official Trailer
+                    </span>
+                  </div>
+                  <button 
+                    onClick={() => setActiveTrailerKey(null)}
+                    className="p-1.5 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all cursor-pointer"
+                    title="Close"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="relative w-full aspect-video bg-black">
+                  <iframe
+                    src={
+                      activeTrailerKey.startsWith('search:')
+                        ? `https://www.youtube-nocookie.com/embed?listType=search&list=${encodeURIComponent(activeTrailerKey.replace('search:', ''))}&autoplay=1&playsinline=1&rel=0`
+                        : `https://www.youtube-nocookie.com/embed/${activeTrailerKey}?autoplay=1&playsinline=1&rel=0&enablejsapi=1`
+                    }
+                    className="w-full h-full border-0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+                    referrerPolicy="strict-origin-when-cross-origin"
+                    title="Trailer Player"
+                  />
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 };

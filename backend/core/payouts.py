@@ -5,17 +5,17 @@ def calculate_payout_split(host_uid: str, amount: float, db, transaction=None):
     """
     Calculates the distribution of a payment (ticket or entry fee).
     Revenue Split:
-    - Platform: 30%
-    - Host Pool: 70%
-    - Referrer: 10% of Host Pool (if active)
-    - Host Final: Host Pool - Referrer Cut
+    - Platform: 20%
+    - Host Pool: 80%
+    - Referrer: 10% of Host Pool (if active within 90 days = 8% of gross)
+    - Host Final: Host Pool - Referrer Cut (72% of gross during referral, 80% otherwise)
     
     Referral remains active for 90 days from host signup.
     Returns: (platform_cut, host_final, referrer_uid, referrer_cut)
     """
-    platform_rate = 0.30
-    host_base_rate = 0.70
-    referral_rate_of_host = 0.10 # 10% of the 70%
+    platform_rate = 0.20
+    host_base_rate = 0.80
+    referral_rate_of_host = 0.10 # 10% of the 80% host pool (8% of gross)
     
     platform_cut = round(amount * platform_rate, 2)
     host_pool = round(amount * host_base_rate, 2)
@@ -50,8 +50,8 @@ def calculate_payout_split(host_uid: str, amount: float, db, transaction=None):
 
                 if (now - created_at_ts) < three_months_sec:
                     referrer_uid = referred_by
-                    referrer_cut = round(host_pool * referral_rate_of_host, 2) # 10% of the 70%
-                    host_pool = round(host_pool - referrer_cut, 2) # Host keeps the rest
+                    referrer_cut = round(host_pool * referral_rate_of_host, 2) # 10% of the 80% host pool (8% of gross)
+                    host_pool = round(host_pool - referrer_cut, 2) # Host keeps the rest (72% of gross)
     except Exception as e:
         print(f"Payout calculation error: {str(e)}")
         pass

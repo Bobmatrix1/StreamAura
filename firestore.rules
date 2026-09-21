@@ -32,7 +32,14 @@ service cloud.firestore {
     match /users/{userId} {
       allow list: if true;
       allow get: if isAuthenticated() && (isOwner(userId) || isAdmin());
-      allow create: if isAuthenticated() && isOwner(userId);
+      allow create: if isAuthenticated() && isOwner(userId) &&
+        request.resource.data.get('isAdmin', false) == false &&
+        request.resource.data.get('isVendor', false) == false &&
+        request.resource.data.get('referralBalance', 0) == 0 &&
+        request.resource.data.get('bonusBalance', 0) == 0 &&
+        request.resource.data.get('auraCoins', 0) == 0 &&
+        request.resource.data.get('auraCoin', 0) == 0 &&
+        request.resource.data.get('referredCount', 0) == 0;
 
       allow update: if isAdmin() || (
         isAuthenticated() && isOwner(userId) &&
@@ -40,7 +47,12 @@ service cloud.firestore {
         request.resource.data.get('isVendor', false) == resource.data.get('isVendor', false) &&
         request.resource.data.get('referralBalance', 0) == resource.data.get('referralBalance', 0) &&
         request.resource.data.get('bonusBalance', 0) == resource.data.get('bonusBalance', 0) &&
+        request.resource.data.get('auraCoins', 0) == resource.data.get('auraCoins', 0) &&
+        request.resource.data.get('auraCoin', 0) == resource.data.get('auraCoin', 0) &&
         request.resource.data.get('referredCount', 0) == resource.data.get('referredCount', 0)
+      ) || (
+        isAuthenticated() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unreadCount', 'lastActive'])
       );
 
       allow delete: if isAdmin();
@@ -81,7 +93,9 @@ service cloud.firestore {
 
     match /cinema_rooms/{roomId} {
       allow read, list: if true;
-      allow write: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (isAuthenticated() && resource.data.host_uid == request.auth.uid);
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.host_uid == request.auth.uid);
 
       match /chat/{messageId} {
         allow read: if true;
@@ -136,7 +150,7 @@ service cloud.firestore {
     match /downloads/{downloadId} {
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow read, list: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
     }
 
     // =================================================================
@@ -195,7 +209,7 @@ service cloud.firestore {
     match /vendors/{vendorId} { 
       allow read: if true; 
       allow write: if isAdmin(); 
-      allow update: if isAuthenticated() && (request.auth.uid == vendorId || isAdmin()); 
+      allow update: if isAdmin() || (isAuthenticated() && (request.auth.uid == vendorId || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'ratingCount', 'reviewCount', 'totalRatingPoints']))); 
 
       match /reviews/{reviewId} {
         allow read: if true;
@@ -207,7 +221,7 @@ service cloud.firestore {
     match /products/{productId} {
       allow read: if true;
       allow create: if isAuthenticated() && (isAdmin() || (isVendor() && request.resource.data.vendorId == request.auth.uid));
-      allow update: if isAuthenticated() && (isAdmin() || (isVendor() && resource.data.vendorId == request.auth.uid));
+      allow update: if isAuthenticated() && (isAdmin() || (isVendor() && resource.data.vendorId == request.auth.uid) || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'ratingCount', 'reviewCount', 'totalRatingPoints']));
       allow delete: if isAuthenticated() && (isAdmin() || (isVendor() && resource.data.vendorId == request.auth.uid));
 
       match /reviews/{reviewId} {

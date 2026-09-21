@@ -31,7 +31,7 @@ import { Card } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
 import { 
-  placeOrder,
+  auth,
   listenToProductReviews,
   type Product, 
   type Partner,
@@ -41,7 +41,7 @@ import {
 } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE_URL } from '../api/mediaApi';
-import { doc, getDoc, setDoc, addDoc, updateDoc, collection, increment, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot } from 'firebase/firestore';
 
 interface CinemaStoreModalProps {
   isOpen: boolean;
@@ -74,15 +74,26 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Scroll Lock Effect
+  // Scroll Lock Effect & Reset on Close
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
+      setActiveTab('store');
+      setSelectedProduct(null);
+      setDetailQuantity(1);
+      setSelectedCategory('all');
+      setDeliveryInfo({
+        address: '',
+        phone: '',
+        email: user?.email || '',
+        name: user?.displayName || ''
+      });
+      setIsSubmitting(false);
     }
     return () => { document.body.style.overflow = ''; };
-  }, [isOpen]);
+  }, [isOpen, user]);
 
   // Keep selected product in sync with products list
   useEffect(() => {
@@ -197,17 +208,6 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
 
     setIsSubmitting(true);
     try {
-      // 1. Check Customer Wallet Balance
-      const customerWalletRef = doc(db, 'room_wallets', user.uid);
-      const customerWalletSnap = await getDoc(customerWalletRef);
-      const customerBalance = customerWalletSnap.exists() ? (customerWalletSnap.data().funded_balance || 0) : 0;
-
-      if (customerBalance < cartTotal) {
-        toast.error(`Insufficient wallet balance. Total is ₦${cartTotal.toLocaleString()} but your balance is ₦${customerBalance.toLocaleString()}. Please fund your wallet first.`);
-        setIsSubmitting(false);
-        return;
-      }
-
       // Group items by vendor
       const vendorGroups = cart.reduce((acc, item) => {
         const vId = item.product.vendorId || 'admin-store';
@@ -216,143 +216,50 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
         return acc;
       }, {} as Record<string, typeof cart>);
 
-      // Deduct Customer Wallet Balance
-      await setDoc(customerWalletRef, {
-        funded_balance: increment(-cartTotal),
-        balance: increment(-cartTotal)
-      }, { merge: true });
+      const token = await auth.currentUser?.getIdToken();
+      const payload = {
+        customerName: deliveryInfo.name,
+        customerEmail: deliveryInfo.email || user.email || '',
+        customerPhone: deliveryInfo.phone,
+        customerAddress: deliveryInfo.address,
+        vendorGroups: Object.entries(vendorGroups).map(([vendorId, items]) => {
+          const vendor = vendors.find(v => v.id === vendorId);
+          return {
+            vendorId,
+            vendorName: vendor?.name || 'Snack Vendor',
+            telegramGroupId: vendor?.telegramGroupId || null,
+            items: items.map(it => ({
+              productId: it.product.id,
+              name: it.product.name,
+              quantity: it.quantity,
+              price: it.product.price
+            }))
+          };
+        })
+      };
 
-      // Save Customer Transaction Log
-      const txCol = collection(db, 'transactions');
-      await addDoc(txCol, {
-        user_uid: user.uid,
-        type: 'purchase',
-        amount: cartTotal,
-        title: `Store Purchase: ${cart.map(i => `${i.quantity}x ${i.product.name}`).join(', ')}`,
-        status: 'completed',
-        timestamp: serverTimestamp()
+      const response = await fetch(`${API_BASE_URL}/api/store/checkout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(payload)
       });
 
-      // Place orders for each vendor
-      for (const [vendorId, items] of Object.entries(vendorGroups)) {
-        const vendor = vendors.find(v => v.id === vendorId);
-        const orderTotal = items.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-        
-        const orderData = {
-          userId: user.uid,
-          userName: deliveryInfo.name,
-          userEmail: deliveryInfo.email,
-          userPhone: deliveryInfo.phone,
-          deliveryAddress: deliveryInfo.address,
-          items: items.map(item => ({
-            productId: item.product.id,
-            name: item.product.name,
-            quantity: item.quantity,
-            price: item.product.price
-          })),
-          totalAmount: orderTotal,
-          vendorId: vendorId,
-          vendorName: vendor?.name || 'Snack Vendor'
-        };
-
-        const { id: orderId, orderNumber } = await placeOrder(orderData);
-
-        // Send In-App Notification to Customer with unique order number and details
-        try {
-          const notifDocId = `order_${orderId}_placed`;
-          await setDoc(doc(db, 'users', user.uid, 'notifications', notifDocId), {
-            title: `🛒 Order Placed - #${orderNumber}`,
-            message: `Your order for ${orderData.items.map(i => `${i.quantity}x ${i.name}`).join(', ')} totaling ₦${orderTotal.toLocaleString()} has been placed and sent to ${vendor?.name || 'the vendor'}. Delivery to: ${deliveryInfo.address}`,
-            timestamp: Date.now(),
-            read: false,
-            type: 'order_placed',
-            orderId,
-            orderNumber,
-            vendorId,
-            vendorName: vendor?.name || 'Vendor',
-            orderStatus: 'pending',
-            estimatedDeliveryTime: ''
-          }, { merge: true });
-          await updateDoc(doc(db, 'users', user.uid), { unreadCount: increment(1) }).catch(() => {});
-        } catch (ne) {
-          console.warn('Failed to add in-app purchase notification:', ne);
-        }
-
-        // Credit Vendor Dedicated Store Wallet (70% Share) & Log Earnings Stats
-        const vendorShare = orderTotal * 0.70;
-        const platformShare = orderTotal * 0.30;
-        const itemsCount = items.reduce((sum, item) => sum + item.quantity, 0);
-
-        const vendorWalletRef = doc(db, 'room_wallets', vendorId);
-        await setDoc(vendorWalletRef, {
-          vendor_balance: increment(vendorShare),
-          vendor_earnings: increment(vendorShare),
-          vendor_revenue: increment(orderTotal),
-          vendor_sales_count: increment(itemsCount),
-          vendor_fees: increment(platformShare)
-        }, { merge: true });
-
-        // Save Vendor Transaction Log
-        await addDoc(txCol, {
-          user_uid: vendorId,
-          vendorId: vendorId,
-          vendorName: vendor?.name || 'Snack Vendor',
-          orderId: orderId,
-          orderNumber: orderNumber,
-          type: 'vendor_earning',
-          amount: vendorShare,
-          grossAmount: orderTotal,
-          platformFee: platformShare,
-          itemsCount: itemsCount,
-          customerName: deliveryInfo.name,
-          customerPhone: deliveryInfo.phone,
-          customerAddress: deliveryInfo.address,
-          items: orderData.items,
-          title: `Sales Earning (70%) - Order #${orderNumber} (${orderData.items.map(i => `${i.quantity}x ${i.name}`).join(', ')})`,
-          status: 'completed',
-          timestamp: serverTimestamp()
-        });
-
-        // Update Platform Fees global stats
-        const statsRef = doc(db, 'system_analytics', 'global_counters');
-        await setDoc(statsRef, {
-          [`payments.success.count`]: increment(1),
-          [`payments.success.totalAmount`]: increment(orderTotal),
-          [`payments.platform_fees`]: increment(platformShare)
-        }, { merge: true });
-
-        // Send to Telegram Bot via backend
-        try {
-          await fetch(`${API_BASE_URL}/api/store/order`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              orderId,
-              orderNumber,
-              vendorId,
-              vendorName: vendor?.name || 'Snack Vendor',
-              telegramGroupId: vendor?.telegramGroupId,
-              customerName: deliveryInfo.name,
-              customerPhone: deliveryInfo.phone,
-              customerAddress: deliveryInfo.address,
-              items: orderData.items,
-              total: orderTotal,
-              userId: user.uid
-            })
-          });
-        } catch (tge) {
-          console.warn('Failed to dispatch telegram order notification:', tge);
-        }
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.detail || result.error || 'Failed to complete store checkout.');
       }
 
-      toast.success('Order placed successfully! Wallet debited.');
+      toast.success('🍿 Order placed successfully! The vendor will process and deliver your snack.');
       setCart([]);
       setActiveTab('store');
       setSelectedProduct(null);
       onClose();
-    } catch (error: any) {
-      console.error('Checkout error:', error);
-      toast.error(error.message || 'Payment processing failed');
+    } catch (err: any) {
+      console.error('Checkout error:', err);
+      toast.error(err.message || 'Failed to place order. Please try again.');
     } finally {
       setIsSubmitting(false);
     }

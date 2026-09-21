@@ -38,7 +38,7 @@ interface CinemaState {
   currentEpisodeIndex?: number;
 }
 
-export const useCinemaSync = (roomId: string | null, user: any) => {
+export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () => void) => {
   const [roomState, setRoomState] = useState<CinemaState | null>(null);
   const [viewers, setViewers] = useState<number>(0);
   const [activeUserUids, setActiveUserUids] = useState<string[]>([]);
@@ -49,50 +49,150 @@ export const useCinemaSync = (roomId: string | null, user: any) => {
   const ws = useRef<WebSocket | null>(null);
   const agoraClient = useRef<IAgoraRTCClient | null>(null);
   const localAudioTrack = useRef<ILocalAudioTrack | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDestroyedRef = useRef(false);
 
-  // WebSocket Logic (Synchronization Only)
+  // Resilient WebSocket Connection with Automatic Reconnection & Tab Resume
   useEffect(() => {
     if (!roomId || !user) return;
+    isDestroyedRef.current = false;
 
-    const socketUrl = `${import.meta.env.VITE_SOCKET_URL || 'ws://localhost:8000'}/api/ws/cinema/${roomId}/ws`;
-    ws.current = new WebSocket(socketUrl);
+    let retryCount = 0;
 
-    ws.current.onopen = () => {
-      console.log('Cinema WS Connected');
-      ws.current?.send(JSON.stringify({ type: 'join', uid: user.uid }));
-    };
+    const connectWebSocket = () => {
+      if (isDestroyedRef.current || !roomId || !user) return;
 
-    ws.current.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+      // Close previous connection if not in OPEN state
+      if (ws.current) {
+        try {
+          if (ws.current.readyState === WebSocket.OPEN) return;
+          ws.current.close();
+        } catch {}
+      }
+
+      let socketBase = import.meta.env.VITE_SOCKET_URL;
+      if (!socketBase) {
+        if (import.meta.env.VITE_API_URL) {
+          const apiUrl = import.meta.env.VITE_API_URL;
+          const wsProto = apiUrl.startsWith('https:') ? 'wss:' : 'ws:';
+          socketBase = apiUrl.replace(/^https?:/, wsProto);
+        } else {
+          const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          socketBase = `${protocol}//${window.location.host}`;
+        }
+      }
+
+      const socketUrl = `${socketBase}/api/ws/cinema/${roomId}/ws`;
       
-      switch (data.type) {
-        case 'init':
-          setRoomState(data.state);
-          break;
-        case 'playback_sync':
-          setRoomState(prev => prev ? { ...prev, status: data.status, movieTime: data.time } : null);
-          break;
-        case 'episode_sync':
-          setRoomState(prev => prev ? { ...prev, currentEpisodeIndex: data.index, movieTime: 0, status: 'playing' } : null);
-          break;
-        case 'user_list':
-          setActiveUserUids(data.users);
-          setViewers(data.users.length);
-          break;
-        case 'kicked':
-          toast.warning("You have been kicked from the room.");
-          window.location.reload(); // Force exit via reload
-          break;
-        case 'error':
-          toast.error(data.message);
-          break;
+      try {
+        const socket = new WebSocket(socketUrl);
+        ws.current = socket;
+
+        socket.onopen = () => {
+          retryCount = 0;
+          console.log('Cinema WS Connected');
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'join', uid: user.uid }));
+          }
+        };
+
+        socket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            
+            switch (data.type) {
+              case 'init':
+                setRoomState(data.state);
+                break;
+              case 'playback_sync':
+                setRoomState(prev => prev ? { ...prev, status: data.status, movieTime: data.time } : null);
+                break;
+              case 'episode_sync':
+                setRoomState(prev => prev ? { ...prev, currentEpisodeIndex: data.index, movieTime: 0, status: 'playing' } : null);
+                break;
+              case 'user_list':
+                setActiveUserUids(data.users || []);
+                setViewers(data.users ? data.users.length : 0);
+                break;
+              case 'kicked':
+                toast.warning("You have been kicked from the room.");
+                sessionStorage.removeItem('aura_active_cinema_room_id');
+                if (onKicked) onKicked();
+                else window.dispatchEvent(new CustomEvent('aura_leave_cinema'));
+                break;
+              case 'error':
+                toast.error(data.message || 'Cinema connection notice');
+                break;
+            }
+          } catch (err) {
+            console.error('Error parsing cinema WS message:', err);
+          }
+        };
+
+        socket.onclose = () => {
+          if (isDestroyedRef.current) return;
+          
+          // Reconnect with backoff (1s, 2s, 4s, max 8s)
+          const delay = Math.min(1000 * Math.pow(1.5, retryCount), 8000);
+          retryCount++;
+          
+          if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = setTimeout(() => {
+            if (!isDestroyedRef.current) {
+              connectWebSocket();
+            }
+          }, delay);
+        };
+
+        socket.onerror = (err) => {
+          console.warn('Cinema WS error:', err);
+        };
+      } catch (err) {
+        console.error('Failed to create cinema WebSocket:', err);
       }
     };
 
-    return () => {
-      ws.current?.close();
+    connectWebSocket();
+
+    // Reconnect immediately when user switches back to the tab / app
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !isDestroyedRef.current) {
+        if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
+          if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+          connectWebSocket();
+        } else {
+          // Re-affirm join presence
+          try {
+            ws.current.send(JSON.stringify({ type: 'join', uid: user.uid }));
+          } catch {}
+        }
+      }
     };
-  }, [roomId, user]);
+
+    // Reconnect when network goes online
+    const handleOnline = () => {
+      if (!isDestroyedRef.current) {
+        if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+        connectWebSocket();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      isDestroyedRef.current = true;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (ws.current) {
+        try {
+          ws.current.close();
+        } catch {}
+        ws.current = null;
+      }
+    };
+  }, [roomId, user, onKicked]);
 
   // Persistent Firestore Chat Logic
   useEffect(() => {

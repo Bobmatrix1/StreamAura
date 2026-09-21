@@ -2781,6 +2781,109 @@ async def get_movie_details(
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
+_trailer_cache: dict = {}
+
+@app.get("/api/movies/trailer")
+async def get_movie_trailer(title: str = Query(...), year: Optional[str] = Query(None), type: str = "movie"):
+    """
+    Find official trailer YouTube ID for a movie or TV series.
+    Resolves active official trailer candidates with yt-dlp and TMDB.
+    """
+    try:
+        clean_title = title.strip()
+        cache_key = f"{clean_title.lower()}_{year}_{type}"
+        now = time.time()
+        if cache_key in _trailer_cache and (now - _trailer_cache[cache_key].get("time", 0)) < 86400:
+            return _trailer_cache[cache_key]["data"]
+
+        candidates = []
+        primary_title = f"{clean_title} Official Trailer"
+        source = "youtube_search"
+
+        # 1. Try yt-dlp fast search for official trailers (finds active, embeddable YouTube uploads)
+        try:
+            search_query = f"ytsearch3:{clean_title} {year or ''} official trailer".strip()
+            ydl_opts = {
+                'quiet': True,
+                'skip_download': True,
+                'extract_flat': True,
+                'no_warnings': True
+            }
+            loop = asyncio.get_event_loop()
+            def extract():
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    return ydl.extract_info(search_query, download=False)
+            
+            info = await loop.run_in_executor(None, extract)
+            if info and 'entries' in info and len(info['entries']) > 0:
+                for entry in info['entries']:
+                    if entry and entry.get('id'):
+                        vid_id = entry['id']
+                        if vid_id not in candidates:
+                            candidates.append(vid_id)
+                        if not primary_title or primary_title == f"{clean_title} Official Trailer":
+                            primary_title = entry.get('title', primary_title)
+        except Exception as yte:
+            print(f"yt-dlp trailer lookup error: {yte}")
+
+        # 2. Try TMDB details for additional trailer keys
+        try:
+            tmdb_data = await fetch_tmdb_details(clean_title, type, year)
+            if tmdb_data and tmdb_data.get("videos"):
+                videos = tmdb_data.get("videos", [])
+                for v in videos:
+                    k = v.get("key")
+                    if k and k not in candidates:
+                        if v.get("type") in ("Trailer", "Teaser"):
+                            candidates.append(k)
+        except Exception as te:
+            print(f"TMDB trailer lookup error: {te}")
+
+        # 3. Fallback search with broader query if no candidates yet
+        if not candidates:
+            try:
+                search_query_broad = f"ytsearch2:{clean_title} trailer".strip()
+                def extract_broad():
+                    with yt_dlp.YoutubeDL({'quiet': True, 'skip_download': True, 'extract_flat': True}) as ydl:
+                        return ydl.extract_info(search_query_broad, download=False)
+                info_broad = await loop.run_in_executor(None, extract_broad)
+                if info_broad and 'entries' in info_broad:
+                    for entry in info_broad['entries']:
+                        if entry and entry.get('id'):
+                            candidates.append(entry['id'])
+            except Exception as e_broad:
+                print(f"Broad trailer lookup error: {e_broad}")
+
+        if candidates:
+            res_data = {
+                "success": True,
+                "data": {
+                    "key": candidates[0],
+                    "candidates": candidates,
+                    "title": primary_title,
+                    "source": source
+                },
+                "key": candidates[0],
+                "candidates": candidates,
+                "title": primary_title,
+                "source": source
+            }
+            _trailer_cache[cache_key] = {"time": now, "data": res_data}
+            return res_data
+
+        return {
+            "success": False,
+            "error": "No trailer found",
+            "searchQuery": f"{clean_title} official trailer"
+        }
+    except Exception as e:
+        print(f"Get trailer error: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "searchQuery": f"{title} official trailer"
+        }
+
 @app.get("/share", response_class=HTMLResponse)
 async def dynamic_share_preview(
     title: str = "StreamAura — Your No. 1 Virtual Cinema & World of Entertainment", 
@@ -3221,6 +3324,25 @@ class OrderItem(BaseModel):
     quantity: int
     price: float
 
+class CheckoutItemRequest(BaseModel):
+    productId: str
+    name: str
+    quantity: int
+    price: float
+
+class VendorGroupRequest(BaseModel):
+    vendorId: str
+    vendorName: str
+    telegramGroupId: Optional[str] = None
+    items: List[CheckoutItemRequest]
+
+class StoreCheckoutPayload(BaseModel):
+    customerName: str
+    customerEmail: Optional[str] = None
+    customerPhone: str
+    customerAddress: str
+    vendorGroups: List[VendorGroupRequest]
+
 class OrderRequest(BaseModel):
     orderId: str
     orderNumber: Optional[str] = None
@@ -3233,6 +3355,253 @@ class OrderRequest(BaseModel):
     items: List[OrderItem]
     total: float
     userId: Optional[str] = None
+
+@app.post("/api/store/checkout")
+async def checkout_store_order(payload: StoreCheckoutPayload, user: dict = Depends(get_current_user)):
+    """
+    Secure atomic server-side concession store checkout:
+    1. Validates customer wallet funded balance.
+    2. Atomically deducts total cart cost from customer's room_wallets.
+    3. For each vendor group:
+       - Credits 80% net share to vendor's room_wallets.
+       - Creates verified order doc in Firestore.
+       - Logs customer purchase transaction & vendor earning transaction.
+       - Sends customer in-app notification.
+    4. Updates global analytics counters.
+    5. Dispatches formatted Telegram order notification to vendor's group.
+    """
+    if not db_admin:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+        
+    uid = user['uid']
+    if not payload.vendorGroups:
+        raise HTTPException(status_code=400, detail="Cart is empty")
+
+    # Calculate total cart cost
+    total_cart = 0.0
+    for vg in payload.vendorGroups:
+        for it in vg.items:
+            if it.quantity <= 0 or it.price < 0:
+                raise HTTPException(status_code=400, detail=f"Invalid item price or quantity for {it.name}")
+            total_cart += round(it.price * it.quantity, 2)
+
+    total_cart = round(total_cart, 2)
+    if total_cart <= 0:
+        raise HTTPException(status_code=400, detail="Total cart amount must be greater than zero")
+
+    customer_wallet_ref = db_admin.collection("room_wallets").document(uid)
+    stats_ref = db_admin.collection("system_analytics").document("global_counters")
+    user_ref = db_admin.collection("users").document(uid)
+
+    # Collect vendor wallet refs
+    vendor_refs = {}
+    for vg in payload.vendorGroups:
+        if vg.vendorId not in vendor_refs:
+            vendor_refs[vg.vendorId] = db_admin.collection("room_wallets").document(vg.vendorId)
+
+    transaction = db_admin.transaction()
+    orders_created = []
+
+    @firestore.transactional
+    def transactional_checkout(transaction):
+        # 1. READ ALL DOCUMENTS FIRST (Firestore transactional requirement)
+        cust_wallet_snap = customer_wallet_ref.get(transaction=transaction)
+        if not cust_wallet_snap.exists:
+            raise HTTPException(status_code=400, detail="Wallet not found. Please fund your wallet first.")
+
+        cust_wallet_data = cust_wallet_snap.to_dict() or {}
+        funded_balance = float(cust_wallet_data.get("funded_balance", 0) or 0)
+        if funded_balance < total_cart:
+            raise HTTPException(status_code=400, detail=f"Insufficient wallet balance. Total is ₦{total_cart:,.2f} but available funded balance is ₦{funded_balance:,.2f}.")
+
+        # Read vendor docs
+        for v_id, v_ref in vendor_refs.items():
+            v_ref.get(transaction=transaction)
+
+        # 2. PERFORM ALL WRITES
+        # Deduct customer wallet
+        transaction.set(customer_wallet_ref, {
+            "funded_balance": firestore.Increment(-total_cart),
+            "balance": firestore.Increment(-total_cart)
+        }, merge=True)
+
+        # Save customer transaction log
+        cust_tx_id = f"tx_cust_{uuid.uuid4().hex[:12]}"
+        cust_tx_ref = db_admin.collection("transactions").document(cust_tx_id)
+        transaction.set(cust_tx_ref, {
+            "id": cust_tx_id,
+            "user_uid": uid,
+            "type": "purchase",
+            "amount": total_cart,
+            "title": f"Snack Store Purchase ({sum(len(vg.items) for vg in payload.vendorGroups)} items)",
+            "status": "completed",
+            "timestamp": firestore.SERVER_TIMESTAMP
+        })
+
+        total_vendor_share = 0.0
+        total_platform_fee = 0.0
+
+        for vg in payload.vendorGroups:
+            group_total = round(sum(it.price * it.quantity for it in vg.items), 2)
+            vendor_share = round(group_total * 0.80, 2)
+            platform_fee = round(group_total * 0.20, 2)
+            items_count = sum(it.quantity for it in vg.items)
+
+            total_vendor_share += vendor_share
+            total_platform_fee += platform_fee
+
+            order_id = f"ord_{uuid.uuid4().hex[:12]}"
+            order_num = f"SA{random.randint(100000, 999999)}"
+
+            # Credit vendor wallet
+            v_ref = vendor_refs[vg.vendorId]
+            transaction.set(v_ref, {
+                "vendor_balance": firestore.Increment(vendor_share),
+                "vendor_earnings": firestore.Increment(vendor_share),
+                "vendor_revenue": firestore.Increment(group_total),
+                "vendor_sales_count": firestore.Increment(items_count),
+                "vendor_fees": firestore.Increment(platform_fee)
+            }, merge=True)
+
+            # Vendor transaction log
+            v_tx_id = f"tx_vnd_{uuid.uuid4().hex[:12]}"
+            v_tx_ref = db_admin.collection("transactions").document(v_tx_id)
+            transaction.set(v_tx_ref, {
+                "id": v_tx_id,
+                "user_uid": vg.vendorId,
+                "vendorId": vg.vendorId,
+                "vendorName": vg.vendorName,
+                "orderId": order_id,
+                "orderNumber": order_num,
+                "type": "vendor_earning",
+                "amount": vendor_share,
+                "grossAmount": group_total,
+                "platformFee": platform_fee,
+                "itemsCount": items_count,
+                "customerName": payload.customerName,
+                "customerPhone": payload.customerPhone,
+                "customerAddress": payload.customerAddress,
+                "items": [{"productId": it.productId, "name": it.name, "quantity": it.quantity, "price": it.price} for it in vg.items],
+                "title": f"Sales Earning (80%) - Order #{order_num}",
+                "status": "completed",
+                "timestamp": firestore.SERVER_TIMESTAMP
+            })
+
+            # Create Order Document
+            order_ref = db_admin.collection("orders").document(order_id)
+            order_doc_data = {
+                "id": order_id,
+                "orderNumber": order_num,
+                "userId": uid,
+                "userName": payload.customerName,
+                "customerName": payload.customerName,
+                "userEmail": payload.customerEmail,
+                "userPhone": payload.customerPhone,
+                "customerPhone": payload.customerPhone,
+                "deliveryAddress": payload.customerAddress,
+                "customerAddress": payload.customerAddress,
+                "vendorId": vg.vendorId,
+                "vendorName": vg.vendorName,
+                "totalAmount": group_total,
+                "total": group_total,
+                "items": [{"productId": it.productId, "name": it.name, "quantity": it.quantity, "price": it.price} for it in vg.items],
+                "status": "pending",
+                "createdAt": int(time.time() * 1000)
+            }
+            transaction.set(order_ref, order_doc_data)
+
+            # Send in-app notification to customer
+            notif_id = f"order_{order_id}_placed"
+            notif_ref = db_admin.collection("users").document(uid).collection("notifications").document(notif_id)
+            transaction.set(notif_ref, {
+                "id": notif_id,
+                "title": f"🛒 Order Placed - #{order_num}",
+                "message": f"Your order from {vg.vendorName} totaling ₦{group_total:,.2f} has been placed. Delivery to: {payload.customerAddress}",
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "read": False,
+                "type": "order_placed",
+                "orderId": order_id,
+                "orderNumber": order_num,
+                "vendorId": vg.vendorId,
+                "vendorName": vg.vendorName,
+                "orderStatus": "pending"
+            })
+
+            orders_created.append({
+                "orderId": order_id,
+                "orderNumber": order_num,
+                "vendorId": vg.vendorId,
+                "vendorName": vg.vendorName,
+                "telegramGroupId": vg.telegramGroupId,
+                "totalAmount": group_total,
+                "items": [{"productId": it.productId, "name": it.name, "quantity": it.quantity, "price": it.price} for it in vg.items]
+            })
+
+        # Increment unread notifications count
+        transaction.set(user_ref, {"unreadCount": firestore.Increment(len(payload.vendorGroups))}, merge=True)
+
+        # Update Platform Global Analytics
+        transaction.set(stats_ref, {
+            "payments.success.count": firestore.Increment(len(payload.vendorGroups)),
+            "payments.success.totalAmount": firestore.Increment(total_cart),
+            "payments.platform_fees": firestore.Increment(total_platform_fee)
+        }, merge=True)
+
+        return True
+
+    try:
+        transactional_checkout(transaction)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Store Checkout Transaction Error: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Dispatch Telegram Notifications asynchronously after commit
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    if bot_token:
+        for ord_info in orders_created:
+            if ord_info.get("telegramGroupId"):
+                try:
+                    order_dict = {
+                        "orderNumber": ord_info["orderNumber"],
+                        "id": ord_info["orderId"],
+                        "userName": payload.customerName,
+                        "userPhone": payload.customerPhone,
+                        "deliveryAddress": payload.customerAddress,
+                        "vendorName": ord_info["vendorName"],
+                        "totalAmount": ord_info["totalAmount"],
+                        "items": ord_info["items"]
+                    }
+                    message = format_order_telegram_message(order_dict, status="pending")
+                    keyboard = format_order_telegram_keyboard(ord_info["orderId"], status="pending")
+                    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        resp = await client.post(url, json={
+                            "chat_id": ord_info["telegramGroupId"],
+                            "text": message,
+                            "parse_mode": "HTML",
+                            "reply_markup": keyboard
+                        })
+                        if resp.status_code == 200:
+                            resp_json = resp.json()
+                            if resp_json.get("ok"):
+                                msg_id = resp_json.get("result", {}).get("message_id")
+                                chat_id = resp_json.get("result", {}).get("chat", {}).get("id") or ord_info["telegramGroupId"]
+                                db_admin.collection("orders").document(ord_info["orderId"]).set({
+                                    "telegramMessageId": msg_id,
+                                    "telegramChatId": str(chat_id)
+                                }, merge=True)
+                except Exception as tg_err:
+                    print(f"Post-checkout Telegram dispatch error: {tg_err}")
+
+    return {
+        "success": True,
+        "message": "Checkout completed successfully",
+        "orders": orders_created,
+        "total": total_cart
+    }
 
 @app.post("/api/store/order")
 async def process_store_order(order: OrderRequest):

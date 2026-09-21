@@ -114,6 +114,26 @@ const Signup: React.FC<SignupProps> = ({ onToggleView, isModal, onBack }) => {
     }
   };
 
+  const handleBack = () => {
+    setDisplayName('');
+    setEmail('');
+    setPassword('');
+    setConfirmPassword('');
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+    if (onBack) onBack();
+  };
+
+  const handleToggle = () => {
+    setDisplayName('');
+    setEmail('');
+    setPassword('');
+    setConfirmPassword('');
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+    onToggleView();
+  };
+
   return (
     <div className={`${isModal ? 'w-full' : 'min-h-screen w-full flex items-center justify-center p-4'} relative overflow-hidden`}>
       {/* Animated Background */}
@@ -138,7 +158,7 @@ const Signup: React.FC<SignupProps> = ({ onToggleView, isModal, onBack }) => {
           <div className="text-center mb-8 relative">
             {onBack && (
               <button 
-                onClick={onBack}
+                onClick={handleBack}
                 className="absolute top-0 left-0 p-2 rounded-xl bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 transition-all group"
               >
                 <ArrowLeft className="w-4 h-4 text-slate-600 dark:text-muted-foreground group-hover:text-slate-900 dark:group-hover:text-white" />
@@ -278,7 +298,7 @@ const Signup: React.FC<SignupProps> = ({ onToggleView, isModal, onBack }) => {
             <p className="text-sm text-muted-foreground">
               Already have an account?{' '}
               <button
-                onClick={onToggleView}
+                onClick={handleToggle}
                 className="text-primary font-bold hover:underline transition-all"
               >
                 Sign In Now

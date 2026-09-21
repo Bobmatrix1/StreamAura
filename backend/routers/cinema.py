@@ -358,6 +358,7 @@ async def get_presigned_url(request: PresignedUrlRequest, user: dict = Depends(g
 async def pay_with_referral_balance(room_id: str, user: dict = Depends(get_current_user)):
     """
     Pay for a room ticket using referral balance.
+    Properly executes calculate_payout_split and credits host and referrer.
     """
     db = get_db()
     uid = user["uid"]
@@ -365,6 +366,7 @@ async def pay_with_referral_balance(room_id: str, user: dict = Depends(get_curre
     try:
         room_ref = db.collection("cinema_rooms").document(room_id)
         user_ref = db.collection("users").document(uid)
+        stats_ref = db.collection('system_analytics').document('global_counters')
         
         transaction = db.transaction()
         
@@ -379,7 +381,9 @@ async def pay_with_referral_balance(room_id: str, user: dict = Depends(get_curre
             if room.get("room_type") != "paid":
                 raise HTTPException(status_code=400, detail="This room does not require payment")
                 
-            price = room.get("ticket_price", 0)
+            price = round(float(room.get("ticket_price", 0) or 0), 2)
+            if price <= 0:
+                raise HTTPException(status_code=400, detail="Invalid ticket price")
             
             # Read user
             user_snapshot = user_ref.get(transaction=transaction)
@@ -387,21 +391,74 @@ async def pay_with_referral_balance(room_id: str, user: dict = Depends(get_curre
                 raise HTTPException(status_code=404, detail="User not found")
                 
             user_data = user_snapshot.to_dict()
-            current_balance = user_data.get("referralBalance", 0)
+            current_balance = float(user_data.get("referralBalance", 0) or 0)
             if current_balance < price:
-                raise HTTPException(status_code=400, detail=f"Insufficient referral balance. Need ₦{price}")
+                raise HTTPException(status_code=400, detail=f"Insufficient referral balance. Need ₦{price:,.2f} but available is ₦{current_balance:,.2f}")
                 
-            # Perform updates
+            host_uid = room.get("host_uid")
+            host_name = room.get("host_name", "Host")
+            
+            # Calculate 80/20 revenue split
+            platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, price, db, transaction=transaction)
+            
+            # 1. Deduct referral balance from buyer
             transaction.update(user_ref, {"referralBalance": firestore.Increment(-price)})
             
+            # 2. Grant access pass
             pass_id = f"pass_{uuid.uuid4().hex}"
             pass_ref = db.collection("room_access_passes").document(pass_id)
             transaction.set(pass_ref, {
                 "room_id": room_id,
                 "user_uid": uid,
                 "payment_method": "referral_balance",
+                "amount": price,
                 "granted_at": firestore.SERVER_TIMESTAMP
             })
+            
+            # 3. Log purchase transaction
+            tx_id = f"tx_refpay_{pass_id[:12]}"
+            tx_ref = db.collection("transactions").document(tx_id)
+            transaction.set(tx_ref, {
+                "id": tx_id,
+                "room_id": room_id,
+                "user_uid": uid,
+                "amount": price,
+                "status": "completed",
+                "title": f"Cinema Ticket Purchase ({room.get('room_name', 'Cinema')})",
+                "type": "purchase",
+                "payment_method": "referral_balance",
+                "timestamp": firestore.SERVER_TIMESTAMP
+            })
+            
+            # 4. Update Host Wallet (80% base pool)
+            if host_uid:
+                wallet_ref = db.collection("room_wallets").document(host_uid)
+                transaction.set(wallet_ref, {
+                    "host_balance": firestore.Increment(host_final),
+                    "balance": firestore.Increment(host_final),
+                    "total_earned": firestore.Increment(host_final),
+                    "tickets_sold": firestore.Increment(1)
+                }, merge=True)
+                
+            # 5. Update Referrer (if active 90-day window)
+            if referrer_uid and referrer_cut > 0:
+                ref_user_ref = db.collection("users").document(referrer_uid)
+                transaction.update(ref_user_ref, {"referralBalance": firestore.Increment(referrer_cut)})
+                ref_activity_ref = db.collection("game_wallets").document(referrer_uid).collection("activity").document()
+                transaction.set(ref_activity_ref, {
+                    "type": "referral_earning",
+                    "amount": referrer_cut,
+                    "desc": f"10% commission from {host_name}'s ticket sale",
+                    "room": room.get("room_name", "Cinema"),
+                    "timestamp": firestore.SERVER_TIMESTAMP
+                })
+                
+            # 6. Update Platform Global Stats
+            transaction.set(stats_ref, {
+                "payments.success.count": firestore.Increment(1),
+                "payments.success.totalAmount": firestore.Increment(price),
+                "payments.platform_fees": firestore.Increment(platform_cut)
+            }, merge=True)
             
             return {"success": True, "message": "Ticket purchased with referral balance!"}
             
@@ -409,6 +466,8 @@ async def pay_with_referral_balance(room_id: str, user: dict = Depends(get_curre
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/rooms/create")
@@ -420,6 +479,10 @@ async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(ge
     room_id = f"room_{uuid.uuid4().hex[:12]}"
     uid = user['uid']
     
+    # Sanitize max_seats
+    if request.max_seats is not None and request.max_seats < 1:
+        request.max_seats = 1
+
     # --- COST CALCULATION & DEDUCTIONS ---
     normal_to_deduct = 0
     referral_to_deduct = 0
@@ -437,7 +500,7 @@ async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(ge
 
     # 2. Private Room Cost
     if request.room_type == "private":
-        seats = request.max_seats or 1
+        seats = max(1, request.max_seats or 1)
         if request.payment_wallet_private == "bonus":
             bonus_to_deduct += (seats * 2500) # Premium rate for bonus
         elif request.payment_wallet_private == "referral":
@@ -602,6 +665,14 @@ async def verify_room_payment(room_id: str, reference: str, user: dict = Depends
         if response.get("data", {}).get("status") != "success":
             return {"success": False, "message": "Payment not successful on gateway"}
             
+        # Verify transaction metadata owner if available
+        gateway_metadata = response.get("data", {}).get("metadata", {})
+        if gateway_metadata:
+            if gateway_metadata.get("user_uid") and gateway_metadata.get("user_uid") != uid:
+                raise HTTPException(status_code=403, detail="Unauthorized transaction reference")
+            if gateway_metadata.get("room_id") and gateway_metadata.get("room_id") != room_id:
+                raise HTTPException(status_code=400, detail="Transaction reference does not match room ID")
+            
         transaction = db.transaction()
         
         @firestore.transactional
@@ -626,6 +697,13 @@ async def verify_room_payment(room_id: str, reference: str, user: dict = Depends
                 
             room_data = room_snap.to_dict()
             amount = round(float(room_data.get("ticket_price", 0)), 2)
+            
+            # Strict gateway amount verification (prevent underpayment attacks)
+            expected_kobo = int(amount * 100)
+            paid_kobo = int(response.get("data", {}).get("amount", 0))
+            if paid_kobo < expected_kobo:
+                raise HTTPException(status_code=400, detail=f"Underpayment detected: paid ₦{paid_kobo/100:,.2f} but ticket price is ₦{amount:,.2f}")
+                
             host_uid = room_data.get("host_uid")
             host_name = room_data.get("host_name", "Host")
             
@@ -709,7 +787,7 @@ async def request_withdrawal(request: WithdrawalRequest, user: dict = Depends(ge
             balance_field = "host_balance"
             
         # 1. Apply Fees Logic
-        # Vendor: 0% fee (100% payout, 30% platform split was already collected at order purchase)
+        # Vendor: 0% fee (100% payout, 20% platform split was already collected at order purchase)
         # Funded: 5% fee (User gets 95%)
         # Host/Referral: 1% fee (User gets 99%)
         if request.balance_type == "vendor":
@@ -774,7 +852,7 @@ async def request_withdrawal(request: WithdrawalRequest, user: dict = Depends(ge
                         try:
                             orders_docs = db.collection("orders").where("vendorId", "==", uid).where("status", "!=", "cancelled").get()
                             orders_total = sum(float(doc.to_dict().get("totalAmount", 0) or 0) for doc in orders_docs)
-                            v_earnings = orders_total * 0.70
+                            v_earnings = orders_total * 0.80
                         except Exception:
                             pass
                     

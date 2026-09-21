@@ -314,6 +314,37 @@ export const AdsManager: React.FC = () => {
     setIsEditorOpen(true);
   };
 
+  const handleCloseEditor = () => {
+    if (isSubmitting) return;
+    setIsEditorOpen(false);
+    setEditingAdId(null);
+    setTitle('');
+    setType('popup');
+    setImageUrl('');
+    setImageFile(null);
+    setDestinationType('external');
+    setSelectedInAppPage('cinema');
+    setTargetUrl('');
+    setButtonText('Claim Offer');
+    setDescription('');
+    setTargetPages(['all']);
+    setFrequency('once_per_session');
+    setMaxPerDay(1);
+    setMaxPerWeek(3);
+    setDisplayDelaySeconds(0);
+    setAutoCloseSeconds(0);
+    setRoundedCorners('3xl');
+    setBannerPosition('top');
+    setHasExpiry(false);
+    setEndDateStr('');
+    setBroadcastToNotifications(false);
+    setCarouselSlides([]);
+    setNewSlideUrl('');
+    setNewSlideTargetUrl('');
+    setNewSlideButtonText('');
+    setUploadProgress(0);
+  };
+
   // Open Edit Form
   const handleOpenEdit = (ad: AdCampaign) => {
     setEditingAdId(ad.id);
@@ -610,7 +641,7 @@ export const AdsManager: React.FC = () => {
         });
       }
 
-      setIsEditorOpen(false);
+      handleCloseEditor();
     } catch (err: any) {
       console.error('Save ad campaign error:', err);
       showError(err.message || 'Failed to save campaign');
@@ -1189,7 +1220,7 @@ export const AdsManager: React.FC = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => { if (!isSubmitting) setIsEditorOpen(false); }}
+              onClick={handleCloseEditor}
               className="fixed inset-0 bg-black/85 backdrop-blur-md"
             />
 
@@ -1217,7 +1248,7 @@ export const AdsManager: React.FC = () => {
                 </div>
 
                 <button
-                  onClick={() => setIsEditorOpen(false)}
+                  onClick={handleCloseEditor}
                   disabled={isSubmitting}
                   className="p-2 rounded-full hover:bg-white/10 text-white/60 hover:text-white transition-colors"
                 >
@@ -2092,7 +2123,7 @@ export const AdsManager: React.FC = () => {
                 <div className="pt-4 border-t border-white/10 flex items-center justify-end gap-3">
                   <button
                     type="button"
-                    onClick={() => setIsEditorOpen(false)}
+                    onClick={handleCloseEditor}
                     disabled={isSubmitting}
                     className="px-5 py-2.5 rounded-xl border border-white/10 text-xs font-bold text-white/70 hover:text-white hover:bg-white/5 transition-all"
                   >

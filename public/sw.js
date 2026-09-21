@@ -12,7 +12,6 @@ const STATIC_ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
-  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
   );
@@ -24,6 +23,13 @@ self.addEventListener('activate', (event) => {
       return Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)));
     }).then(() => self.clients.claim())
   );
+});
+
+// Safe skip-waiting triggered only on user demand or safe lifecycle
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('fetch', (event) => {
@@ -109,13 +115,19 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data.url || '/notifications';
+  const targetUrl = event.notification.data?.url || '/notifications';
   
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       for (const client of clients) {
-        const clientUrl = new URL(client.url);
-        if (clientUrl.pathname === targetUrl && 'focus' in client) return client.focus();
+        if ('focus' in client) {
+          client.focus();
+          if (event.notification.data?.url) {
+            const tabName = targetUrl.replace(/^\//, '') || 'history';
+            client.postMessage({ type: 'NAVIGATE_TAB', tab: tabName });
+          }
+          return;
+        }
       }
       if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
     })

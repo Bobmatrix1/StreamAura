@@ -17,8 +17,7 @@ import {
   X,
   Gamepad2,
   Tv,
-  Film,
-  Sparkles
+  Film
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -29,8 +28,10 @@ import { db, auth, uploadFile } from '../lib/firebase';
 import { doc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { updatePassword, updateProfile, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { fetchBanks, resolveBankAccount } from '../api/paymentApi';
+import { API_BASE_URL } from '../api/mediaApi';
 import { LoginRequired } from '../components/LoginRequired';
 import { AuraCoinIcon } from '../components/AuraCoinIcon';
+import type { ViewType } from '../types';
 
 interface Bank {
   name: string;
@@ -39,11 +40,11 @@ interface Bank {
 }
 
 interface ProfileProps {
-  onNavigate?: (tab: string) => void;
+  onNavigate?: (tab: ViewType) => void;
 }
 
 const Profile: React.FC<ProfileProps> = ({ onNavigate }) => {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, resetPassword } = useAuth();
   const { showSuccess, showError } = useToast();
 
   if (!isAuthenticated) {
@@ -89,10 +90,31 @@ const Profile: React.FC<ProfileProps> = ({ onNavigate }) => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [isSendingReset, setIsSendingReset] = useState(false);
   
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const isGoogleOnlyUser = Boolean(
+    auth.currentUser?.providerData?.some(p => p.providerId === 'google.com') &&
+    !auth.currentUser?.providerData?.some(p => p.providerId === 'password')
+  );
+
+  // Scroll Lock for Crop Modal
+  useEffect(() => {
+    if (showCropModal) {
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+    };
+  }, [showCropModal]);
 
   // Load Data
   useEffect(() => {
@@ -100,17 +122,19 @@ const Profile: React.FC<ProfileProps> = ({ onNavigate }) => {
       const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
         if (snap.exists()) {
           const data = snap.data();
-          if (data.displayName) setDisplayName(data.displayName);
-          if (data.bio) setBio(data.bio);
+          if (data.displayName && !isUpdatingInfo) setDisplayName(data.displayName);
+          if (data.bio && !isUpdatingInfo) setBio(data.bio);
           if (data.bankDetails) {
             setSavedBankDetails(data.bankDetails);
-            setBankDetails(data.bankDetails);
+            if (!isEditingBank) {
+              setBankDetails(data.bankDetails);
+            }
           }
         }
       });
       return () => unsub();
     }
-  }, [user?.uid]);
+  }, [user?.uid, isEditingBank, isUpdatingInfo]);
 
   const hasSavedBank = Boolean(
     savedBankDetails.account && 
@@ -330,12 +354,11 @@ const Profile: React.FC<ProfileProps> = ({ onNavigate }) => {
           if (oldPhotoURL) {
             try {
               const token = await auth.currentUser?.getIdToken();
-              const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-              await fetch(`${API_URL}/api/cinema/delete-asset`, {
+              await fetch(`${API_BASE_URL}/api/cinema/delete-asset`, {
                 method: 'POST',
                 headers: { 
                   'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`
+                  ...(token ? { 'Authorization': `Bearer ${token}` } : {})
                 },
                 body: JSON.stringify({ url: oldPhotoURL })
               });
@@ -405,39 +428,46 @@ const Profile: React.FC<ProfileProps> = ({ onNavigate }) => {
     }
   };
 
+  const handleSendResetEmail = async () => {
+    if (!user?.email) return showError("No email associated with this account");
+    setIsSendingReset(true);
+    try {
+      await resetPassword(user.email);
+      showSuccess("Password reset instructions sent to " + user.email);
+    } catch (err: any) {
+      showError(err.message || "Failed to send reset email");
+    } finally {
+      setIsSendingReset(false);
+    }
+  };
+
   const filteredBanks = availableBanks.filter(b => {
     if (bankSearch) return b.name.toLowerCase().includes(bankSearch.toLowerCase());
     return true;
   });
 
-  const handleSelectBank = async (bank: Bank) => {
+  const handleSelectBank = (bank: Bank) => {
     setBankDetails(prev => ({ ...prev, bankName: bank.name, bankCode: bank.code, name: '' }));
     setBankQuery(bank.name);
     setShowBankDropdown(false);
+  };
 
-    if (bankDetails.account.length === 10) {
-      setIsResolving(true);
-      try {
-        const result = await resolveBankAccount(bankDetails.account, bank.code);
-        if (result.status && result.data?.account_name) {
-          setBankDetails(prev => ({
-            ...prev,
-            bankName: bank.name,
-            bankCode: bank.code,
-            name: result.data.account_name
-          }));
-          showSuccess("Account verified!");
-        } else {
-          showError(result.message || "Could not verify account. Please check number and bank.");
-          setBankDetails(prev => ({ ...prev, name: '' }));
-        }
-      } catch (err: any) {
-        showError("Verification failed.");
-        setBankDetails(prev => ({ ...prev, name: '' }));
-      } finally {
-        setIsResolving(false);
-      }
+  const handleTabSwitch = (newTab: 'info' | 'bank' | 'security') => {
+    if (activeTab === 'security' && newTab !== 'security') {
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setShowCurrentPassword(false);
+      setShowNewPassword(false);
+      setShowConfirmPassword(false);
     }
+    if (activeTab === 'bank' && newTab !== 'bank') {
+      setIsEditingBank(false);
+      setBankDetails(savedBankDetails);
+      setBankQuery(savedBankDetails.bankName || '');
+      setShowBankDropdown(false);
+    }
+    setActiveTab(newTab);
   };
 
   return (
@@ -524,7 +554,7 @@ const Profile: React.FC<ProfileProps> = ({ onNavigate }) => {
          ].map(tab => (
            <button
              key={tab.id}
-             onClick={() => setActiveTab(tab.id as any)}
+             onClick={() => handleTabSwitch(tab.id as any)}
              className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
                activeTab === tab.id 
                ? tab.activeClass 
@@ -896,77 +926,113 @@ const Profile: React.FC<ProfileProps> = ({ onNavigate }) => {
                     </div>
                  </div>
 
-                 <form onSubmit={handleChangePassword} className="space-y-6 max-w-lg">
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Current Password</label>
-                       <div className="relative">
-                          <input 
-                            type={showCurrentPassword ? "text" : "password"} 
-                            required
-                            value={currentPassword}
-                            onChange={e => setCurrentPassword(e.target.value)}
-                            className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-4 pr-11 text-sm font-bold outline-none focus:border-rose-500/50 text-slate-900 dark:text-white" 
-                          />
-                          <button 
-                            type="button" 
-                            onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/20 hover:text-slate-700 dark:hover:text-white transition-colors"
-                          >
-                             {showCurrentPassword ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                          </button>
+                 {isGoogleOnlyUser ? (
+                    <div className="space-y-6 max-w-lg">
+                       <div className="p-6 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 space-y-3">
+                          <div className="flex items-center gap-3">
+                             <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
+                                <Lock className="w-5 h-5" />
+                             </div>
+                             <div>
+                                <p className="text-sm font-black text-slate-900 dark:text-white uppercase">Google OAuth Account</p>
+                                <p className="text-[10px] text-muted-foreground font-bold">{user?.email}</p>
+                             </div>
+                          </div>
+                          <p className="text-xs text-slate-600 dark:text-white/70 leading-relaxed">
+                             Your StreamAura account is authenticated securely via Google Sign-In. You do not need a separate password. If you want to set a custom email password, request a password setup link below.
+                          </p>
                        </div>
-                    </div>
 
-                    <div className="space-y-2 pt-2">
-                       <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">New Secure Password</label>
-                       <div className="relative">
-                          <input 
-                            type={showNewPassword ? "text" : "password"} 
-                            required
-                            value={newPassword}
-                            onChange={e => setNewPassword(e.target.value)}
-                            className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-4 pr-11 text-sm font-bold outline-none focus:border-rose-500/50 text-slate-900 dark:text-white" 
-                          />
-                          <button 
-                            type="button" 
-                            onClick={() => setShowNewPassword(!showNewPassword)}
-                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/20 hover:text-slate-700 dark:hover:text-white transition-colors"
-                          >
-                             {showNewPassword ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                          </button>
-                       </div>
-                    </div>
-
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Confirm New Password</label>
-                       <div className="relative">
-                          <input 
-                            type={showConfirmPassword ? "text" : "password"} 
-                            required
-                            value={confirmPassword}
-                            onChange={e => setConfirmPassword(e.target.value)}
-                            className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-4 pr-11 text-sm font-bold outline-none focus:border-rose-500/50 text-slate-900 dark:text-white" 
-                          />
-                          <button 
-                            type="button" 
-                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/20 hover:text-slate-700 dark:hover:text-white transition-colors"
-                          >
-                             {showConfirmPassword ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                          </button>
-                       </div>
-                    </div>
-
-                    <div className="pt-4">
                        <Button 
-                         type="submit" 
-                         disabled={isUpdatingPassword}
-                         className="h-12 px-10 bg-rose-500 hover:bg-rose-400 text-white rounded-xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-rose-500/20"
+                         type="button"
+                         onClick={handleSendResetEmail}
+                         disabled={isSendingReset}
+                         className="h-12 px-8 bg-rose-500 hover:bg-rose-400 text-white rounded-xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-rose-500/20"
                        >
-                          {isUpdatingPassword ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Update Access Credentials'}
+                          {isSendingReset ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Send Password Setup Link to Email'}
                        </Button>
                     </div>
-                 </form>
+                 ) : (
+                    <form onSubmit={handleChangePassword} className="space-y-6 max-w-lg">
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Current Password</label>
+                          <div className="relative">
+                             <input 
+                               type={showCurrentPassword ? "text" : "password"} 
+                               required
+                               value={currentPassword}
+                               onChange={e => setCurrentPassword(e.target.value)}
+                               className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-4 pr-11 text-sm font-bold outline-none focus:border-rose-500/50 text-slate-900 dark:text-white" 
+                             />
+                             <button 
+                               type="button" 
+                               onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                               className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/20 hover:text-slate-700 dark:hover:text-white transition-colors"
+                             >
+                                {showCurrentPassword ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                             </button>
+                          </div>
+                       </div>
+
+                       <div className="space-y-2 pt-2">
+                          <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">New Secure Password</label>
+                          <div className="relative">
+                             <input 
+                               type={showNewPassword ? "text" : "password"} 
+                               required
+                               value={newPassword}
+                               onChange={e => setNewPassword(e.target.value)}
+                               className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-4 pr-11 text-sm font-bold outline-none focus:border-rose-500/50 text-slate-900 dark:text-white" 
+                             />
+                             <button 
+                               type="button" 
+                               onClick={() => setShowNewPassword(!showNewPassword)}
+                               className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/20 hover:text-slate-700 dark:hover:text-white transition-colors"
+                             >
+                                {showNewPassword ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                             </button>
+                          </div>
+                       </div>
+
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase text-slate-500 dark:text-white/40 tracking-widest px-1">Confirm New Password</label>
+                          <div className="relative">
+                             <input 
+                               type={showConfirmPassword ? "text" : "password"} 
+                               required
+                               value={confirmPassword}
+                               onChange={e => setConfirmPassword(e.target.value)}
+                               className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl py-3.5 pl-4 pr-11 text-sm font-bold outline-none focus:border-rose-500/50 text-slate-900 dark:text-white" 
+                             />
+                             <button 
+                               type="button" 
+                               onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                               className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/20 hover:text-slate-700 dark:hover:text-white transition-colors"
+                             >
+                                {showConfirmPassword ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                             </button>
+                          </div>
+                       </div>
+
+                       <div className="pt-4 flex items-center gap-4">
+                          <Button 
+                            type="submit" 
+                            disabled={isUpdatingPassword}
+                            className="h-12 px-10 bg-rose-500 hover:bg-rose-400 text-white rounded-xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-rose-500/20"
+                          >
+                             {isUpdatingPassword ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Update Access Credentials'}
+                          </Button>
+                          <button
+                            type="button"
+                            onClick={handleSendResetEmail}
+                            disabled={isSendingReset}
+                            className="text-[10px] font-black uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors"
+                          >
+                            Forgot Password?
+                          </button>
+                       </div>
+                    </form>
+                 )}
               </Card>
            </motion.div>
          )}

@@ -267,6 +267,15 @@ export const StoreManager: React.FC = () => {
     });
   };
 
+  const handleSubTabChange = (tab: 'vendors' | 'products' | 'partners') => {
+    setIsAddingVendor(false);
+    setNewVendor({ name: '', telegramGroupId: '' });
+    setEditingVendor(null);
+    setNewProduct({ name: '', description: '', price: 0, slashPrice: 0, image: '', vendorId: '', inStock: true, quantity: 10, category: 'Snacks' });
+    setNewPartner({ name: '', logo: '', url: '' });
+    setActiveSubTab(tab);
+  };
+
   return (
     <div className="space-y-6">
       {/* Sub Tabs */}
@@ -279,7 +288,7 @@ export const StoreManager: React.FC = () => {
           ].map(tab => (
             <button
               key={tab.id}
-              onClick={() => setActiveSubTab(tab.id as any)}
+              onClick={() => handleSubTabChange(tab.id as any)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
                 activeSubTab === tab.id ? 'bg-primary text-white shadow-lg' : 'text-muted-foreground hover:text-white'
               }`}
@@ -305,7 +314,13 @@ export const StoreManager: React.FC = () => {
 
           <AnimatePresence>
             {isAddingVendor && (
-              <Card className="p-4 glass-card border-primary/20 bg-primary/5 space-y-4">
+              <Card className="p-4 glass-card border-primary/20 space-y-4">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-xs font-black uppercase text-primary">New Vendor Details</h4>
+                  <Button variant="ghost" size="icon" onClick={() => { setNewVendor({ name: '', telegramGroupId: '' }); setIsAddingVendor(false); }} className="h-6 w-6">
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Vendor Name</label>
@@ -317,7 +332,7 @@ export const StoreManager: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex justify-end gap-2">
-                  <Button variant="ghost" onClick={() => setIsAddingVendor(false)} className="h-9 text-[10px] font-black uppercase">Cancel</Button>
+                  <Button variant="ghost" onClick={() => { setNewVendor({ name: '', telegramGroupId: '' }); setIsAddingVendor(false); }} className="h-9 text-[10px] font-black uppercase">Cancel</Button>
                   <Button onClick={handleCreateVendor} className="h-9 text-[10px] font-black uppercase px-6 gradient-bg">Save Vendor</Button>
                 </div>
               </Card>

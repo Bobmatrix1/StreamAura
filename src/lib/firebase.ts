@@ -50,6 +50,7 @@ import type {
   AdTelemetryDelta
 } from '../types';
 import { API_BASE_URL } from '../api/mediaApi';
+import { getStoredReferralCode, clearStoredReferralCode, processReferralSignup } from './referral';
 
 export type { 
   User, 
@@ -450,22 +451,28 @@ export const signInWithGoogle = async (): Promise<GoogleSignInResult | null> => 
 
     if (!userDoc.exists()) {
       isNewUser = true;
-      const referralCode = localStorage.getItem('aura_referral_code');
+      const referralCode = getStoredReferralCode();
       userData = {
         uid: user.uid, email: user.email, displayName: user.displayName,
         photoURL: user.photoURL, isAdmin: false, createdAt: Date.now(),
-        referralBalance: 0, bonusBalance: 0, referredCount: 0, referredBy: referralCode || null
+        referralBalance: 0, bonusBalance: 0, auraCoins: 0, referredCount: 0, referredBy: referralCode || null
       };
       await setDoc(userDocRef, userData);
       
       // Credit Referrer
       if (referralCode && referralCode !== user.uid) {
-        const referrerRef = doc(db, 'users', referralCode);
-        await updateDoc(referrerRef, {
-          bonusBalance: increment(100),
-          referredCount: increment(1)
-        });
-        localStorage.removeItem('aura_referral_code');
+        try {
+          const referrerRef = doc(db, 'users', referralCode);
+          await updateDoc(referrerRef, {
+            bonusBalance: increment(100),
+            auraCoins: increment(100),
+            referredCount: increment(1)
+          });
+        } catch (e) {
+          console.warn("Direct referrer credit note:", e);
+        }
+        await processReferralSignup(user.uid, referralCode);
+        clearStoredReferralCode();
       }
     } else {
       userData = { ...userDoc.data(), uid: user.uid } as User;
@@ -480,22 +487,28 @@ export const signUpWithEmail = async (email: string, password: string, displayNa
     const user = result.user;
     await updateProfile(user, { displayName });
     
-    const referralCode = localStorage.getItem('aura_referral_code');
+    const referralCode = getStoredReferralCode();
     const userData: User = {
       uid: user.uid, email: user.email, displayName: displayName,
       photoURL: null, isAdmin: false, createdAt: Date.now(),
-      referralBalance: 0, referredCount: 0, referredBy: referralCode || null
+      referralBalance: 0, bonusBalance: 0, auraCoins: 0, referredCount: 0, referredBy: referralCode || null
     };
     await setDoc(doc(db, 'users', user.uid), userData);
 
     // Credit Referrer
     if (referralCode && referralCode !== user.uid) {
-      const referrerRef = doc(db, 'users', referralCode);
-      await updateDoc(referrerRef, {
-        bonusBalance: increment(100),
-        referredCount: increment(1)
-      });
-      localStorage.removeItem('aura_referral_code');
+      try {
+        const referrerRef = doc(db, 'users', referralCode);
+        await updateDoc(referrerRef, {
+          bonusBalance: increment(100),
+          auraCoins: increment(100),
+          referredCount: increment(1)
+        });
+      } catch (e) {
+        console.warn("Direct referrer credit note:", e);
+      }
+      await processReferralSignup(user.uid, referralCode);
+      clearStoredReferralCode();
     }
     return userData;
   } catch (error: any) { throw error; }

@@ -215,6 +215,32 @@ export const getMovieDetails = async (
 };
 
 /**
+ * Get YouTube trailer key for a movie or TV series
+ */
+export const getMovieTrailer = async (
+  title: string,
+  year?: string,
+  type: string = 'movie'
+): Promise<ApiResponse<{ key: string; title: string; source: string; candidates?: string[] }>> => {
+  try {
+    const params = new URLSearchParams({ title, type });
+    if (year && year !== 'N/A' && year !== '0') {
+      params.append('year', year);
+    }
+    const response = await fetch(`${API_BASE_URL}/api/movies/trailer?${params.toString()}`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch trailer');
+    }
+    return await response.json();
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error.message || 'Failed to fetch trailer'
+    };
+  }
+};
+
+/**
  * Start download (Proxy URL for direct streams)
  */
 export const startDownload = async (
@@ -387,6 +413,7 @@ export default {
   getMoviesByGenre,
   getTrendingMovies,
   getMovieDetails,
+  getMovieTrailer,
   startDownload,
   startMovieDownloadTask,
   getMovieDownloadStatus,

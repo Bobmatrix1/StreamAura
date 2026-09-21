@@ -121,14 +121,14 @@ export default function Games() {
     return prize * rounds;
   };
 
-  // Host Earnings Calculation (70% to host, 30% to platform. Admin gets 100%)
+  // Host Earnings Calculation (80% to host, 20% to platform. Admin gets 100%)
   const calculateHostEarnings = () => {
     const fee = parseFloat(entryFee) || 0;
     const rounds = isMultipleRounds ? parseInt(numberOfRounds) || 1 : 1;
     const totalEntryMoney = fee * (rounds * 2);
     
     if (isAdmin) return totalEntryMoney; // Admin keeps 100%
-    return totalEntryMoney * 0.70; // Regular host keeps 70%
+    return totalEntryMoney * 0.80; // Regular host keeps 80%
   };
 
   // Funding States
@@ -161,49 +161,28 @@ export default function Games() {
 
   const confirmWithdrawal = async () => {
     const amt = parseFloat(withdrawAmountInput);
-    if (!user?.uid) return;
+    if (!user?.uid || isNaN(amt) || amt <= 0) return;
 
     setIsConfirmWithdrawModalOpen(false);
     setIsWithdrawing(true);
 
     try {
-      const batch = writeBatch(db);
-      
-      // 1. Deduct from Game Wallet
-      const gameWalletRef = doc(db, 'game_wallets', user.uid);
-      batch.update(gameWalletRef, { balance: increment(-amt) });
-      
-      // 2. Add to Main Wallet (Host Earnings)
-      const mainWalletRef = doc(db, 'room_wallets', user.uid);
-      batch.set(mainWalletRef, { 
-        host_balance: increment(amt),
-        balance: increment(amt)
-      }, { merge: true });
-      
-      // 3. Log Game Activity
-      const activityRef = doc(collection(db, 'game_wallets', user.uid, 'activity'));
-      batch.set(activityRef, {
-        type: 'transfer_to_main',
-        amount: amt,
-        desc: `Moved ₦${amt.toLocaleString()} to main earnings wallet`,
-        timestamp: serverTimestamp()
+      const token = await auth.currentUser?.getIdToken();
+      const response = await fetch(`${API_BASE_URL}/api/games/v1/claim`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({ amount: amt })
       });
 
-      // 4. Log Main Transaction (for Wallet History)
-      const txRef = doc(collection(db, 'transactions'));
-      batch.set(txRef, {
-        user_uid: user.uid,
-        type: 'transfer_in',
-        amount: amt,
-        title: 'Internal Transfer from Game Wallet',
-        status: 'completed',
-        timestamp: serverTimestamp(),
-        date: 'Just Now'
-      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Withdrawal failed.');
+      }
 
-      await batch.commit();
-
-      showSuccess(`₦${amt.toLocaleString()} moved successfully!`);
+      showSuccess(`₦${amt.toLocaleString()} moved successfully to Main Earnings!`);
       setIsWithdrawAmountModalOpen(false);
       setWithdrawAmountInput('');
     } catch (err: any) {
@@ -236,47 +215,23 @@ export default function Games() {
 
     setIsSubmittingFunding(true);
     try {
-      const batch = writeBatch(db);
-      
-      // 1. Deduct from Source
-      if (fundingSource === 'referral') {
-        const userRef = doc(db, 'users', user.uid);
-        batch.update(userRef, { referralBalance: increment(-amt) });
-      } else {
-        const walletRef = doc(db, 'room_wallets', user.uid);
-        const field = fundingSource === 'funded' ? 'funded_balance' : 'host_balance';
-        batch.update(walletRef, { 
-          [field]: increment(-amt),
-          balance: increment(-amt)
-        });
+      const token = await auth.currentUser?.getIdToken();
+      const response = await fetch(`${API_BASE_URL}/api/games/fund-from-main`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({
+          amount: amt,
+          source_wallet: fundingSource
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Funding failed.');
       }
-      
-      // 2. Add to Game Wallet
-      const gameWalletRef = doc(db, 'game_wallets', user.uid);
-      batch.set(gameWalletRef, { balance: increment(amt) }, { merge: true });
-      
-      // 3. Log Game Activity
-      const activityRef = doc(collection(db, 'game_wallets', user.uid, 'activity'));
-      batch.set(activityRef, {
-        type: 'fund_from_main',
-        amount: amt,
-        desc: `Funded game wallet with ₦${amt.toLocaleString()} from ${fundingSource === 'host' ? 'host earnings' : fundingSource === 'funded' ? 'main' : 'referral'} wallet`,
-        timestamp: serverTimestamp()
-      });
-
-      // 4. Log Main Transaction (for Wallet History)
-      const txRef = doc(collection(db, 'transactions'));
-      batch.set(txRef, {
-        user_uid: user.uid,
-        type: 'transfer_out',
-        amount: amt,
-        title: `Game Funding from ${fundingSource === 'host' ? 'HOST EARNINGS' : fundingSource.toUpperCase()}`,
-        status: 'completed',
-        timestamp: serverTimestamp(),
-        date: 'Just Now'
-      });
-
-      await batch.commit();
 
       showSuccess(`₦${amt.toLocaleString()} moved successfully!`);
       setIsFundingModalOpen(false);
@@ -349,15 +304,7 @@ export default function Games() {
       }
 
       showSuccess('Game Room created successfully!');
-      setIsCreateModalOpen(false);
-      // Reset form
-      setRoomName('');
-      setEntryFee('');
-      setPrizePerRound('');
-      setIsMultipleRounds(false);
-      setNumberOfRounds('2');
-      setIsManualPairing(false);
-      
+      closeCreateModal();
     } catch (err: any) {
       showError(err.message || 'Failed to create game room.');
     } finally {
@@ -365,9 +312,36 @@ export default function Games() {
     }
   };
 
+  const resetCreateForm = () => {
+    setRoomName('');
+    setEntryFee('');
+    setPrizePerRound('');
+    setIsMultipleRounds(false);
+    setNumberOfRounds('2');
+    setIsManualPairing(false);
+    setPlayerAId('');
+    setPlayerBId('');
+    setStartCondition('auto');
+    setInsufficientFunds(null);
+  };
+
+  const closeCreateModal = () => {
+    resetCreateForm();
+    setIsCreateModalOpen(false);
+  };
+
+  const closeWithdrawAmountModal = () => {
+    setWithdrawAmountInput('');
+    setIsWithdrawAmountModalOpen(false);
+  };
+
+  const closeConfirmWithdrawModal = () => {
+    setIsConfirmWithdrawModalOpen(false);
+  };
+
   const handleGoToWallet = () => {
     setInsufficientFunds(null);
-    setIsCreateModalOpen(false);
+    closeCreateModal();
     sessionStorage.setItem('wallet_action', 'deposit');
     window.dispatchEvent(new CustomEvent('navigate', { detail: { view: 'wallet' } }));
   };
@@ -1009,7 +983,7 @@ export default function Games() {
         <AnimatePresence>
           {isCreateModalOpen && (
             <div className="fixed inset-0 z-[5000] flex items-center justify-center p-4">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsCreateModalOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeCreateModal} className="absolute inset-0 bg-black/80 backdrop-blur-md" />
               <motion.div initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }} className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto custom-scrollbar glass-card bg-white dark:bg-slate-900 border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl sm:rounded-3xl">
                  <div className="sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-b border-slate-200 dark:border-white/10 p-6 flex justify-between items-center z-20">
                     <div className="flex items-center gap-3">
@@ -1021,7 +995,7 @@ export default function Games() {
                          <p className="text-[9px] text-slate-500 dark:text-muted-foreground font-bold uppercase tracking-widest">Split or Steal Event</p>
                        </div>
                     </div>
-                    <button onClick={() => setIsCreateModalOpen(false)} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-white/10 text-slate-600 dark:text-white"><X className="w-5 h-5" /></button>
+                    <button onClick={closeCreateModal} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-white/10 text-slate-600 dark:text-white"><X className="w-5 h-5" /></button>
                  </div>
 
                  <form onSubmit={handleCreateGame} className="p-6 space-y-6">
@@ -1134,7 +1108,7 @@ export default function Games() {
         <AnimatePresence>
           {isWithdrawAmountModalOpen && (
             <div className="fixed inset-0 z-[6000] flex items-center justify-center p-4">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsWithdrawAmountModalOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeWithdrawAmountModal} className="absolute inset-0 bg-black/80 backdrop-blur-md" />
               <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card bg-white dark:bg-slate-900 border-slate-200 dark:border-white/10 shadow-2xl p-8 space-y-8 max-h-[85vh] overflow-y-auto custom-scrollbar rounded-2xl sm:rounded-3xl">
                  <div className="text-center space-y-2">
                     <div className="w-16 h-16 rounded-3xl bg-yellow-500/10 flex items-center justify-center mx-auto mb-4 border border-yellow-500/20">
@@ -1178,7 +1152,7 @@ export default function Games() {
                     <Button onClick={handleWithdrawGameWallet} disabled={isWithdrawing || !withdrawAmountInput || parseFloat(withdrawAmountInput) <= 0 || parseFloat(withdrawAmountInput) > gameWalletBalance} className="w-full h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-xs">
                        {isWithdrawing ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Withdrawal'}
                     </Button>
-                    <Button variant="ghost" onClick={() => setIsWithdrawAmountModalOpen(false)} className="text-[10px] font-black uppercase text-slate-500 hover:text-slate-900 dark:text-white/40 dark:hover:text-white">Cancel</Button>
+                    <Button variant="ghost" onClick={closeWithdrawAmountModal} className="text-[10px] font-black uppercase text-slate-500 hover:text-slate-900 dark:text-white/40 dark:hover:text-white">Cancel</Button>
                  </div>
               </motion.div>
             </div>
@@ -1192,7 +1166,7 @@ export default function Games() {
         <AnimatePresence>
           {isConfirmWithdrawModalOpen && (
             <div className="fixed inset-0 z-[7000] flex items-center justify-center p-4">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsConfirmWithdrawModalOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeConfirmWithdrawModal} className="absolute inset-0 bg-black/80 backdrop-blur-md" />
               <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card bg-white dark:bg-slate-900 border-slate-200 dark:border-white/10 shadow-2xl p-8 space-y-6 text-center rounded-2xl sm:rounded-3xl">
                  <div className="w-16 h-16 rounded-full bg-yellow-500/10 text-yellow-600 dark:text-yellow-500 flex items-center justify-center mx-auto border border-yellow-500/20">
                     <ShieldAlert className="w-8 h-8" />
@@ -1205,7 +1179,7 @@ export default function Games() {
                  </div>
                  <div className="flex flex-col gap-3">
                     <Button onClick={confirmWithdrawal} disabled={isWithdrawing} className="w-full h-12 gradient-bg rounded-xl font-black uppercase text-[10px]">Yes, Move Funds</Button>
-                    <Button variant="ghost" onClick={() => setIsConfirmWithdrawModalOpen(false)} className="text-[10px] font-black uppercase text-slate-500 hover:text-slate-900 dark:text-white/40 dark:hover:text-white">Cancel</Button>
+                    <Button variant="ghost" onClick={closeConfirmWithdrawModal} className="text-[10px] font-black uppercase text-slate-500 hover:text-slate-900 dark:text-white/40 dark:hover:text-white">Cancel</Button>
                  </div>
               </motion.div>
             </div>

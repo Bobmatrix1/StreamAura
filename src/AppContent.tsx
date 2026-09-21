@@ -38,6 +38,9 @@ import {
   auth 
 } from '@/lib/firebase';
 import { API_BASE_URL } from '@/api/mediaApi';
+import { captureReferralFromURL } from '@/lib/referral';
+import { toast } from 'sonner';
+import { triggerAppUpdate } from '@/lib/appLifecycle';
 import type { ViewType } from '@/types';
 
 /**
@@ -47,21 +50,31 @@ import type { ViewType } from '@/types';
 export const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading, isAdmin, user } = useAuth();
   
-  const [activeView, setActiveView] = useState<ViewType>('home');
+  const [activeView, setActiveView] = useState<ViewType>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('aura_active_view') as ViewType;
+      const allowedTabs = ['home', 'video', 'music', 'movie', 'cinema', 'games', 'wallet', 'bulk', 'admin', 'notifications', 'history', 'referral', 'profile', 'about', 'privacy', 'terms', 'cookies', 'contact', 'vendor'];
+      if (saved && allowedTabs.includes(saved)) return saved;
+    }
+    return 'home';
+  });
   const [viewStartTime, setViewStartTime] = useState(Date.now());
 
-  // URL Parameter Sync
+  // URL Parameter Sync & View Persistence
   useEffect(() => {
+    // Capture referral from query params / hash / path
+    captureReferralFromURL();
+
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as ViewType;
     const allowedTabs = ['home', 'video', 'music', 'movie', 'cinema', 'games', 'wallet', 'bulk', 'admin', 'notifications', 'history', 'referral', 'profile', 'about', 'privacy', 'terms', 'cookies', 'contact', 'vendor'];
     
-    // Handle Referral Code FIRST so it's captured even if routing changes
-    const refCode = params.get('ref');
-    if (refCode) {
-      localStorage.setItem('aura_referral_code', refCode);
-      // Carefully remove just the 'ref' parameter to keep other routing params intact
+    // Handle Referral Code cleanup so URL looks clean
+    if (params.has('ref') || params.has('referral') || params.has('referralCode') || params.has('r')) {
       params.delete('ref');
+      params.delete('referral');
+      params.delete('referralCode');
+      params.delete('r');
       const newUrl = window.location.pathname + (params.toString() ? `?${params.toString()}` : '');
       window.history.replaceState({}, '', newUrl);
     }
@@ -70,6 +83,7 @@ export const AppContent: React.FC = () => {
     if (gameId) {
       sessionStorage.setItem('aura_auto_join_game', gameId);
       setActiveView('games');
+      sessionStorage.setItem('aura_active_view', 'games');
       params.delete('gameId');
       const newUrl = window.location.pathname + (params.toString() ? `?${params.toString()}` : '');
       window.history.replaceState({}, '', newUrl);
@@ -77,9 +91,28 @@ export const AppContent: React.FC = () => {
 
     if (tab && allowedTabs.includes(tab)) {
       setActiveView(tab);
-      // Clear tab from URL so manual refresh resets to Home
+      sessionStorage.setItem('aura_active_view', tab);
       window.history.replaceState({}, '', window.location.pathname);
     }
+  }, []);
+
+  // Safe Service Worker Update Notification Listener
+  useEffect(() => {
+    const handleUpdateAvailable = () => {
+      toast.info("A new update is available!", {
+        description: "StreamAura has a fresh update ready.",
+        action: {
+          label: "Update Now",
+          onClick: () => {
+            triggerAppUpdate();
+          }
+        },
+        duration: 15000,
+      });
+    };
+
+    window.addEventListener('aura_update_available', handleUpdateAvailable);
+    return () => window.removeEventListener('aura_update_available', handleUpdateAvailable);
   }, []);
 
   // Custom Navigation Event Listener
@@ -91,6 +124,19 @@ export const AppContent: React.FC = () => {
     };
     window.addEventListener('navigate', handleCustomNav);
     return () => window.removeEventListener('navigate', handleCustomNav);
+  }, [viewStartTime, activeView]);
+
+  // Service Worker Message Listener (e.g. notification clicks)
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      const handleMessage = (event: MessageEvent) => {
+        if (event.data?.type === 'NAVIGATE_TAB' && event.data.tab) {
+          handleTabChange(event.data.tab as ViewType);
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', handleMessage);
+      return () => navigator.serviceWorker.removeEventListener('message', handleMessage);
+    }
   }, [viewStartTime, activeView]);
 
   // 1. Track Initial Visit (Geographic & Device Intel)
@@ -175,6 +221,7 @@ export const AppContent: React.FC = () => {
 
     // 2. Switch View & Log entry to new page
     setActiveView(tab);
+    sessionStorage.setItem('aura_active_view', tab);
     setViewStartTime(Date.now());
     logPageEnter(tab, auth.currentUser?.uid);
     

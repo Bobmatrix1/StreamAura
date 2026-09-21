@@ -80,12 +80,26 @@ export const UploadModal: React.FC<UploadModalProps> = ({ preOrder, onClose, onS
       );
       
       showSuccess('Movie uploaded and user notified!');
+      handleClose();
       onSuccess();
     } catch (err) {
       showError('Failed to fulfill order');
     } finally {
       setIsFulfilling(false);
     }
+  };
+
+  const handleClose = () => {
+    setMovieFile(null);
+    setCoverFile(null);
+    setDescription(preOrder.mediaType === 'series' 
+      ? `Season ${preOrder.season}, Episode ${preOrder.episode} now available.` 
+      : 'Pre-ordered content now available.');
+    setYear(new Date().getFullYear().toString());
+    setRating('8.5');
+    setUploadProgress(0);
+    setIsFulfilling(false);
+    onClose();
   };
 
   return createPortal(
@@ -105,7 +119,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ preOrder, onClose, onS
              </h3>
              <p className="text-[10px] text-muted-foreground uppercase font-black tracking-[0.3em]">{preOrder.title}</p>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-all hover:rotate-90 group">
+          <button onClick={handleClose} className="p-2 hover:bg-white/10 rounded-full transition-all hover:rotate-90 group">
             <X className="w-6 h-6 text-muted-foreground group-hover:text-white" />
           </button>
         </div>
