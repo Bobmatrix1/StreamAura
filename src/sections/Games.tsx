@@ -24,7 +24,7 @@ import { Badge } from '../components/ui/badge';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { db, auth } from '../lib/firebase';
-import { collection, doc, getDoc, query, onSnapshot, writeBatch, increment, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, query, onSnapshot } from 'firebase/firestore';
 import { API_BASE_URL } from '../api/mediaApi';
 
 import SplitOrStealGame from './SplitOrStealGame';
