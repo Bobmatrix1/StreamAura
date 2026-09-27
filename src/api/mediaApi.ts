@@ -129,6 +129,21 @@ export const searchMovies = async (
 };
 
 /**
+ * Fetch live search suggestions for auto-complete directly from MovieBox
+ */
+export const getMovieSuggestions = async (query: string): Promise<ApiResponse<string[]>> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/movies/suggestions?query=${encodeURIComponent(query)}`);
+    if (!response.ok) {
+      return { success: true, data: [] };
+    }
+    return await response.json();
+  } catch {
+    return { success: true, data: [] };
+  }
+};
+
+/**
  * Fetch movies or series by categorized genre with pagination
  */
 export const getMoviesByGenre = async (
@@ -410,6 +425,7 @@ export default {
   extractVideoInfo,
   extractMusicInfo,
   searchMovies,
+  getMovieSuggestions,
   getMoviesByGenre,
   getTrendingMovies,
   getMovieDetails,

@@ -29,7 +29,8 @@ import {
   ChevronRight,
   ArrowLeft,
   SlidersHorizontal,
-  Loader2
+  Loader2,
+  ArrowUpRight
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -320,7 +321,68 @@ const MovieDownloader: React.FC = () => {
   const [preOrderSuccess, setPreOrderSuccess] = useState(false);
   const [movieToPreOrder, setMovieToPreOrder] = useState<MovieInfo | null>(null);
 
+  // Search suggestions auto-complete state
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const suggestTimerRef = useRef<any>(null);
+  const skipNextSuggestRef = useRef(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
   const { showError, showSuccess } = useToast();
+
+  // Close suggestions when tapping or clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, []);
+
+  // Auto-fetch suggestions on typing
+  useEffect(() => {
+    if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+    
+    // If user just picked a suggestion or clicked search, do not reopen
+    if (skipNextSuggestRef.current) {
+      skipNextSuggestRef.current = false;
+      return;
+    }
+
+    const trimmed = query.trim();
+    if (!trimmed || trimmed.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    suggestTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await mediaApi.getMovieSuggestions(trimmed);
+        if (res.success && res.data && res.data.length > 0) {
+          setSuggestions(res.data);
+          setShowSuggestions(true);
+        } else {
+          setSuggestions([]);
+          setShowSuggestions(false);
+        }
+      } catch {
+        setSuggestions([]);
+        setShowSuggestions(false);
+      }
+    }, 250);
+
+    return () => {
+      if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+    };
+  }, [query]);
 
   // Scroll position restorer
   const restoreScrollPosition = (instant: boolean = true) => {
@@ -581,7 +643,21 @@ const MovieDownloader: React.FC = () => {
     }
   };
 
+  const handleSelectSuggestion = (sug: string) => {
+    skipNextSuggestRef.current = true;
+    if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+    setQuery(sug);
+    setShowSuggestions(false);
+    setSuggestions([]);
+    handleSearch(sug, 1);
+  };
+
   const handleSearch = async (overrideQuery?: string, pageNum: number = 1, typeOverride?: 'movie' | 'series') => {
+    skipNextSuggestRef.current = true;
+    if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+    setShowSuggestions(false);
+    setSuggestions([]);
+
     const q = overrideQuery !== undefined ? overrideQuery : query;
     const currentType = typeOverride || searchType;
     if (!q.trim()) {
@@ -1397,19 +1473,25 @@ const MovieDownloader: React.FC = () => {
           {/* 3. Interactive Search & Quick Genre Selector Bar */}
           <div className="space-y-4">
             {/* Search Input Box */}
-            <div className="p-3 rounded-2xl flex flex-col sm:flex-row gap-3 border border-white/10 bg-[#090e1c] shadow-xl">
+            <div ref={searchContainerRef} className="p-3 rounded-2xl flex flex-col sm:flex-row gap-3 border border-white/10 bg-[#090e1c] shadow-xl relative">
               <div className="relative flex-1 group">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-cyan-400 transition-colors w-5 h-5" />
                 <input
                   type="text"
                   value={query}
+                  onFocus={() => { if (suggestions.length > 0 && query.trim().length >= 2) setShowSuggestions(true); }}
                   onChange={(e) => {
                     setQuery(e.target.value);
                     if (!e.target.value.trim()) {
                       loadTrending();
                     }
                   }}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch(undefined, 1)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setShowSuggestions(false);
+                      handleSearch(undefined, 1);
+                    }
+                  }}
                   placeholder={searchType === 'movie' ? "Search 10,000+ movies, 4K quality, actors, genres..." : "Search TV series, anime, drama seasons, episodes..."}
                   className="w-full bg-white/[0.04] border border-white/10 pl-12 pr-12 py-3.5 rounded-xl text-sm text-white placeholder:text-white/40 outline-none focus:border-cyan-500/50 transition-all font-medium"
                 />
@@ -1417,12 +1499,37 @@ const MovieDownloader: React.FC = () => {
                   <button 
                     onClick={() => {
                       setQuery('');
+                      setShowSuggestions(false);
                       loadTrending();
                     }}
                     className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-white/40 hover:text-white transition-colors cursor-pointer"
                   >
                     <X className="w-4 h-4" />
                   </button>
+                )}
+
+                {/* Live StreamAura Autocomplete Suggestions Floating Menu */}
+                {showSuggestions && suggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-2 z-50 rounded-2xl bg-[#0b1021]/95 backdrop-blur-xl border border-white/15 shadow-2xl p-2 space-y-1">
+                    <div className="px-3 py-1.5 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-white/40 border-b border-white/5 mb-1">
+                      <span>StreamAura Recommendations</span>
+                      <span>Press to Search</span>
+                    </div>
+                    {suggestions.map((sug, idx) => (
+                      <button
+                        key={`sug-${idx}`}
+                        type="button"
+                        onClick={() => handleSelectSuggestion(sug)}
+                        className="w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold text-white hover:bg-cyan-500/20 hover:text-cyan-300 transition-colors flex items-center justify-between group/item cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5 truncate">
+                          <Search className="w-3.5 h-3.5 text-white/40 group-hover/item:text-cyan-400 flex-shrink-0" />
+                          <span className="truncate">{sug}</span>
+                        </span>
+                        <ArrowUpRight className="w-3.5 h-3.5 text-white/30 group-hover/item:text-cyan-400 flex-shrink-0" />
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
 

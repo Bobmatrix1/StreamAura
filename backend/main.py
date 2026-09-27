@@ -2085,15 +2085,34 @@ async def search_movies(
         # 1. Search in the requested category (type)
         items = await perform_search(type, query, target_count=per_page, page_num=page)
         
-        # 2. If no results found in the requested category, try cleaned/broader queries within the same type
+        # 2. Multi-tier Smart Fallback to guarantee finding all movies:
         if not items:
+            # 2a. Strip year and common tags (e.g. "Oppenheimer (2023)" -> "Oppenheimer")
             cleaned_query = clean_query_for_related(query)
             if cleaned_query and cleaned_query.lower() != query.lower():
                 items = await perform_search(type, cleaned_query, target_count=per_page, page_num=page)
             
-            if not items and cleaned_query:
-                words = [w for w in re.split(r'\s+', cleaned_query) if len(w) > 2]
-                if words:
+            # 2b. If query has punctuation/subtitles (e.g. "Spider-Man: Brand New Day" -> "Spider-Man", "Brand New Day")
+            if not items:
+                no_punct = re.sub(r'[:\-–—\'"&/\\()]', ' ', query)
+                no_punct = ' '.join(no_punct.split())
+                if no_punct and no_punct.lower() != query.lower() and no_punct.lower() != cleaned_query.lower():
+                    items = await perform_search(type, no_punct, target_count=per_page, page_num=page)
+
+            # 2c. Subtitle / Main title extraction if colon or dash is present
+            if not items and (':' in query or '-' in query or '–' in query):
+                parts = re.split(r'[:\-–—]', query)
+                for part in parts:
+                    part_clean = part.strip()
+                    if len(part_clean) > 2:
+                        items = await perform_search(type, part_clean, target_count=per_page, page_num=page)
+                        if items:
+                            break
+
+            # 2d. First 2 significant words
+            if not items:
+                words = [w for w in re.split(r'[\s:\-–—]+', query) if len(w) > 2 and w.lower() not in ['the', 'and', 'for', 'with', 'from']]
+                if len(words) >= 2:
                     broad_query = " ".join(words[:2])
                     items = await perform_search(type, broad_query, target_count=per_page, page_num=page)
 
@@ -2133,6 +2152,65 @@ async def search_movies(
         print(f"Movie Search Critical Error: {str(e)}")
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+_suggest_cache: dict = {}
+
+@app.get("/api/movies/suggestions")
+async def get_movie_suggestions(query: str = Query(...)):
+    """
+    Real-time autocomplete search suggestions directly from MovieBox API.
+    """
+    q = query.strip()
+    if not q or len(q) < 2:
+        return {"success": True, "data": []}
+    
+    cache_key = q.lower()
+    now = time.time()
+    if cache_key in _suggest_cache and (now - _suggest_cache[cache_key].get("time", 0)) < 600:
+        return _suggest_cache[cache_key]["data"]
+
+    try:
+        auth_token = os.getenv("MOVIEBOX_AUTH_TOKEN", "").strip()
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "Accept": "*/*",
+            "Origin": "https://movieboxhd.net",
+            "Referer": "https://movieboxhd.net/",
+            "Authorization": f"Bearer {auth_token}"
+        } if auth_token else {}
+        
+        client_sess = Session(headers=headers, verify=False) if headers else Session(verify=False)
+        try:
+            from moviebox_api.v2.core import SearchSuggestion as SearchSuggestionV2
+            sug_v2 = SearchSuggestionV2(client_sess, per_page=8)
+            res_v2 = await sug_v2.get_content(q)
+            items = res_v2.get('items', []) or []
+            results = []
+            for it in items:
+                w = it.get('word')
+                if w and w not in results:
+                    results.append(w)
+            if results:
+                resp = {"success": True, "data": results}
+                _suggest_cache[cache_key] = {"time": now, "data": resp}
+                return resp
+        except Exception:
+            pass
+
+        from moviebox_api.v1.core import SearchSuggestion as SearchSuggestionV1
+        sug_v1 = SearchSuggestionV1(Session(verify=False), per_page=8)
+        res_v1 = await sug_v1.get_content(q)
+        items = res_v1.get('items', []) or []
+        results = []
+        for it in items:
+            w = it.get('word')
+            if w and w not in results:
+                results.append(w)
+        resp = {"success": True, "data": results}
+        _suggest_cache[cache_key] = {"time": now, "data": resp}
+        return resp
+    except Exception:
+        return {"success": True, "data": []}
 
 _genre_cache: dict = {}
 
