@@ -1971,7 +1971,12 @@ async def search_movies(
 
         async def perform_search(search_type_str, search_query, target_count=40, page_num=1):
             auth_token = os.getenv("MOVIEBOX_AUTH_TOKEN", "").strip()
-            pages = [page_num, page_num + 1] if target_count > 20 else [page_num]
+            if target_count > 20:
+                api_page_1 = (page_num - 1) * 2 + 1
+                api_page_2 = (page_num - 1) * 2 + 2
+                pages = [api_page_1, api_page_2]
+            else:
+                pages = [page_num]
             all_raw = []
 
             def extract_items(res):
@@ -2012,7 +2017,7 @@ async def search_movies(
                     sess = Session(headers=headers, verify=False)
                     for p in pages:
                         try:
-                            search = SearchV2(sess, search_query, subject_type=st_v2, page=p, per_page=24)
+                            search = SearchV2(sess, search_query, subject_type=st_v2, page=p, per_page=20)
                             res = await search.get_content()
                             all_raw.extend(filter_items_by_type(extract_items(res)))
                         except Exception:
@@ -2165,18 +2170,26 @@ async def get_movies_by_genre(
             "trending": "movie" if type == "movie" else "series",
             "popular": "popular",
             "action": "action",
+            "adventure": "adventure",
             "african": "nollywood",
+            "nollywood": "nollywood",
             "kdrama": "kdrama",
             "comedy": "comedy",
             "romance": "romance",
             "animation": "animation",
+            "anime": "anime",
             "scifi": "sci-fi",
+            "fantasy": "fantasy",
             "horror": "horror",
             "thriller": "thriller",
             "crime": "crime",
             "drama": "drama",
             "documentary": "documentary",
             "family": "family",
+            "superhero": "superhero",
+            "sitcom": "sitcom",
+            "gangster": "gangster",
+            "teen": "teen",
             "top_rated": "award"
         }
         
@@ -2335,6 +2348,39 @@ async def get_trending_movies(type: str = "movie"):
                         "items": formatted_items
                     })
             
+            if type == "movie":
+                extra_genres = [
+                    ("Sci-Fi & Fantasy", "sci-fi"),
+                    ("Animation & Anime", "animation"),
+                    ("Comedy & Laughs", "comedy"),
+                    ("Crime & Mystery", "crime"),
+                    ("Drama & Masterpieces", "drama"),
+                    ("Family & Kids", "family"),
+                    ("Adventure & Thriller", "adventure"),
+                ]
+                existing_cats = " ".join([c.get("category", "").lower() for c in formatted_categories])
+                
+                async def fetch_genre_row(cat_label, search_kw):
+                    try:
+                        g_res = await search_movies(query=search_kw, type="movie", page=1, per_page=20)
+                        if isinstance(g_res, dict) and g_res.get("success") and g_res.get("data"):
+                            return {"category": cat_label, "items": g_res["data"]}
+                    except Exception as e:
+                        print(f"Failed to fetch extra genre row {cat_label}: {e}")
+                    return None
+
+                extra_tasks = []
+                for label, kw in extra_genres:
+                    kw_check = kw.replace("-", "")
+                    if kw_check not in existing_cats:
+                        extra_tasks.append(fetch_genre_row(label, kw))
+
+                if extra_tasks:
+                    extra_results = await asyncio.gather(*extra_tasks, return_exceptions=True)
+                    for r in extra_results:
+                        if isinstance(r, dict) and r.get("items") and len(r["items"]) >= 4:
+                            formatted_categories.append(r)
+
             if formatted_categories and len(formatted_categories) >= 3:
                 resp_obj = {"success": True, "isRows": True, "data": formatted_categories}
                 _trending_cache[type] = {"time": now, "data": resp_obj}

@@ -161,6 +161,30 @@ const getCategoryMeta = (catName: string) => {
       accentColor: 'from-orange-500 to-amber-600'
     };
   }
+  if (lower.includes('drama') || lower.includes('masterpiece')) {
+    return {
+      genreId: 'drama',
+      icon: <Film className="w-4 h-4 text-teal-400" />,
+      tagline: 'Deep human stories, powerful acting and award-winning scripts',
+      accentColor: 'from-teal-500 to-emerald-600'
+    };
+  }
+  if (lower.includes('family') || lower.includes('kid') || lower.includes('children')) {
+    return {
+      genreId: 'family',
+      icon: <Smile className="w-4 h-4 text-amber-300" />,
+      tagline: 'Wholesome entertainment and adventures for the whole family',
+      accentColor: 'from-amber-400 to-yellow-500'
+    };
+  }
+  if (lower.includes('adventure')) {
+    return {
+      genreId: 'action',
+      icon: <Zap className="w-4 h-4 text-rose-400" />,
+      tagline: 'Thrilling journeys, exploration & adrenaline adventures',
+      accentColor: 'from-rose-500 to-orange-500'
+    };
+  }
   if (lower.includes('top rated') || lower.includes('acclaimed') || lower.includes('award')) {
     return {
       genreId: 'top_rated',
@@ -691,12 +715,15 @@ const MovieDownloader: React.FC = () => {
     const cachedGenre = movieGlobalCache.genreSections[`${genreId}_${currentType}`];
     if (cachedGenre && cachedGenre.length > 0) {
       itemsToDisplay = cachedGenre;
-    } else if (itemsToDisplay.length < 20 && genreId !== 'all') {
+    } else if (genreId !== 'all') {
       setIsSearching(true);
       try {
         const res = await mediaApi.getMoviesByGenre(genreId, currentType, 1, 40);
         if (res.success && res.data && res.data.length > 0) {
-          itemsToDisplay = res.data.map(m => ({ ...m, mediaType: currentType }));
+          const fetched = res.data.map((m: MovieInfo) => ({ ...m, mediaType: currentType }));
+          const seen = new Set(initialItems.map(m => m.id));
+          const fresh = fetched.filter(m => !seen.has(m.id));
+          itemsToDisplay = [...initialItems, ...fresh];
           movieGlobalCache.genreSections[`${genreId}_${currentType}`] = itemsToDisplay;
         }
       } catch (err) {
