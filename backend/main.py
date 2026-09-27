@@ -1983,30 +1983,14 @@ async def search_movies(
                 if isinstance(res, list): return res
                 if isinstance(res, dict):
                     return res.get('items') or res.get('list') or res.get('resData', {}).get('list') or []
-            target_sub_type = 1 if search_type_str == "movie" else 2
-
-            def filter_items_by_type(raw_list):
-                res = []
-                for it in raw_list:
-                    st_val = get_val(it, 'subjectType')
-                    if st_val is None:
-                        st_val = get_val(it, 'subject_type')
-                    if st_val is not None:
-                        try:
-                            if int(st_val) != target_sub_type:
-                                continue
-                        except (ValueError, TypeError):
-                            pass
-                    res.append(it)
-                return res
+                return []
 
             if auth_token:
-                # 1. Try v2 Search (Web API - compatible with Chrome-captured web tokens)
+                # 1. Try v2 Search (Web API - full catalog search with ALL types)
                 try:
                     from moviebox_api.v2.core import Search as SearchV2
                     from moviebox_api.v2.core import SubjectType as SubjectTypeV2
                     
-                    st_v2 = SubjectTypeV2.MOVIES if search_type_str == "movie" else SubjectTypeV2.TV_SERIES
                     headers = {
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
                         "Accept": "*/*",
@@ -2017,9 +2001,9 @@ async def search_movies(
                     sess = Session(headers=headers, verify=False)
                     for p in pages:
                         try:
-                            search = SearchV2(sess, search_query, subject_type=st_v2, page=p, per_page=20)
+                            search = SearchV2(sess, search_query, subject_type=SubjectTypeV2.ALL, page=p, per_page=20)
                             res = await search.get_content()
-                            all_raw.extend(filter_items_by_type(extract_items(res)))
+                            all_raw.extend(extract_items(res))
                         except Exception:
                             pass
                     if all_raw:
@@ -2035,20 +2019,20 @@ async def search_movies(
                     from moviebox_api.v3.core import SubjectType as SubjectTypeV3
                     from moviebox_api.v3.core import TabID as TabIDV3
                     
-                    st = SubjectTypeV3.MOVIES if search_type_str == "movie" else SubjectTypeV3.TV_SERIES
-                    tab = TabIDV3.MOVIE if search_type_str == "movie" else TabIDV3.TV_SERIES
+                    st = SubjectTypeV3.ALL
+                    tab = TabIDV3.ALL if hasattr(TabIDV3, 'ALL') else TabIDV3.MOVIE
                     
                     async with MovieBoxHttpClient(verify=False) as client:
                         for p in pages:
                             try:
                                 search = SearchV2V3(client, search_query, subject_type=st, tab_id=tab, page=p, per_page=24)
                                 res = await search.get_content()
-                                all_raw.extend(filter_items_by_type(extract_items(res)))
+                                all_raw.extend(extract_items(res))
                             except Exception:
                                 try:
                                     search = SearchV3(client, search_query, subject_type=st, page=p, per_page=24)
                                     res = await search.get_content()
-                                    all_raw.extend(filter_items_by_type(extract_items(res)))
+                                    all_raw.extend(extract_items(res))
                                 except Exception:
                                     pass
                         if all_raw:
@@ -2056,19 +2040,19 @@ async def search_movies(
                 except Exception as e:
                     print(f"v3 Search module failure: {e}")
             
-            st = SubjectType.MOVIES if search_type_str == "movie" else SubjectType.TV_SERIES
+            st = SubjectType.ALL
             for p in pages:
                 try:
                     sess_no_auth = Session(verify=False)
                     search = Search(sess_no_auth, search_query, subject_type=st, page=p, per_page=24)
                     res = await search.get_content()
-                    all_raw.extend(filter_items_by_type(extract_items(res)))
+                    all_raw.extend(extract_items(res))
                 except Exception:
                     try:
                         sess_no_auth = Session(verify=False)
                         search = Search(sess_no_auth, search_query, subject_type=st, page=p, per_page=24)
                         model = await search.get_content_model()
-                        all_raw.extend(filter_items_by_type(extract_items(model)))
+                        all_raw.extend(extract_items(model))
                     except Exception:
                         pass
             return all_raw
@@ -2528,6 +2512,51 @@ def make_slug(t: str) -> str:
     s = re.sub(r'_+', '_', s).strip('_')
     return s or "detail"
 
+def find_best_tmdb_match(results, target_title, target_year):
+    if not results or not target_title:
+        return None
+    
+    def norm(s):
+        if not s: return ""
+        s = s.lower()
+        s = re.sub(r'[^a-z0-9]', '', s)
+        return s
+
+    norm_target = norm(target_title)
+    if not norm_target: return None
+
+    # Pass 1: Exact title match + year match (within 1 year)
+    for item in results:
+        t = norm(item.get('title') or item.get('name') or '')
+        d = item.get('release_date') or item.get('first_air_date') or ''
+        y = d.split('-')[0] if d else ''
+        if t == norm_target:
+            if target_year and y and str(target_year).isdigit() and y.isdigit():
+                if abs(int(target_year) - int(y)) <= 1:
+                    return item
+            elif not target_year:
+                return item
+
+    # Pass 2: Exact title match regardless of year
+    for item in results:
+        t = norm(item.get('title') or item.get('name') or '')
+        if t == norm_target:
+            return item
+
+    # Pass 3: Close title match with year compatibility (<= 2 years)
+    for item in results:
+        t = norm(item.get('title') or item.get('name') or '')
+        d = item.get('release_date') or item.get('first_air_date') or ''
+        y = d.split('-')[0] if d else ''
+        if (norm_target in t or t in norm_target) and len(norm_target) >= 4:
+            if target_year and y and str(target_year).isdigit() and y.isdigit():
+                if abs(int(target_year) - int(y)) <= 2:
+                    return item
+            elif not target_year:
+                return item
+
+    return None
+
 async def fetch_tmdb_details(title: str, media_type: str, year: Optional[str] = None) -> Optional[dict]:
     token = os.getenv("TMDB_READ_ACCESS_TOKEN", "").strip() or os.getenv("TMDB_API_KEY", "").strip()
     if not token or not title:
@@ -2584,7 +2613,12 @@ async def fetch_tmdb_details(title: str, media_type: str, year: Optional[str] = 
             if not results:
                 return None
                 
-            best_match = results[0]
+            best_match = find_best_tmdb_match(results, title, year)
+            if not best_match and clean_title != title:
+                best_match = find_best_tmdb_match(results, clean_title, year)
+            if not best_match:
+                return None
+                
             tmdb_id = best_match.get('id')
             if not tmdb_id:
                 return None
@@ -2701,7 +2735,7 @@ async def get_movie_details(
             def clean(t):
                 t = t.lower()
                 t = re.sub(r'[^a-z0-9]', '', t)
-                t = re.sub(r's\d+$', '', t) # Lucifer S6 -> Lucifer -> lucifer
+                t = re.sub(r's\d+$', '', t)
                 return t
             return clean(t1) == clean(t2)
 
@@ -2717,7 +2751,7 @@ async def get_movie_details(
         elif subject_id.isdigit():
             # A. Try title search first
             if title:
-                st = SubjectType.MOVIES if type == "movie" else SubjectType.TV_SERIES
+                st = SubjectType.ALL
                 search_instance = Search(client_session, title, subject_type=st)
                 try:
                     res = await search_instance.get_content()
@@ -2741,7 +2775,7 @@ async def get_movie_details(
             if not resolved_path and title:
                 cleaned_title = clean_query_for_related(title)
                 if cleaned_title:
-                    st = SubjectType.MOVIES if type == "movie" else SubjectType.TV_SERIES
+                    st = SubjectType.ALL
                     search_instance = Search(client_session, cleaned_title, subject_type=st)
                     try:
                         res = await search_instance.get_content()
@@ -2804,70 +2838,140 @@ async def get_movie_details(
 
         seasons_info = []
         qualities = []
+        details_fetched = False
         
-        try:
-            if type == "series":
-                md_instance = TVSeriesDetails(target_lookup_path, client_session)
-                details = await md_instance.get_content()
-                resData = details.get('resData', {})
-                subject = resData.get('subject', {})
-                resource = resData.get('resource', {})
-                seasons_raw = resource.get('seasons', [])
+        # Step A: Try MovieBox v2 Web API ItemDetails first
+        clean_v2_path = target_lookup_path
+        if clean_v2_path.startswith("/detail/"):
+            clean_v2_path = clean_v2_path[len("/detail/"):]
+        if "?" in clean_v2_path:
+            clean_v2_path = clean_v2_path.split("?")[0]
 
-                for s in seasons_raw:
-                    se_num = s.get('se')
-                    max_ep = s.get('maxEp', 0)
-                    seasons_info.append({"season": se_num, "episodes": list(range(1, max_ep + 1))})
+        if auth_token and clean_v2_path and not clean_v2_path.isdigit():
+            try:
+                from moviebox_api.v2 import ItemDetails as ItemDetailsV2
+                from moviebox_api.v2.requests import Session as SessionV2
+                sess_v2 = SessionV2(headers=headers, verify=False)
+                it_v2 = ItemDetailsV2(sess_v2)
+                res_v2 = await it_v2.get_content(clean_v2_path)
+                if isinstance(res_v2, dict) and res_v2.get('subject'):
+                    subj = res_v2.get('subject', {})
+                    res_title = subj.get('title') or subj.get('name')
+                    res_desc = subj.get('description') or subj.get('introduction')
+                    res_cover = subj.get('cover')
+                    if isinstance(res_cover, dict):
+                        res_poster = res_cover.get('url') or res_cover.get('path')
+                    else:
+                        res_poster = res_cover
+                    res_year = str(subj.get('year') or subj.get('releaseDate', '')).split('-')[0]
+                    res_rating = str(subj.get('imdbRatingValue', subj.get('rating', '')))
 
-                if season is not None and episode is not None:
-                    md_model = await md_instance.get_content_model()
-                    files_instance = DownloadableTVSeriesFilesDetail(client_session, md_model)
-                    files_data = await files_instance.get_content(season=season, episode=episode)
+                    if res_title: moviebox_details['title'] = res_title
+                    if res_desc: moviebox_details['description'] = res_desc
+                    if res_poster and isinstance(res_poster, str) and res_poster.strip():
+                        moviebox_details['thumbnail'] = res_poster
+                    if res_year and res_year not in ['N/A', '0', '']:
+                        moviebox_details['year'] = res_year
+                    if res_rating and res_rating not in ['0.0', '0', '']:
+                        moviebox_details['rating'] = res_rating
+
+                    res_resource = res_v2.get('resource', {})
+                    for s in res_resource.get('seasons', []) or []:
+                        se_num = s.get('se')
+                        max_ep = s.get('maxEp', 0)
+                        seasons_info.append({"season": se_num, "episodes": list(range(1, max_ep + 1))})
+
+                    if seasons_info:
+                        moviebox_details['seasons'] = seasons_info
+
+                    # Try fetching downloadable files via v2 API
+                    try:
+                        se_target = season if season is not None else (1 if seasons_info else 0)
+                        ep_target = episode if episode is not None else (1 if seasons_info else 0)
+                        dl_res = await sess_v2.get_from_api(
+                            "https://movieboxhd.net/wefeed-h5api-bff/subject/download",
+                            params={"subjectId": subject_id, "se": se_target, "ep": ep_target, "detailPath": clean_v2_path}
+                        )
+                        for f in dl_res.get("downloads", []) or dl_res.get("list", []):
+                            qualities.append({
+                                "quality": f.get("quality", "720p"),
+                                "format": "MP4",
+                                "size": format_size(f.get("size")),
+                                "url": f.get("path") or f.get("url")
+                            })
+                        if qualities:
+                            moviebox_details["qualities"] = qualities
+                    except Exception:
+                        pass
+                    details_fetched = True
+            except Exception as v2_err:
+                print(f"Moviebox v2 ItemDetails notice: {v2_err}")
+
+        # Step B: Fallback to v1 API if not fetched or no files found
+        if not details_fetched:
+            try:
+                if type == "series":
+                    md_instance = TVSeriesDetails(target_lookup_path, client_session)
+                    details = await md_instance.get_content()
+                    resData = details.get('resData', {})
+                    subject = resData.get('subject', {})
+                    resource = resData.get('resource', {})
+                    seasons_raw = resource.get('seasons', [])
+
+                    for s in seasons_raw:
+                        se_num = s.get('se')
+                        max_ep = s.get('maxEp', 0)
+                        seasons_info.append({"season": se_num, "episodes": list(range(1, max_ep + 1))})
+
+                    if season is not None and episode is not None:
+                        md_model = await md_instance.get_content_model()
+                        files_instance = DownloadableTVSeriesFilesDetail(client_session, md_model)
+                        files_data = await files_instance.get_content(season=season, episode=episode)
+                    else:
+                        files_data = {"list": []}
+
+                    details_data = subject
                 else:
-                    files_data = {"list": []}
+                    md_instance = MovieDetails(target_lookup_path, client_session)
+                    details_data = await md_instance.get_content()
+                    md_model = await md_instance.get_content_model()
+                    downloadable_files = DownloadableMovieFilesDetail(client_session, md_model)
+                    files_data = await downloadable_files.get_content()
 
-                details_data = subject
-            else:
-                md_instance = MovieDetails(target_lookup_path, client_session)
-                details_data = await md_instance.get_content()
-                md_model = await md_instance.get_content_model()
-                downloadable_files = DownloadableMovieFilesDetail(client_session, md_model)
-                files_data = await downloadable_files.get_content()
-
-            raw_files = files_data.get('list', [])
-            for f in raw_files:
-                qualities.append({
-                    "quality": f.get('quality', '720p'),
-                    "format": "MP4",
-                    "size": format_size(f.get('size')),
-                    "url": f.get('path') or f.get('url')
-                })
+                raw_files = files_data.get('list', [])
+                for f in raw_files:
+                    qualities.append({
+                        "quality": f.get('quality', '720p'),
+                        "format": "MP4",
+                        "size": format_size(f.get('size')),
+                        "url": f.get('path') or f.get('url')
+                    })
+                    
+                res_poster = details_data.get('poster') or details_data.get('cover')
+                if isinstance(res_poster, dict):
+                    res_poster = res_poster.get('url') or res_poster.get('path')
                 
-            res_poster = details_data.get('poster') or details_data.get('cover')
-            if isinstance(res_poster, dict):
-                res_poster = res_poster.get('url') or res_poster.get('path')
-            
-            res_year = str(details_data.get('year') or details_data.get('releaseDate', '')).split('-')[0]
-            res_rating = str(details_data.get('rating', details_data.get('imdbRatingValue', '')))
-            res_title = details_data.get('name') or details_data.get('title')
-            res_desc = details_data.get('description') or details_data.get('introduction')
+                res_year = str(details_data.get('year') or details_data.get('releaseDate', '')).split('-')[0]
+                res_rating = str(details_data.get('rating', details_data.get('imdbRatingValue', '')))
+                res_title = details_data.get('name') or details_data.get('title')
+                res_desc = details_data.get('description') or details_data.get('introduction')
 
-            if res_title:
-                moviebox_details["title"] = res_title
-            if res_desc:
-                moviebox_details["description"] = res_desc
-            if res_poster and isinstance(res_poster, str) and res_poster.strip():
-                moviebox_details["thumbnail"] = res_poster
-            if res_year and res_year != 'N/A' and res_year != '0':
-                moviebox_details["year"] = res_year
-            if res_rating and res_rating != '0.0' and res_rating != '0':
-                moviebox_details["rating"] = res_rating
-            if qualities:
-                moviebox_details["qualities"] = qualities
-            if seasons_info:
-                moviebox_details["seasons"] = seasons_info
-        except Exception as mb_exc:
-            print(f"Moviebox API details fetch notice: {mb_exc}")
+                if res_title:
+                    moviebox_details["title"] = res_title
+                if res_desc:
+                    moviebox_details["description"] = res_desc
+                if res_poster and isinstance(res_poster, str) and res_poster.strip():
+                    moviebox_details["thumbnail"] = res_poster
+                if res_year and res_year != 'N/A' and res_year != '0':
+                    moviebox_details["year"] = res_year
+                if res_rating and res_rating != '0.0' and res_rating != '0':
+                    moviebox_details["rating"] = res_rating
+                if qualities:
+                    moviebox_details["qualities"] = qualities
+                if seasons_info:
+                    moviebox_details["seasons"] = seasons_info
+            except Exception as mb_exc:
+                print(f"Moviebox API details fetch notice: {mb_exc}")
 
         # TMDB Enrichment
         tmdb_data = None
@@ -2883,6 +2987,7 @@ async def get_movie_details(
                     moviebox_details["title"] = tmdb_data["title"]
                 if (not moviebox_details.get("description") or "pre-order" in moviebox_details["description"]) and tmdb_data.get("overview"):
                     moviebox_details["description"] = tmdb_data["overview"]
+                # NEVER override an authentic MovieBox poster if one is already present
                 if not moviebox_details.get("thumbnail") and tmdb_data.get("poster"):
                     moviebox_details["thumbnail"] = tmdb_data["poster"]
                 if (not moviebox_details.get("year") or moviebox_details["year"] == "N/A") and tmdb_data.get("year"):

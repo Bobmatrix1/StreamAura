@@ -1245,12 +1245,12 @@ const MovieDownloader: React.FC = () => {
   const currentSpotlight = spotlightItems[spotlightIndex];
   const spotlightThumbnail = currentSpotlight
     ? ((currentSpotlight.tmdb?.backdrop && currentSpotlight.tmdb.backdrop.trim()) || 
-       (currentSpotlight.tmdb?.poster && currentSpotlight.tmdb.poster.trim()) || 
-       (currentSpotlight.thumbnail && currentSpotlight.thumbnail.trim()) || null)
+       (currentSpotlight.thumbnail && currentSpotlight.thumbnail.trim()) || 
+       (currentSpotlight.tmdb?.poster && currentSpotlight.tmdb.poster.trim()) || null)
     : null;
 
   const detailPosterSrc = selectedMovie
-    ? ((selectedMovie.tmdb?.poster && selectedMovie.tmdb.poster.trim()) || (selectedMovie.thumbnail && selectedMovie.thumbnail.trim()) || null)
+    ? ((selectedMovie.thumbnail && selectedMovie.thumbnail.trim()) || (selectedMovie.tmdb?.poster && selectedMovie.tmdb.poster.trim()) || null)
     : null;
 
   const detailBackdropSrc = selectedMovie?.tmdb?.backdrop && selectedMovie.tmdb.backdrop.trim()
