@@ -230,13 +230,20 @@ export const getMovieDetails = async (
 };
 
 /**
- * Get YouTube trailer key for a movie or TV series
+ * Get YouTube trailer key and direct stream URL for a movie or TV series
  */
 export const getMovieTrailer = async (
   title: string,
   year?: string,
   type: string = 'movie'
-): Promise<ApiResponse<{ key: string; title: string; source: string; candidates?: string[] }>> => {
+): Promise<ApiResponse<{ 
+  key: string; 
+  title: string; 
+  source: string; 
+  streamUrl?: string; 
+  directUrl?: string; 
+  candidates?: string[] 
+}>> => {
   try {
     const params = new URLSearchParams({ title, type });
     if (year && year !== 'N/A' && year !== '0') {
@@ -253,6 +260,15 @@ export const getMovieTrailer = async (
       error: error.message || 'Failed to fetch trailer'
     };
   }
+};
+
+/**
+ * Get direct video stream URL for age-unrestricted playback
+ */
+export const getMovieTrailerStreamUrl = (keyOrTitle: string, title?: string): string => {
+  const params = new URLSearchParams({ key: keyOrTitle });
+  if (title) params.append('title', title);
+  return `${API_BASE_URL}/api/movies/trailer/stream?${params.toString()}`;
 };
 
 /**

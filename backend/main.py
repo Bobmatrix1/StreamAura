@@ -2638,13 +2638,22 @@ async def fetch_tmdb_details(title: str, media_type: str, year: Optional[str] = 
                 })
                 
             formatted_videos = []
-            for video in details.get('videos', {}).get('results', []):
+            raw_videos = details.get('videos', {}).get('results', [])
+            clean_vids = []
+            other_vids = []
+            for video in raw_videos:
                 if video.get('site') == 'YouTube':
-                    formatted_videos.append({
+                    v_name = (video.get('name') or '').lower()
+                    v_obj = {
                         "name": video.get('name'),
                         "key": video.get('key'),
                         "type": video.get('type')
-                    })
+                    }
+                    if any(w in v_name for w in ["red band", "redband", "age-restricted", "18+", "nsfw"]):
+                        other_vids.append(v_obj)
+                    else:
+                        clean_vids.append(v_obj)
+            formatted_videos = clean_vids + other_vids
                     
             formatted_reviews = []
             for review in details.get('reviews', {}).get('results', [])[:5]:
@@ -3011,12 +3020,13 @@ async def get_movie_details(
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 _trailer_cache: dict = {}
+_trailer_stream_cache: dict = {}
 
 @app.get("/api/movies/trailer")
 async def get_movie_trailer(title: str = Query(...), year: Optional[str] = Query(None), type: str = "movie"):
     """
-    Find official trailer YouTube ID for a movie or TV series.
-    Resolves active official trailer candidates with yt-dlp and TMDB.
+    Find official trailer YouTube ID and direct stream URL for a movie or TV series.
+    Resolves active official trailer candidates with yt-dlp and TMDB, bypassing age restrictions.
     """
     try:
         clean_title = title.strip()
@@ -3029,9 +3039,77 @@ async def get_movie_trailer(title: str = Query(...), year: Optional[str] = Query
         primary_title = f"{clean_title} Official Trailer"
         source = "youtube_search"
 
-        # 1. Try yt-dlp fast search for official trailers (finds active, embeddable YouTube uploads)
+        # 1. Try TMDB details first for verified official trailer keys
         try:
-            search_query = f"ytsearch3:{clean_title} {year or ''} official trailer".strip()
+            tmdb_data = await fetch_tmdb_details(clean_title, type, year)
+            if tmdb_data and tmdb_data.get("videos"):
+                videos = tmdb_data.get("videos", [])
+                # First pass: clean trailers (not red band)
+                for v in videos:
+                    k = v.get("key")
+                    v_name = (v.get("name") or "").lower()
+                    if k and k not in candidates and "red band" not in v_name and "redband" not in v_name:
+                        if v.get("type") in ("Trailer", "Teaser"):
+                            candidates.append(k)
+                # Second pass: other videos if no clean trailer found
+                for v in videos:
+                    k = v.get("key")
+                    if k and k not in candidates:
+                        candidates.append(k)
+                if candidates:
+                    source = "tmdb"
+        except Exception as te:
+            print(f"TMDB trailer lookup error: {te}")
+
+        # 2. Intelligent YouTube Search with studio ranking and strict title matching
+        STUDIO_KEYWORDS = [
+            'trailers', 'trailer', 'movieclips', 'pictures', 'films', 'studios', 'entertainment',
+            'cinema', 'sony', 'warner', 'paramount', 'universal', 'lionsgate', 'a24', 'ign',
+            'netflix', 'hbo', 'apple tv', 'prime video', 'mgm', 'disney', 'marvel', 'signature',
+            'studiocanal', 'filmax', 'kinocheck', 'rottentomatoes', 'fandango', 'film', 'movies', 'movie'
+        ]
+        NEGATIVE_KEYWORDS = [
+            'salute', 'tribute', 'fan made', 'fan-made', 'concept', 'parody', 'reaction',
+            'review', 'music video', 'official music video', 'audio', 'song', 'full movie',
+            'gameplay', 'walkthrough', "let's play", 'bed time stories', 'salute to', 'grl force'
+        ]
+        STOP_WORDS = {'the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'at', 'to', 'for', 'with', 'from', 'by'}
+
+        def score_trailer_candidate(entry):
+            e_title = (entry.get('title') or '').lower()
+            uploader = (entry.get('uploader') or '').lower()
+            for neg in NEGATIVE_KEYWORDS:
+                if neg in e_title or neg in uploader:
+                    return -1000
+
+            clean_t_lower = clean_title.lower()
+            query_words = [w for w in re.findall(r'\w+', clean_t_lower) if w not in STOP_WORDS and len(w) > 1]
+            matched_words = [w for w in query_words if w in e_title]
+
+            # Mandatory word matching: reject if less than 75% of query words exist in candidate
+            if query_words and (len(matched_words) / len(query_words)) < 0.75:
+                return -1000
+
+            score = 0
+            if clean_t_lower in e_title:
+                score += 80
+            else:
+                score += (len(matched_words) / len(query_words)) * 40
+
+            if 'trailer' in e_title or 'teaser' in e_title or 'preview' in e_title:
+                score += 30
+            if 'official trailer' in e_title:
+                score += 20
+            if any(k in uploader for k in STUDIO_KEYWORDS):
+                score += 25
+            if year and str(year) in e_title:
+                score += 15
+            if 'red band' in e_title or 'redband' in e_title or '18+' in e_title:
+                score -= 50
+            return score
+
+        try:
+            search_query = f"ytsearch8:{clean_title} {year or ''} movie trailer".strip()
             ydl_opts = {
                 'quiet': True,
                 'skip_download': True,
@@ -3045,56 +3123,77 @@ async def get_movie_trailer(title: str = Query(...), year: Optional[str] = Query
             
             info = await loop.run_in_executor(None, extract)
             if info and 'entries' in info and len(info['entries']) > 0:
+                scored = []
                 for entry in info['entries']:
                     if entry and entry.get('id'):
-                        vid_id = entry['id']
-                        if vid_id not in candidates:
-                            candidates.append(vid_id)
+                        s = score_trailer_candidate(entry)
+                        scored.append((s, entry))
+                scored.sort(key=lambda x: x[0], reverse=True)
+
+                for s, entry in scored:
+                    vid_id = entry.get('id')
+                    if s > 0 and vid_id and vid_id not in candidates:
+                        candidates.append(vid_id)
                         if not primary_title or primary_title == f"{clean_title} Official Trailer":
-                            primary_title = entry.get('title', primary_title)
+                            primary_title = entry.get('title') or primary_title
         except Exception as yte:
             print(f"yt-dlp trailer lookup error: {yte}")
 
-        # 2. Try TMDB details for additional trailer keys
-        try:
-            tmdb_data = await fetch_tmdb_details(clean_title, type, year)
-            if tmdb_data and tmdb_data.get("videos"):
-                videos = tmdb_data.get("videos", [])
-                for v in videos:
-                    k = v.get("key")
-                    if k and k not in candidates:
-                        if v.get("type") in ("Trailer", "Teaser"):
-                            candidates.append(k)
-        except Exception as te:
-            print(f"TMDB trailer lookup error: {te}")
-
-        # 3. Fallback search with broader query if no candidates yet
-        if not candidates:
-            try:
-                search_query_broad = f"ytsearch2:{clean_title} trailer".strip()
-                def extract_broad():
-                    with yt_dlp.YoutubeDL({'quiet': True, 'skip_download': True, 'extract_flat': True}) as ydl:
-                        return ydl.extract_info(search_query_broad, download=False)
-                info_broad = await loop.run_in_executor(None, extract_broad)
-                if info_broad and 'entries' in info_broad:
-                    for entry in info_broad['entries']:
-                        if entry and entry.get('id'):
-                            candidates.append(entry['id'])
-            except Exception as e_broad:
-                print(f"Broad trailer lookup error: {e_broad}")
-
         if candidates:
+            target_cand = candidates[0]
+            direct_url = None
+            headers = {}
+            
+            # Check cache first
+            if target_cand in _trailer_stream_cache:
+                direct_url = _trailer_stream_cache[target_cand].get("stream_url")
+                headers = _trailer_stream_cache[target_cand].get("headers", {})
+
+            if not direct_url:
+                try:
+                    ydl_pre = {
+                        'quiet': True,
+                        'no_warnings': True,
+                        'format': 'best[ext=mp4]/18/22/best',
+                        'extractor_args': {
+                            'youtube': {
+                                'player_client': ['android', 'web']
+                            }
+                        }
+                    }
+                    def ext():
+                        with yt_dlp.YoutubeDL(ydl_pre) as ydl:
+                            return ydl.extract_info(f"https://www.youtube.com/watch?v={target_cand}", download=False)
+                    inf = await asyncio.get_event_loop().run_in_executor(None, ext)
+                    if inf and inf.get('url'):
+                        direct_url = inf.get('url')
+                        headers = inf.get('http_headers', {})
+                        cached_item = {
+                            "time": time.time(),
+                            "stream_url": direct_url,
+                            "headers": headers
+                        }
+                        _trailer_stream_cache[target_cand] = cached_item
+                        _trailer_stream_cache[clean_title] = cached_item
+                except Exception as ex:
+                    print(f"Direct trailer stream extract error: {ex}")
+
+            stream_url = f"/api/movies/trailer/stream?key={target_cand}&title={urllib.parse.quote(clean_title)}"
             res_data = {
                 "success": True,
                 "data": {
-                    "key": candidates[0],
+                    "key": target_cand,
                     "candidates": candidates,
                     "title": primary_title,
+                    "directUrl": direct_url,
+                    "streamUrl": stream_url,
                     "source": source
                 },
-                "key": candidates[0],
+                "key": target_cand,
                 "candidates": candidates,
                 "title": primary_title,
+                "directUrl": direct_url,
+                "streamUrl": stream_url,
                 "source": source
             }
             _trailer_cache[cache_key] = {"time": now, "data": res_data}
@@ -3112,6 +3211,125 @@ async def get_movie_trailer(title: str = Query(...), year: Optional[str] = Query
             "error": str(e),
             "searchQuery": f"{title} official trailer"
         }
+
+@app.get("/api/movies/trailer/stream")
+async def stream_movie_trailer(
+    request: Request,
+    key: Optional[str] = Query(None),
+    url: Optional[str] = Query(None),
+    title: Optional[str] = Query(None)
+):
+    """
+    Streams trailer video directly with HTTP 206 Partial Content (Range requests),
+    completely bypassing YouTube age restrictions, embed restrictions, and regional blocks.
+    """
+    try:
+        target = key or url or title
+        if not target:
+            raise HTTPException(status_code=400, detail="Target video key or url required")
+
+        # If it's already a direct mp4 URL (e.g. from Moviebox CDN), redirect or proxy
+        if target.startswith("http") and not ("youtube.com" in target or "youtu.be" in target or "googlevideo.com" in target):
+            return RedirectResponse(target)
+
+        cache_id = target.strip()
+        now = time.time()
+        cached = _trailer_stream_cache.get(cache_id)
+        if not cached and key:
+            cached = _trailer_stream_cache.get(key.strip())
+        if not cached and title:
+            cached = _trailer_stream_cache.get(title.strip())
+
+        stream_url = None
+        headers = {}
+        
+        if cached and (now - cached.get("time", 0)) < 7200:
+            stream_url = cached.get("stream_url")
+            headers = cached.get("headers", {})
+
+        if not stream_url:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'format': 'best[ext=mp4]/18/22/best',
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android', 'web']
+                    }
+                }
+            }
+            if target.startswith("http"):
+                yt_target_url = target
+            elif target.startswith("search:"):
+                clean_target = target[7:].strip()
+                yt_target_url = f"ytsearch1:{clean_target}"
+            elif len(target) == 11 and " " not in target and "/" not in target and ":" not in target:
+                yt_target_url = f"https://www.youtube.com/watch?v={target}"
+            else:
+                yt_target_url = f"ytsearch1:{target} official trailer"
+
+            loop = asyncio.get_event_loop()
+            def extract():
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(yt_target_url, download=False)
+                    if info and 'entries' in info and len(info['entries']) > 0:
+                        info = info['entries'][0]
+                    return info.get('url'), info.get('http_headers', {})
+
+            stream_url, headers = await loop.run_in_executor(None, extract)
+            if stream_url:
+                cached_item = {
+                    "time": now,
+                    "stream_url": stream_url,
+                    "headers": headers
+                }
+                _trailer_stream_cache[cache_id] = cached_item
+                if key: _trailer_stream_cache[key.strip()] = cached_item
+                if title: _trailer_stream_cache[title.strip()] = cached_item
+
+        if not stream_url:
+            raise HTTPException(status_code=404, detail="Trailer stream could not be extracted")
+
+        # Range request support for smooth scrubbing and HTML5 video playback
+        range_header = request.headers.get("range")
+        req_headers = dict(headers)
+        if range_header:
+            req_headers["range"] = range_header
+
+        try:
+            client = httpx.AsyncClient(headers=req_headers, timeout=60.0, follow_redirects=True)
+            upstream_req = client.build_request("GET", stream_url)
+            upstream_resp = await client.send(upstream_req, stream=True)
+
+            async def stream_generator():
+                try:
+                    async for chunk in upstream_resp.aiter_bytes(chunk_size=131072):
+                        yield chunk
+                except Exception:
+                    pass
+                finally:
+                    await upstream_resp.aclose()
+                    await client.aclose()
+
+            resp_headers = {}
+            for h in ["content-type", "content-length", "content-range", "accept-ranges"]:
+                if h in upstream_resp.headers:
+                    resp_headers[h] = upstream_resp.headers[h]
+            if "accept-ranges" not in resp_headers:
+                resp_headers["accept-ranges"] = "bytes"
+            if "content-type" not in resp_headers:
+                resp_headers["content-type"] = "video/mp4"
+
+            return StreamingResponse(
+                stream_generator(),
+                status_code=upstream_resp.status_code,
+                headers=resp_headers
+            )
+        except Exception:
+            return RedirectResponse(stream_url)
+    except Exception as e:
+        print(f"Trailer Streaming Error: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.get("/share", response_class=HTMLResponse)
 async def dynamic_share_preview(

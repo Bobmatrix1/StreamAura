@@ -304,8 +304,13 @@ const MovieDownloader: React.FC = () => {
   const [highlightedMovieId, setHighlightedMovieId] = useState<string | null>(null);
   const [isCheckingCloud, setIsCheckingCloud] = useState(false);
   const [showPlayer, setShowPlayer] = useState(false);
-  const [activeTrailerKey, setActiveTrailerKey] = useState<string | null>(null);
+  const [activeTrailer, setActiveTrailer] = useState<{
+    title: string;
+    streamUrl: string;
+    fallbackUrl?: string;
+  } | null>(null);
   const [isLoadingTrailer, setIsLoadingTrailer] = useState(false);
+  const [isTrailerBuffering, setIsTrailerBuffering] = useState(true);
 
   // Series Specific State
   const [selectedSeason, setSelectedSeason] = useState<string | null>(null);
@@ -1156,29 +1161,35 @@ const MovieDownloader: React.FC = () => {
   };
 
   const handleWatchTrailer = async (movie: MovieInfo) => {
-    // 1. If TMDB videos already contain trailer key
-    const existingTrailer = movie.tmdb?.videos?.find(v => (v.type === 'Trailer' || v.type === 'Teaser') && v.key) || movie.tmdb?.videos?.[0];
-    if (existingTrailer?.key) {
-      setActiveTrailerKey(existingTrailer.key);
-      return;
-    }
-
+    const movieTitle = movie.title || 'Movie';
     try {
       setIsLoadingTrailer(true);
+      setIsTrailerBuffering(true);
+
       const res = await mediaApi.getMovieTrailer(
-        movie.title || '',
+        movieTitle,
         movie.year && movie.year !== 'N/A' && movie.year !== '0' ? movie.year : undefined,
         movie.mediaType || searchType || 'movie'
       );
-      const key = res.data?.key || (res as any)?.key;
-      if (res.success && key) {
-        setActiveTrailerKey(key);
-        return;
-      }
-      setActiveTrailerKey(`search:${movie.title} official trailer`);
+
+      const directUrl = res.data?.directUrl;
+      const streamUrl = res.data?.streamUrl 
+        ? `${mediaApi.API_BASE_URL}${res.data.streamUrl}` 
+        : mediaApi.getMovieTrailerStreamUrl(res.data?.key || movieTitle, movieTitle);
+
+      setActiveTrailer({
+        title: res.data?.title || `${movieTitle} — Official Trailer`,
+        streamUrl: directUrl || streamUrl,
+        fallbackUrl: streamUrl
+      });
     } catch (err) {
       console.error('Trailer lookup error:', err);
-      setActiveTrailerKey(`search:${movie.title} official trailer`);
+      const fallbackUrl = mediaApi.getMovieTrailerStreamUrl(movieTitle, movieTitle);
+      setActiveTrailer({
+        title: `${movieTitle} — Official Trailer`,
+        streamUrl: fallbackUrl,
+        fallbackUrl: fallbackUrl
+      });
     } finally {
       setIsLoadingTrailer(false);
     }
@@ -2472,13 +2483,13 @@ const MovieDownloader: React.FC = () => {
         document.body
       )}
 
-      {/* 9. YouTube Trailer Modal */}
+      {/* 9. StreamAura Cinema Trailer Modal */}
       {typeof document !== 'undefined' && createPortal(
         <AnimatePresence>
-          {activeTrailerKey && (
+          {activeTrailer && (
             <div 
               className="fixed inset-0 w-screen h-screen bg-black/90 backdrop-blur-md flex items-center justify-center z-[99999] p-3 sm:p-4"
-              onClick={() => setActiveTrailerKey(null)}
+              onClick={() => setActiveTrailer(null)}
             >
               <motion.div 
                 initial={{ scale: 0.9, opacity: 0 }} 
@@ -2487,34 +2498,62 @@ const MovieDownloader: React.FC = () => {
                 onClick={(e) => e.stopPropagation()}
                 className="relative w-full max-w-4xl rounded-3xl overflow-hidden border border-white/15 shadow-2xl bg-black flex flex-col"
               >
+                {/* Modal Header */}
                 <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-[#0a0e1c] border-b border-white/10 z-[3010]">
-                  <div className="flex items-center gap-2">
-                    <Play className="w-4 h-4 text-cyan-400 fill-current" />
-                    <span className="text-xs sm:text-sm font-black uppercase text-white tracking-wider">
-                      Official Trailer
-                    </span>
+                  <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                    <div className="w-7 h-7 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center flex-shrink-0">
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="text-xs sm:text-sm font-black uppercase text-white tracking-wider truncate">
+                        {activeTrailer.title} — Official Trailer
+                      </h4>
+                      <p className="text-[10px] text-cyan-300/80 font-medium">
+                        StreamAura Cinema Player
+                      </p>
+                    </div>
                   </div>
-                  <button 
-                    onClick={() => setActiveTrailerKey(null)}
-                    className="p-1.5 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all cursor-pointer"
-                    title="Close"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button 
+                      onClick={() => setActiveTrailer(null)}
+                      className="p-1.5 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all cursor-pointer"
+                      title="Close"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
-                <div className="relative w-full aspect-video bg-black">
-                  <iframe
-                    src={
-                      activeTrailerKey.startsWith('search:')
-                        ? `https://www.youtube-nocookie.com/embed?listType=search&list=${encodeURIComponent(activeTrailerKey.replace('search:', ''))}&autoplay=1&playsinline=1&rel=0`
-                        : `https://www.youtube-nocookie.com/embed/${activeTrailerKey}?autoplay=1&playsinline=1&rel=0&enablejsapi=1`
-                    }
-                    className="w-full h-full border-0"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-                    referrerPolicy="strict-origin-when-cross-origin"
-                    title="Trailer Player"
-                  />
+                {/* Video Area */}
+                <div className="relative w-full aspect-video bg-black flex items-center justify-center overflow-hidden">
+                  <video
+                    key={activeTrailer.streamUrl}
+                    src={activeTrailer.streamUrl}
+                    controls
+                    autoPlay
+                    playsInline
+                    className="w-full h-full object-contain bg-black"
+                    onLoadStart={() => setIsTrailerBuffering(true)}
+                    onCanPlay={() => setIsTrailerBuffering(false)}
+                    onPlaying={() => setIsTrailerBuffering(false)}
+                    onWaiting={() => setIsTrailerBuffering(true)}
+                    onError={() => {
+                      if (activeTrailer.fallbackUrl && activeTrailer.streamUrl !== activeTrailer.fallbackUrl) {
+                        setActiveTrailer(prev => prev ? ({ ...prev, streamUrl: prev.fallbackUrl! }) : null);
+                      } else {
+                        setIsTrailerBuffering(false);
+                      }
+                    }}
+                  >
+                    Your browser does not support HTML5 video streaming.
+                  </video>
+                  {isTrailerBuffering && (
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex flex-col items-center justify-center gap-2 pointer-events-none z-10 transition-opacity">
+                      <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+                      <p className="text-xs font-bold text-white/80 tracking-wide">Loading StreamAura Cinema Stream...</p>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             </div>
