@@ -130,6 +130,9 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
               case 'episode_sync':
                 setRoomState(prev => prev ? { ...prev, currentEpisodeIndex: data.index, movieTime: 0, status: 'playing' } : null);
                 break;
+              case 'room_state_update':
+                setRoomState(prev => ({ ...(prev || {}), ...(data.state || {}), mutedAll: data.mutedAll !== undefined ? data.mutedAll : (prev?.mutedAll ?? false) } as CinemaState));
+                break;
               case 'user_list':
                 setActiveUserUids(data.users || []);
                 setViewers(data.users ? data.users.length : 0);
@@ -371,6 +374,12 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
     setIsVoiceActive(false);
   };
 
+  const toggleMuteAll = useCallback((muted: boolean) => {
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({ type: 'mute_all', mutedAll: muted, uid: user?.uid }));
+    }
+  }, [user]);
+
   return {
     roomState,
     viewers,
@@ -380,6 +389,7 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
     isMuted,
     syncPlayback,
     syncEpisode,
+    toggleMuteAll,
     sendChatMessage,
     joinVoice,
     leaveVoice,

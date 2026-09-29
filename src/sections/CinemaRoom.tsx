@@ -32,7 +32,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { CinemaStoreModal } from './CinemaStoreModal';
 import { API_BASE_URL } from '../api/mediaApi';
 import { auth, db, uploadFile, logUserAction, logPaymentEvent, logInviteEvent } from '@/lib/firebase';
-import { doc, getDoc, collection, query, where, getDocs, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, deleteDoc, collection, query, where, getDocs, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { initializePaystackPayment, verifyPaymentOnBackend } from '../api/paymentApi';
 import { CinemaLiveRoom } from './CinemaLiveRoom';
 import { setCinemaActive } from '@/lib/appLifecycle';
@@ -63,6 +63,7 @@ const CinemaRoom: React.FC = () => {
   const [slides, setSlides] = useState<CinemaSlide[]>([]);
   const [trailers, setTrailers] = useState<any[]>([]);
   const [upcoming, setUpcoming] = useState<any[]>([]);
+  const [selectedTrailer, setSelectedTrailer] = useState<any | null>(null);
   
   // Live Room State
   const [activeRoom, setActiveRoom] = useState<any | null>(null);
@@ -248,8 +249,16 @@ const CinemaRoom: React.FC = () => {
         if (active) setSlides(snap.docs.map(d => ({ id: d.id, ...d.data() } as CinemaSlide)));
       }, (err) => console.error('Carousel Sync Error:', err));
 
-      unsubTrailers = onSnapshot(query(collection(db, 'cinema_trailers'), orderBy('createdAt', 'desc')), (snap) => {
-        if (active) setTrailers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      unsubTrailers = onSnapshot(collection(db, 'cinema_trailers'), (snap) => {
+        if (active) {
+          const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          list.sort((a: any, b: any) => {
+            const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (typeof a.createdAt === 'number' ? a.createdAt : 0);
+            const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (typeof b.createdAt === 'number' ? b.createdAt : 0);
+            return timeB - timeA;
+          });
+          setTrailers(list);
+        }
       }, (err) => console.error('Trailers Sync Error:', err));
 
       unsubUpcoming = onSnapshot(query(collection(db, 'cinema_upcoming'), orderBy('createdAt', 'desc')), (snap) => {
@@ -485,6 +494,17 @@ const CinemaRoom: React.FC = () => {
       showError("Failed to delete room");
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleDeleteTrailer = async (trailerId: string) => {
+    if (!window.confirm("Are you sure you want to delete this trailer?")) return;
+    try {
+      setTrailers(prev => prev.filter(t => t.id !== trailerId));
+      await deleteDoc(doc(db, 'cinema_trailers', trailerId));
+      showSuccess("Trailer deleted successfully");
+    } catch (err: any) {
+      showError("Failed to delete trailer: " + (err.message || ''));
     }
   };
 
@@ -1040,30 +1060,128 @@ const CinemaRoom: React.FC = () => {
           <motion.div
             key={trailer.id}
             whileHover={{ y: -5 }}
-            className="group relative cursor-pointer"
-            onClick={() => window.open(trailer.videoUrl, '_blank')}
+            className="group relative"
           >
-            <Card className="overflow-hidden glass-card border-white/5">
-              <div className="relative aspect-video overflow-hidden">
+            <Card className="overflow-hidden glass-card border-white/5 h-full flex flex-col">
+              <div 
+                className="relative aspect-[16/9] overflow-hidden cursor-pointer"
+                onClick={() => setSelectedTrailer(trailer)}
+              >
                 <img 
                   src={trailer.thumbnail} 
-                  alt={trailer.title} 
-                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
+                  alt={trailer.title || trailer.movie_title} 
+                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
                 />
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30 hover:bg-white/30 transition-colors shadow-2xl">
-                    <Play className="w-6 h-6 text-white fill-current" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent" />
+                
+                {/* Category & Trailer Badges */}
+                <div className="absolute top-3 left-3 flex items-center gap-1.5 flex-wrap z-10">
+                  <Badge className="bg-blue-600 hover:bg-blue-600 border-none font-black text-[9px] tracking-widest uppercase shadow-lg shadow-blue-600/20">
+                    TRAILER
+                  </Badge>
+                  {trailer.category && (
+                    <Badge variant="outline" className="bg-black/60 backdrop-blur-md border-white/20 text-[9px] font-bold uppercase tracking-wider text-white">
+                      {trailer.category}
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Top Right Action Icons: Share & Delete */}
+                <div className="absolute top-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                   <button 
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      if (navigator.share) {
+                        navigator.share({ title: trailer.title || trailer.movie_title, text: `Watch trailer for ${trailer.title || trailer.movie_title} on StreamAura`, url: window.location.href });
+                      } else {
+                        navigator.clipboard.writeText(trailer.videoUrl);
+                        showSuccess("Trailer link copied!");
+                      }
+                    }}
+                    className="p-2 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white hover:bg-primary transition-all"
+                    title="Share Trailer"
+                   >
+                     <Share2 className="w-4 h-4" />
+                   </button>
+                   {(isAdmin || trailer.host_uid === auth.currentUser?.uid) && (
+                     <button 
+                      onClick={(e) => { e.stopPropagation(); handleDeleteTrailer(trailer.id); }}
+                      className="p-2 rounded-full bg-rose-500/20 backdrop-blur-md border border-rose-500/30 text-rose-500 hover:bg-rose-500 hover:text-white transition-all"
+                      title="Delete Trailer"
+                     >
+                       <Trash2 className="w-4 h-4" />
+                     </button>
+                   )}
+                </div>
+
+                {/* Play Button Overlay */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="w-14 h-14 rounded-full bg-blue-600/90 text-white backdrop-blur-md flex items-center justify-center border border-white/30 shadow-2xl group-hover:scale-110 transition-transform">
+                    <Play className="w-6 h-6 fill-current translate-x-0.5" />
                   </div>
                 </div>
-                {trailer.duration && (
-                  <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur-md px-2 py-1 rounded-md text-[10px] font-black tracking-widest text-blue-400">
-                    {trailer.duration}
-                  </div>
-                )}
+
+                {/* Bottom Bar: Host info & Duration */}
+                <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between z-10">
+                  {trailer.host_name ? (
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center border border-white/20 shadow-lg">
+                        <span className="text-[10px] font-black tracking-widest text-white">{(trailer.host_name || 'H')[0]}</span>
+                      </div>
+                      <span className="text-xs font-bold text-white/90 drop-shadow-md">by {trailer.host_name}</span>
+                    </div>
+                  ) : <div />}
+                  {trailer.duration && (
+                    <div className="bg-black/80 backdrop-blur-md px-2 py-0.5 rounded-md text-[10px] font-black tracking-widest text-blue-400 border border-white/10">
+                      {trailer.duration}
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="p-4">
-                <h3 className="font-bold text-base truncate">{trailer.title}</h3>
-                <p className="text-[10px] text-muted-foreground mt-1 font-black uppercase tracking-widest">OFFICIAL TRAILER</p>
+
+              {/* Movie Details Section */}
+              <div className="p-5 flex-1 flex flex-col">
+                <div className="flex justify-between items-start mb-2">
+                  <h3 className="font-black text-lg leading-tight line-clamp-1">{trailer.title || trailer.movie_title}</h3>
+                </div>
+
+                {trailer.description ? (
+                  <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed mb-4">
+                    {trailer.description}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground/60 italic mb-4">
+                    Official movie trailer and preview for {trailer.title || trailer.movie_title}.
+                  </p>
+                )}
+
+                {/* Footer Controls: Watch Preview & Join Room (if active) */}
+                <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between gap-2">
+                  <Button 
+                    onClick={() => setSelectedTrailer(trailer)} 
+                    size="sm" 
+                    variant="outline"
+                    className="rounded-xl px-4 text-xs font-bold border-white/10 hover:bg-white/10 flex items-center gap-1.5"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current text-blue-400" />
+                    Watch Preview
+                  </Button>
+
+                  {trailer.roomId && rooms.some(r => r.id === trailer.roomId) ? (
+                    <Button 
+                      onClick={() => handleJoinRoomById(trailer.roomId)} 
+                      size="sm" 
+                      className="rounded-xl px-4 text-xs font-bold gradient-bg shadow-lg shadow-primary/20 flex items-center gap-1.5"
+                    >
+                      <Tv className="w-3.5 h-3.5" />
+                      Join Room
+                    </Button>
+                  ) : trailer.roomId ? (
+                    <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/70">
+                      Room Created
+                    </span>
+                  ) : null}
+                </div>
               </div>
             </Card>
           </motion.div>
@@ -1958,6 +2076,92 @@ const CinemaRoom: React.FC = () => {
               </div>
            </motion.div>
         </div>, 
+        document.body
+      )}
+
+      {/* Trailer Video Player Modal */}
+      {selectedTrailer && typeof document !== 'undefined' && createPortal(
+        <div 
+          onClick={() => setSelectedTrailer(null)}
+          className="fixed inset-0 z-[5000] flex items-center justify-center p-3 sm:p-4 md:p-8 bg-black/90 backdrop-blur-xl font-sans"
+        >
+          <motion.div 
+            onClick={(e) => e.stopPropagation()}
+            initial={{ scale: 0.92, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.92, opacity: 0, y: 20 }}
+            className="w-full max-w-4xl bg-zinc-950 border border-white/10 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+          >
+            {/* Modal Header */}
+            <div className="p-4 md:p-5 border-b border-white/10 flex items-center justify-between bg-zinc-900/60">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center shrink-0">
+                  <Film className="w-5 h-5 text-blue-400" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-blue-400">Official Trailer</span>
+                    {selectedTrailer.category && (
+                      <Badge variant="outline" className="text-[8px] py-0 px-1.5 uppercase font-bold text-white/60 border-white/10">
+                        {selectedTrailer.category}
+                      </Badge>
+                    )}
+                  </div>
+                  <h3 className="text-base md:text-lg font-black text-white truncate">{selectedTrailer.title || selectedTrailer.movie_title}</h3>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedTrailer(null)}
+                className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/60 hover:text-white transition-colors shrink-0 ml-2"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Video Player Container */}
+            <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden">
+              <video 
+                key={selectedTrailer.videoUrl}
+                src={selectedTrailer.videoUrl} 
+                controls 
+                autoPlay 
+                playsInline
+                className="w-full h-full object-contain"
+              />
+            </div>
+
+            {/* Trailer Details & Actions Footer */}
+            <div className="p-5 md:p-6 bg-zinc-900/80 border-t border-white/5 space-y-4 overflow-y-auto">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1 flex-1">
+                  <h4 className="text-sm font-black uppercase tracking-tight text-white">Movie Overview</h4>
+                  <p className="text-xs md:text-sm text-muted-foreground leading-relaxed">
+                    {selectedTrailer.description || `Official preview for ${selectedTrailer.title || selectedTrailer.movie_title}. Join the live theater room to watch together.`}
+                  </p>
+                  {selectedTrailer.host_name && (
+                    <p className="text-[11px] font-medium text-white/40 pt-1">
+                      Cinema room hosted by <span className="text-white/80 font-bold">{selectedTrailer.host_name}</span>
+                    </p>
+                  )}
+                </div>
+
+                {selectedTrailer.roomId && rooms.some(r => r.id === selectedTrailer.roomId) && (
+                  <Button 
+                    onClick={() => {
+                      const rId = selectedTrailer.roomId;
+                      setSelectedTrailer(null);
+                      handleJoinRoomById(rId);
+                    }}
+                    className="gradient-bg rounded-2xl px-6 py-6 font-black uppercase text-xs tracking-wider shadow-xl shadow-primary/20 shrink-0 flex items-center gap-2 hover:scale-105 transition-transform"
+                  >
+                    <Tv className="w-4 h-4" />
+                    Enter Cinema Room Now
+                  </Button>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        </div>,
         document.body
       )}
     </div>

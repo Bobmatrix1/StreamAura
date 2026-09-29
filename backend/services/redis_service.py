@@ -51,11 +51,10 @@ async def get_room_state(room_id: str) -> dict:
 
 async def update_room_time(room_id: str, current_time: float, status: str = "playing"):
     # Store current playback time and status (playing/paused)
-    data = {"time": current_time, "status": status, "updated_at": time.time() if redis_client else 0}
+    data = {"time": float(current_time), "status": status, "updated_at": time.time()}
     key = f"room:{room_id}:time"
     if redis_client:
         try:
-            data["updated_at"] = (await redis_client.time())[0]
             await redis_client.set(key, json.dumps(data))
             return
         except Exception: pass
@@ -73,7 +72,13 @@ async def get_room_time(room_id: str):
         data_str = _memory_store.get(key)
         
     if data_str:
-        return json.loads(data_str)
+        data = json.loads(data_str)
+        if data.get("status") == "playing" and data.get("updated_at"):
+            now = time.time()
+            elapsed = now - float(data.get("updated_at", now))
+            if 0 < elapsed < 86400:
+                data["time"] = float(data.get("time", 0.0)) + elapsed
+        return data
     return None
 
 async def add_user_to_room(room_id: str, uid: str, seat: str = None):

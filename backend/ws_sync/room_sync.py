@@ -249,13 +249,14 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str = No
                 await manager.broadcast({"type": "user_list", "users": users}, room_id)
                 
             elif event_type in ["play", "pause", "seek"]:
-                # Check if caller is room host or admin
+                # Check if caller is room host, admin, or co-host
                 db = firestore.client()
                 room_doc = db.collection("cinema_rooms").document(room_id).get()
                 if room_doc.exists:
                     room_data = room_doc.to_dict()
-                    if room_data.get("host_uid") == uid or is_admin:
-                        new_time = message.get("time", 0.0)
+                    is_cohost = bool(room_data.get("coHosts", {}).get(uid))
+                    if room_data.get("host_uid") == uid or is_admin or is_cohost:
+                        new_time = float(message.get("time", 0.0))
                         status = "playing" if event_type != "pause" else "paused"
                         await update_room_time(room_id, new_time, status)
                         await update_activity(room_id)
@@ -266,33 +267,56 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str = No
                             "uid": uid
                         }, room_id)
                     else:
-                        await websocket.send_json({"type": "error", "message": "Only the host can control playback."})
+                        await websocket.send_json({"type": "error", "message": "Only the host, co-host, or admin can control playback."})
 
             elif event_type == "next_episode":
-                # Check if caller is room host or admin
+                # Check if caller is room host, admin, or co-host
                 db = firestore.client()
                 room_doc = db.collection("cinema_rooms").document(room_id).get()
                 if room_doc.exists:
                     room_data = room_doc.to_dict()
-                    if room_data.get("host_uid") == uid or is_admin:
+                    is_cohost = bool(room_data.get("coHosts", {}).get(uid))
+                    if room_data.get("host_uid") == uid or is_admin or is_cohost:
                         state = await get_room_state(room_id)
                         state["currentEpisodeIndex"] = message.get("index", 0)
+                        state["status"] = "playing"
+                        state["movieTime"] = 0.0
                         await set_room_state(room_id, state)
+                        await update_room_time(room_id, 0.0, "playing")
                         await manager.broadcast({
                             "type": "episode_sync",
                             "index": message.get("index", 0),
                             "uid": uid
                         }, room_id)
                     else:
-                        await websocket.send_json({"type": "error", "message": "Only the host can change episodes."})
+                        await websocket.send_json({"type": "error", "message": "Only the host or co-host can change episodes."})
 
-            elif event_type == "kick":
-                # Check if caller is room host or admin
+            elif event_type == "mute_all":
                 db = firestore.client()
                 room_doc = db.collection("cinema_rooms").document(room_id).get()
                 if room_doc.exists:
                     room_data = room_doc.to_dict()
-                    if room_data.get("host_uid") == uid or is_admin:
+                    is_cohost = bool(room_data.get("coHosts", {}).get(uid))
+                    if room_data.get("host_uid") == uid or is_admin or is_cohost:
+                        muted_val = bool(message.get("mutedAll", False))
+                        state = await get_room_state(room_id)
+                        state["mutedAll"] = muted_val
+                        await set_room_state(room_id, state)
+                        db.collection("cinema_rooms").document(room_id).update({"mutedAll": muted_val})
+                        await manager.broadcast({
+                            "type": "room_state_update",
+                            "mutedAll": muted_val,
+                            "state": state
+                        }, room_id)
+
+            elif event_type == "kick":
+                # Check if caller is room host, admin, or co-host
+                db = firestore.client()
+                room_doc = db.collection("cinema_rooms").document(room_id).get()
+                if room_doc.exists:
+                    room_data = room_doc.to_dict()
+                    is_cohost = bool(room_data.get("coHosts", {}).get(uid))
+                    if room_data.get("host_uid") == uid or is_admin or is_cohost:
                         target_uid = message.get("target_uid")
                         if target_uid:
                             await manager.send_to_user({"type": "kicked"}, target_uid)

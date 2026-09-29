@@ -696,6 +696,29 @@ async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(ge
     # Save to Firestore
     db.collection("cinema_rooms").document(room_id).set(room_data)
     
+    # Automatically register trailer in cinema_trailers with movie details if trailer_url is present
+    if request.trailer_url:
+        try:
+            trailer_doc_data = {
+                "title": request.movie_title,
+                "movie_title": request.movie_title,
+                "thumbnail": request.movie_cover_image,
+                "videoUrl": request.trailer_url,
+                "description": request.description or "",
+                "category": request.category or "General",
+                "duration": "Trailer",
+                "roomId": room_id,
+                "roomName": request.room_name,
+                "host_uid": uid,
+                "host_name": user.get('name', 'Host'),
+                "roomType": request.room_type,
+                "status": "upcoming" if request.scheduled_start_time else "live",
+                "createdAt": firestore.SERVER_TIMESTAMP
+            }
+            db.collection("cinema_trailers").document(f"trailer_{room_id}").set(trailer_doc_data)
+        except Exception as te:
+            print(f"Error registering cinema trailer: {te}")
+    
     # Initialize live state in Redis
     initial_state = {
         "status": "waiting" if request.scheduled_start_time else "playing",
@@ -1400,6 +1423,15 @@ async def delete_cinema_room(room_id: str, current_user = Depends(get_current_us
 
     # 2. Delete from Firestore
     room_ref.delete()
+    
+    # 3. Clean up associated trailer in cinema_trailers
+    try:
+        db.collection("cinema_trailers").document(f"trailer_{room_id}").delete()
+        matching_trailers = db.collection("cinema_trailers").where("roomId", "==", room_id).get()
+        for t_doc in matching_trailers:
+            t_doc.reference.delete()
+    except Exception as te:
+        print(f"Trailer DB Cleanup Error: {str(te)}")
     
     return {"success": True}
 
