@@ -3,7 +3,16 @@ from pydantic import BaseModel
 from core.security import get_current_user, get_current_admin
 from core.config import settings
 from models.cinema import RoomCreateRequest, PresignedUrlRequest, PaystackInitRequest, AgoraTokenRequest, WithdrawalRequest, MultipartInitiateRequest, MultipartPartRequest, MultipartCompleteRequest
-from services.r2_service import generate_presigned_upload_url, generate_presigned_download_url, initiate_multipart_upload, generate_presigned_part_url, complete_multipart_upload, delete_object
+from services.r2_service import (
+    generate_presigned_upload_url, 
+    generate_presigned_download_url, 
+    get_presigned_stream_url,
+    get_s3_client,
+    initiate_multipart_upload, 
+    generate_presigned_part_url, 
+    complete_multipart_upload, 
+    delete_object
+)
 from services.agora_service import generate_rtc_token
 from services.transactpay_service import initialize_transaction, verify_transaction, initiate_payout, get_banks, resolve_account_number
 from services.redis_service import set_room_state
@@ -77,7 +86,7 @@ def extract_r2_key(url: str) -> Optional[str]:
         
     return key
 
-from core.payouts import calculate_payout_split
+from core.payouts import calculate_payout_split, record_platform_cut
 
 @router.post("/verify-wallet-funding")
 async def verify_wallet_funding(reference: str, user: dict = Depends(get_current_user)):
@@ -248,6 +257,18 @@ async def transactpay_webhook(request: Request):
                 
                 platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, amount_naira, db, transaction=transaction)
                 
+                # Record 20% Platform Cut
+                if platform_cut > 0:
+                    record_platform_cut(
+                        db=db,
+                        amount=platform_cut,
+                        currency="cash",
+                        source="cinema_ticket",
+                        desc=f"20% platform cut from {room_data.get('room_name', 'Cinema')} ticket sale",
+                        room_id=room_id,
+                        transaction=transaction
+                    )
+                
                 # Update Host Wallet
                 if host_uid:
                     wallet_ref = db.collection("room_wallets").document(host_uid)
@@ -354,6 +375,71 @@ async def get_presigned_url(request: PresignedUrlRequest, user: dict = Depends(g
         
     return urls
 
+@router.get("/stream-url")
+async def get_cinema_stream_url(
+    url: Optional[str] = None, 
+    room_id: Optional[str] = None, 
+    episode_index: int = 0,
+    user: Optional[dict] = Depends(get_current_user)
+):
+    """
+    Resolves the playable stream URL for a cinema room or video file.
+    Generates high-speed, secure Cloudflare R2 presigned download URLs for movies and series episodes.
+    """
+    target_url = url
+    db = get_db()
+    
+    if room_id:
+        room_doc = db.collection("cinema_rooms").document(room_id).get()
+        if not room_doc.exists:
+            raise HTTPException(status_code=404, detail="Cinema room not found")
+        room_data = room_doc.to_dict()
+        
+        # Access Verification for paid rooms
+        if room_data.get("room_type") == "paid" and user:
+            uid = user.get("uid")
+            is_admin = check_is_admin(user)
+            if room_data.get("host_uid") != uid and not is_admin:
+                passes = db.collection("room_access_passes") \
+                           .where("room_id", "==", room_id) \
+                           .where("user_uid", "==", uid) \
+                           .limit(1).get()
+                if not passes:
+                    raise HTTPException(status_code=403, detail="Ticket required to access room stream")
+
+        if room_data.get("content_type") == "series":
+            episodes = room_data.get("episodes", [])
+            if 0 <= episode_index < len(episodes):
+                target_url = episodes[episode_index].get("url")
+            elif episodes:
+                target_url = episodes[0].get("url")
+        else:
+            target_url = room_data.get("movie_file") or room_data.get("trailer_url")
+
+    if not target_url:
+        raise HTTPException(status_code=400, detail="No video URL or room ID provided")
+
+    # If it's an R2 URL or key, generate a direct signed download URL
+    if is_r2_url(target_url):
+        key = extract_r2_key(target_url)
+        if key:
+            signed_url = get_presigned_stream_url(key, settings.R2_BUCKET_MOVIES)
+            if not signed_url:
+                signed_url = get_presigned_stream_url(key, settings.R2_BUCKET_ASSETS)
+            if signed_url:
+                return {
+                    "success": True, 
+                    "stream_url": signed_url, 
+                    "key": key,
+                    "original_url": target_url
+                }
+
+    return {
+        "success": True, 
+        "stream_url": target_url, 
+        "original_url": target_url
+    }
+
 @router.post("/rooms/{room_id}/pay-referral")
 async def pay_with_referral_balance(room_id: str, user: dict = Depends(get_current_user)):
     """
@@ -453,12 +539,23 @@ async def pay_with_referral_balance(room_id: str, user: dict = Depends(get_curre
                     "timestamp": firestore.SERVER_TIMESTAMP
                 })
                 
-            # 6. Update Platform Global Stats
+            # 6. Update Platform Global Stats & Platform Financials
             transaction.set(stats_ref, {
                 "payments.success.count": firestore.Increment(1),
                 "payments.success.totalAmount": firestore.Increment(price),
                 "payments.platform_fees": firestore.Increment(platform_cut)
             }, merge=True)
+            
+            if platform_cut > 0:
+                record_platform_cut(
+                    db=db,
+                    amount=platform_cut,
+                    currency="cash",
+                    source="cinema_ticket",
+                    desc=f"20% platform cut from {room.get('room_name', 'Cinema')} referral ticket purchase",
+                    room_id=room_id,
+                    transaction=transaction
+                )
             
             return {"success": True, "message": "Ticket purchased with referral balance!"}
             
@@ -486,23 +583,23 @@ async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(ge
     # --- COST CALCULATION & DEDUCTIONS ---
     normal_to_deduct = 0
     referral_to_deduct = 0
-    bonus_to_deduct = 0
+    auracoin_to_deduct = 0
 
-    # 1. Series/Episode Cost
+    # 1. Series/Episode Cost (50 AuraCoins or ₦50 Cash per episode)
     if request.content_type == "series" and request.episodes:
         ep_count = len(request.episodes)
-        if request.payment_wallet_episodes == "bonus":
-            bonus_to_deduct += (ep_count * 50) # Discounted
+        if request.payment_wallet_episodes in ["auracoin", "bonus"]:
+            auracoin_to_deduct += (ep_count * 50) # 50 AuraCoins per episode
         elif request.payment_wallet_episodes == "referral":
-            referral_to_deduct += (ep_count * 100) # Normal rate
+            referral_to_deduct += (ep_count * 50) # ₦50 Referral per episode
         else:
-            normal_to_deduct += (ep_count * 100) # Normal rate
+            normal_to_deduct += (ep_count * 50) # ₦50 Cash per episode
 
     # 2. Private Room Cost
     if request.room_type == "private":
         seats = max(1, request.max_seats or 1)
-        if request.payment_wallet_private == "bonus":
-            bonus_to_deduct += (seats * 2500) # Premium rate for bonus
+        if request.payment_wallet_private in ["auracoin", "bonus"]:
+            auracoin_to_deduct += (seats * 2500) # Premium rate for auracoin
         elif request.payment_wallet_private == "referral":
             referral_to_deduct += (seats * 1000) # Normal rate
         else:
@@ -522,9 +619,10 @@ async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(ge
             wallet_snapshot = wallet_ref.get(transaction=transaction)
             w_data = wallet_snapshot.to_dict() if wallet_snapshot.exists else {}
             
-            if bonus_to_deduct > 0:
-                if user_data.get("bonusBalance", 0) < bonus_to_deduct:
-                    raise HTTPException(status_code=400, detail="Insufficient bonus balance for series discount.")
+            if auracoin_to_deduct > 0:
+                user_coins = float(user_data.get("auraCoins") or user_data.get("auraCoin") or user_data.get("bonusBalance") or 0)
+                if user_coins < auracoin_to_deduct:
+                    raise HTTPException(status_code=400, detail=f"Insufficient AuraCoins balance. You need {auracoin_to_deduct} AuraCoins ({ep_count if request.content_type == 'series' else seats} x 50 AuraCoins).")
                     
             if referral_to_deduct > 0:
                 if user_data.get("referralBalance", 0) < referral_to_deduct:
@@ -536,8 +634,10 @@ async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(ge
                     
             # Perform Writes
             user_updates = {}
-            if bonus_to_deduct > 0:
-                user_updates["bonusBalance"] = firestore.Increment(-bonus_to_deduct)
+            if auracoin_to_deduct > 0:
+                user_updates["auraCoins"] = firestore.Increment(-auracoin_to_deduct)
+                if "bonusBalance" in user_data:
+                    user_updates["bonusBalance"] = firestore.Increment(-auracoin_to_deduct)
             if referral_to_deduct > 0:
                 user_updates["referralBalance"] = firestore.Increment(-referral_to_deduct)
             if user_updates:
@@ -557,6 +657,17 @@ async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(ge
                         "host_balance": firestore.Increment(-remaining),
                         "balance": firestore.Increment(-normal_to_deduct)
                     })
+
+            # Record AuraCoins spend activity
+            if auracoin_to_deduct > 0:
+                act_ref = db.collection("game_wallets").document(uid).collection("activity").document()
+                transaction.set(act_ref, {
+                    "type": "series_episode_stream",
+                    "currency": "auracoin",
+                    "amount": -auracoin_to_deduct,
+                    "desc": f"Watch/Host Series '{request.movie_title}' ({ep_count if request.content_type == 'series' else 1} eps)",
+                    "timestamp": firestore.SERVER_TIMESTAMP
+                })
                     
         transactional_deduct(transaction)
     except HTTPException:
@@ -709,6 +820,18 @@ async def verify_room_payment(room_id: str, reference: str, user: dict = Depends
             
             platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, amount, db, transaction=transaction)
             
+            # Record 20% Platform Cut
+            if platform_cut > 0:
+                record_platform_cut(
+                    db=db,
+                    amount=platform_cut,
+                    currency="cash",
+                    source="cinema_ticket",
+                    desc=f"20% platform cut from {room_data.get('room_name', 'Cinema')} ticket purchase",
+                    room_id=room_id,
+                    transaction=transaction
+                )
+            
             # 1. Grant access pass
             pass_id = f"pass_{uuid.uuid4().hex}"
             pass_ref = db.collection("room_access_passes").document(pass_id)
@@ -769,6 +892,24 @@ async def request_withdrawal(request: WithdrawalRequest, user: dict = Depends(ge
     db = get_db()
     uid = user['uid']
     
+    # Input sanitization and strict validation
+    try:
+        amount = round(float(request.amount), 2)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid withdrawal amount")
+
+    if amount < 100.0:
+        raise HTTPException(status_code=400, detail="Minimum withdrawal amount is ₦100.00")
+
+    account_number = str(request.account_number or "").strip()
+    if len(account_number) != 10 or not account_number.isdigit():
+        raise HTTPException(status_code=400, detail="Account number must be a valid 10-digit NUBAN number")
+
+    account_name = str(request.account_name or "").strip()
+    bank_code = str(request.bank_code or "").strip()
+    if not account_name or not bank_code:
+        raise HTTPException(status_code=400, detail="Bank code and verified account name are required")
+
     try:
         balance_field = ""
         user_ref = None
@@ -797,8 +938,8 @@ async def request_withdrawal(request: WithdrawalRequest, user: dict = Depends(ge
         else:
             fee_percentage = 1
 
-        fee_amount = (request.amount * fee_percentage) / 100 if fee_percentage > 0 else 0.0
-        payout_amount = request.amount - fee_amount
+        fee_amount = round((amount * fee_percentage) / 100, 2) if fee_percentage > 0 else 0.0
+        payout_amount = round(amount - fee_amount, 2)
         
         # Resolve bank name from request or user profile
         bank_name = request.bank_name or ""
@@ -817,13 +958,13 @@ async def request_withdrawal(request: WithdrawalRequest, user: dict = Depends(ge
             "user_uid": uid,
             "user_name": user.get("name", "User"),
             "user_email": user.get("email"),
-            "amount": request.amount,
+            "amount": amount,
             "payout_amount": payout_amount,
             "fee_amount": fee_amount,
-            "bank_code": request.bank_code,
+            "bank_code": bank_code,
             "bank_name": bank_name,
-            "account_number": request.account_number,
-            "account_name": request.account_name,
+            "account_number": account_number,
+            "account_name": account_name,
             "status": "pending",
             "refunded": False,
             "type": request.balance_type,
@@ -866,24 +1007,24 @@ async def request_withdrawal(request: WithdrawalRequest, user: dict = Depends(ge
             else:
                 current_balance = float(data.get(balance_field, 0) or 0)
             
-            if current_balance < request.amount or request.amount <= 0:
+            if current_balance < amount:
                 raise HTTPException(status_code=400, detail=f"Insufficient {request.balance_type} balance. Available: ₦{current_balance:,.2f}")
                 
             # 1. Deduct balance atomically
             if balance_field == "vendor_balance":
-                new_v_bal = current_balance - request.amount
+                new_v_bal = current_balance - amount
                 updates = {"vendor_balance": new_v_bal}
             else:
-                updates = {balance_field: firestore.Increment(-request.amount)}
+                updates = {balance_field: firestore.Increment(-amount)}
                 if request.balance_type == "funded":
-                    updates["balance"] = firestore.Increment(-request.amount)
+                    updates["balance"] = firestore.Increment(-amount)
             
             transaction.set(user_ref, updates, merge=True)
             
             # 2. Save withdrawal document atomically in the SAME transaction
             wd_ref = db.collection("withdrawals").document(withdrawal_id)
             withdrawal_data["balance_before"] = current_balance
-            withdrawal_data["balance_after"] = current_balance - request.amount
+            withdrawal_data["balance_after"] = current_balance - amount
             transaction.set(wd_ref, withdrawal_data)
             
             return current_balance
@@ -1087,6 +1228,17 @@ async def process_payout(withdrawal_id: str, action: str, reason: str = None, ad
                 "processed_at": firestore.SERVER_TIMESTAMP,
                 "processed_by": admin.get("email", "admin")
             })
+
+            # Record Platform Withdrawal Fee Revenue
+            fee_amount = float(wd_data.get("fee_amount", 0) or 0)
+            if fee_amount > 0:
+                record_platform_cut(
+                    db=db,
+                    amount=fee_amount,
+                    currency="cash",
+                    source="withdrawal_fee",
+                    desc=f"Withdrawal fee (₦{fee_amount:,.2f}) collected on {wd_data.get('type', 'wallet')} payout ({wd_data.get('user_name', 'User')})"
+                )
             
             # Send notification to the user
             uid = wd_data["user_uid"]

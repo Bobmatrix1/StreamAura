@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -16,7 +16,8 @@ import {
   Share2,
   BookOpen,
   Coins,
-  MessageSquare
+  MessageSquare,
+  Info
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -26,8 +27,176 @@ import { useToast } from '../contexts/ToastContext';
 import { db, auth } from '../lib/firebase';
 import { collection, doc, getDoc, query, onSnapshot } from 'firebase/firestore';
 import { API_BASE_URL } from '../api/mediaApi';
+import { AuraCoinIcon } from '../components/AuraCoinIcon';
 
 import SplitOrStealGame from './SplitOrStealGame';
+
+const FieldInfoHelper: React.FC<{
+  title: string;
+  description: string;
+}> = ({ title, description }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [coords, setCoords] = useState<{
+    top?: number;
+    bottom?: number;
+    left: number;
+    width: number;
+    placement: 'top' | 'bottom';
+    arrowLeft: number;
+  } | null>(null);
+
+  const updatePosition = useCallback(() => {
+    if (!buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    const padding = 12; // safe margin from screen borders
+    const screenWidth = window.innerWidth;
+    const tooltipWidth = Math.min(280, screenWidth - padding * 2);
+
+    const buttonCenterX = rect.left + rect.width / 2;
+    // Strictly clamp tooltip inside viewport edges so it never cuts off
+    let tooltipLeft = buttonCenterX - tooltipWidth / 2;
+    tooltipLeft = Math.max(padding, Math.min(tooltipLeft, screenWidth - tooltipWidth - padding));
+
+    // Calculate dynamic arrow position pointing directly to the button
+    const arrowLeft = Math.max(12, Math.min(buttonCenterX - tooltipLeft, tooltipWidth - 12));
+
+    // Prefer displaying above the button unless there is not enough room (< 160px from top)
+    const placeBelow = rect.top < 160;
+
+    if (placeBelow) {
+      setCoords({
+        top: rect.bottom + 8,
+        left: tooltipLeft,
+        width: tooltipWidth,
+        placement: 'bottom',
+        arrowLeft
+      });
+    } else {
+      setCoords({
+        bottom: window.innerHeight - rect.top + 8,
+        left: tooltipLeft,
+        width: tooltipWidth,
+        placement: 'top',
+        arrowLeft
+      });
+    }
+  }, []);
+
+  const handleToggle = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isOpen) {
+      updatePosition();
+      setIsOpen(true);
+    } else {
+      setIsOpen(false);
+    }
+  };
+
+  const handleMouseEnter = () => {
+    updatePosition();
+    setIsOpen(true);
+  };
+
+  const handleMouseLeave = () => {
+    setIsOpen(false);
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleScrollOrResize = () => {
+      updatePosition();
+    };
+
+    const handleGlobalClick = (e: MouseEvent | TouchEvent) => {
+      if (buttonRef.current && !buttonRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    window.addEventListener('resize', handleScrollOrResize);
+    window.addEventListener('scroll', handleScrollOrResize, true);
+    document.addEventListener('mousedown', handleGlobalClick);
+    document.addEventListener('touchstart', handleGlobalClick);
+
+    return () => {
+      window.removeEventListener('resize', handleScrollOrResize);
+      window.removeEventListener('scroll', handleScrollOrResize, true);
+      document.removeEventListener('mousedown', handleGlobalClick);
+      document.removeEventListener('touchstart', handleGlobalClick);
+    };
+  }, [isOpen, updatePosition]);
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={handleToggle}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        className="w-4 h-4 rounded-full bg-slate-200 dark:bg-white/10 hover:bg-yellow-500/20 text-slate-500 dark:text-muted-foreground hover:text-yellow-600 dark:hover:text-yellow-400 inline-flex items-center justify-center transition-colors focus:outline-none cursor-pointer shrink-0 ml-1.5 align-middle"
+        aria-label={`Info: ${title}`}
+      >
+        <Info className="w-2.5 h-2.5" />
+      </button>
+
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {isOpen && coords && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: coords.placement === 'top' ? 4 : -4 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: coords.placement === 'top' ? 4 : -4 }}
+              transition={{ duration: 0.15 }}
+              style={{
+                position: 'fixed',
+                top: coords.top !== undefined ? `${coords.top}px` : undefined,
+                bottom: coords.bottom !== undefined ? `${coords.bottom}px` : undefined,
+                left: `${coords.left}px`,
+                width: `${coords.width}px`,
+                zIndex: 99999
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="p-3 rounded-xl bg-slate-900/98 dark:bg-slate-950/98 text-white border border-slate-700/80 dark:border-white/20 shadow-2xl backdrop-blur-lg text-left select-text"
+            >
+              <div className="flex items-center justify-between gap-1.5 mb-1">
+                <div className="flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+                  <span className="text-[10px] font-black uppercase tracking-wider text-yellow-400">{title}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsOpen(false)}
+                  className="text-white/60 hover:text-white p-0.5"
+                  aria-label="Close"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-200 dark:text-white/85 font-medium leading-relaxed">
+                {description}
+              </p>
+
+              {/* Dynamic Arrow Indicator */}
+              <div
+                style={{ left: `${coords.arrowLeft}px` }}
+                className={`absolute w-0 h-0 border-x-4 border-x-transparent -translate-x-1/2 ${
+                  coords.placement === 'top'
+                    ? 'top-full border-t-4 border-t-slate-900 dark:border-t-slate-950'
+                    : 'bottom-full border-b-4 border-b-slate-900 dark:border-b-slate-950'
+                }`}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+    </>
+  );
+};
 
 export default function Games() {
   const { user, isAdmin, requireAuth } = useAuth();
@@ -56,9 +225,11 @@ export default function Games() {
   // Form State
   const [roomName, setRoomName] = useState('');
   const [entryFee, setEntryFee] = useState('');
+  const [entryType, setEntryType] = useState<'cash' | 'auracoin'>('cash');
   const [startCondition, setStartCondition] = useState<'manual' | 'auto'>('auto');
   
   // Multi-Round & Prize State
+  const [prizeType, setPrizeType] = useState<'cash' | 'auracoin'>('cash');
   const [isMultipleRounds, setIsMultipleRounds] = useState(false);
   const [numberOfRounds, setNumberOfRounds] = useState('2');
   const [prizePerRound, setPrizePerRound] = useState('');
@@ -70,10 +241,11 @@ export default function Games() {
 
   // Wallet & Insufficient Funds State
   const [gameWalletBalance, setGameWalletBalance] = useState(0);
+  const [auraCoinsBalance, setAuraCoinsBalance] = useState(0);
   const [mainWalletBalance, setMainWalletBalance] = useState(0);
   const [referralBalance, setReferralBalance] = useState(0);
   const [gameActivity, setGameActivity] = useState<any[]>([]);
-  const [insufficientFunds, setInsufficientFunds] = useState<{ show: boolean; type: 'normal' | 'referral'; required: number } | null>(null);
+  const [insufficientFunds, setInsufficientFunds] = useState<{ show: boolean; type: 'normal' | 'referral' | 'auracoin'; required: number } | null>(null);
 
   // Payment Selection
   const [paymentWallet] = useState<'normal' | 'referral'>('normal');
@@ -96,17 +268,31 @@ export default function Games() {
       });
 
       const unsubUser = onSnapshot(doc(db, 'users', user.uid), (snap) => {
-        if (snap.exists()) setReferralBalance(snap.data().referralBalance || 0);
+        if (snap.exists()) {
+          const data = snap.data();
+          setReferralBalance(data.referralBalance || 0);
+          setAuraCoinsBalance(Number(data.auraCoins ?? data.auraCoin ?? data.bonusBalance ?? 0));
+        }
       });
 
       const unsubActivity = onSnapshot(collection(db, 'game_wallets', user.uid, 'activity'), (snap) => {
         const sorted = snap.docs.map(d => ({ id: d.id, ...d.data() }))
           .sort((a: any, b: any) => {
-            const tsA = a.timestamp?.seconds || (a.timestamp?.toMillis ? a.timestamp.toMillis() / 1000 : 0) || (Date.now() / 1000);
-            const tsB = b.timestamp?.seconds || (b.timestamp?.toMillis ? b.timestamp.toMillis() / 1000 : 0) || (Date.now() / 1000);
-            return tsB - tsA;
+            const getTs = (item: any) => {
+              if (item.timestamp?.seconds) return item.timestamp.seconds * 1000;
+              if (item.timestamp?.toMillis) return item.timestamp.toMillis();
+              if (typeof item.timestamp === 'number') return item.timestamp;
+              if (typeof item.created_at === 'number') return item.created_at;
+              if (typeof item.createdAt === 'number') return item.createdAt;
+              if (item.timestamp) {
+                const parsed = new Date(item.timestamp).getTime();
+                if (!isNaN(parsed)) return parsed;
+              }
+              return 0;
+            };
+            return getTs(b) - getTs(a);
           })
-          .slice(0, 10);
+          .slice(0, 20);
         setGameActivity(sorted);
       });
 
@@ -265,13 +451,20 @@ export default function Games() {
 
     // Check Balance
     if (totalCost > 0) {
-      if (paymentWallet === 'referral' && totalCost > referralBalance) {
-        setInsufficientFunds({ show: true, type: 'referral', required: totalCost });
-        return;
-      }
-      if (paymentWallet === 'normal' && totalCost > gameWalletBalance) {
-        setInsufficientFunds({ show: true, type: 'normal', required: totalCost });
-        return;
+      if (prizeType === 'auracoin') {
+        if (totalCost > auraCoinsBalance) {
+          setInsufficientFunds({ show: true, type: 'auracoin', required: totalCost });
+          return;
+        }
+      } else {
+        if (paymentWallet === 'referral' && totalCost > referralBalance) {
+          setInsufficientFunds({ show: true, type: 'referral', required: totalCost });
+          return;
+        }
+        if (paymentWallet === 'normal' && totalCost > gameWalletBalance) {
+          setInsufficientFunds({ show: true, type: 'normal', required: totalCost });
+          return;
+        }
       }
     }
 
@@ -280,7 +473,9 @@ export default function Games() {
       const payload = {
         roomName,
         entryFee: parseFloat(entryFee),
+        entryType,
         prizePerRound: parseFloat(prizePerRound),
+        prizeType,
         isMultipleRounds,
         numberOfRounds: isMultipleRounds ? parseInt(numberOfRounds) : 1,
         startCondition,
@@ -315,7 +510,9 @@ export default function Games() {
   const resetCreateForm = () => {
     setRoomName('');
     setEntryFee('');
+    setEntryType('cash');
     setPrizePerRound('');
+    setPrizeType('cash');
     setIsMultipleRounds(false);
     setNumberOfRounds('2');
     setIsManualPairing(false);
@@ -389,7 +586,9 @@ export default function Games() {
     e.stopPropagation();
     const shareUrl = `${window.location.origin}?tab=games&gameId=${game.id}`;
     const shareTitle = `Split or Steal: ${game.roomName}`;
-    const shareText = `Join the live game room "${game.roomName}" hosted by ${game.hostName} on StreamAura! Paid pool entry fee: ₦${game.entryFee}. Split or Steal? Convince, Choose, Win!`;
+    const isAuraCoin = game.entryType === 'auracoin';
+    const entryFeeText = isAuraCoin ? `${(game.entryFee || 0).toLocaleString()} AuraCoins` : `₦${(game.entryFee || 0).toLocaleString()}`;
+    const shareText = `Join the live game room "${game.roomName}" hosted by ${game.hostName} on StreamAura! Paid pool entry fee: ${entryFeeText}. Split or Steal? Convince, Choose, Win!`;
 
     if (navigator.share) {
       navigator.share({
@@ -496,9 +695,21 @@ export default function Games() {
           return;
         }
 
-        if (gameWalletBalance < game.entryFee) {
-          setInsufficientFunds({ show: true, type: 'normal', required: game.entryFee });
-          return;
+        const isAuraCoin = game.entryType === 'auracoin';
+        const fee = Number(game.entryFee || 0);
+
+        if (fee > 0) {
+          if (isAuraCoin) {
+            if (auraCoinsBalance < fee) {
+              setInsufficientFunds({ show: true, type: 'auracoin', required: fee });
+              return;
+            }
+          } else {
+            if (gameWalletBalance < fee) {
+              setInsufficientFunds({ show: true, type: 'normal', required: fee });
+              return;
+            }
+          }
         }
 
         setIsSubmitting(true);
@@ -554,12 +765,17 @@ export default function Games() {
               <div className="space-y-2">
                  <h3 className="text-xl font-black uppercase text-slate-900 dark:text-white">Insufficient Balance</h3>
                  <p className="text-xs text-slate-500 dark:text-muted-foreground font-medium uppercase leading-relaxed tracking-wider">
-                    You need ₦{insufficientFunds.required.toLocaleString()} in your Game Wallet to fund the prize pool for this room. Add funds from your main wallet to your game wallet and try again.
+                    {insufficientFunds.type === 'auracoin'
+                      ? `You need ${insufficientFunds.required.toLocaleString()} AuraCoins to participate or fund this room. Earn more AuraCoins and try again.`
+                      : `You need ₦${insufficientFunds.required.toLocaleString()} in your Game Wallet to participate or fund this room. Add funds from your main wallet to your game wallet and try again.`
+                    }
                  </p>
               </div>
               <div className="flex flex-col gap-3">
-                 <Button onClick={handleGoToWallet} className="w-full gradient-bg h-12 font-black uppercase text-[10px]">Go to Wallet</Button>
-                 <Button variant="ghost" onClick={() => setInsufficientFunds(null)} className="w-full h-11 text-[10px] font-black uppercase border border-slate-200 dark:border-white/5 text-slate-600 hover:text-slate-900 dark:text-white">Cancel</Button>
+                 {insufficientFunds.type !== 'auracoin' && (
+                   <Button onClick={handleGoToWallet} className="w-full gradient-bg h-12 font-black uppercase text-[10px]">Go to Wallet</Button>
+                 )}
+                 <Button variant="ghost" onClick={() => setInsufficientFunds(null)} className="w-full h-11 text-[10px] font-black uppercase border border-slate-200 dark:border-white/5 text-slate-600 hover:text-slate-900 dark:text-white">Close</Button>
               </div>
            </motion.div>
         </div>, document.body
@@ -596,70 +812,158 @@ export default function Games() {
             StreamAura <span className="text-yellow-500">Games</span>
           </h1>
           <p className="text-xs text-slate-500 dark:text-muted-foreground font-bold uppercase tracking-[0.2em] opacity-80 dark:opacity-70">
-            Play, Compete, and Win Cash Prizes
+            Play, Compete, and Win Real Cash & AuraCoin Prizes
           </p>
         </div>
 
-        {/* GAME WALLET CARD */}
+        {/* GAME WALLET & AURACOIN CARDS */}
         {user && (
-          <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-6">
-             <div className="p-6 rounded-3xl bg-gradient-to-br from-yellow-500/15 via-purple-500/10 to-amber-500/10 dark:from-yellow-500/20 dark:to-purple-600/20 border border-slate-200 dark:border-white/10 shadow-xl relative overflow-hidden group text-slate-900 dark:text-white">
+          <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-3 gap-5">
+             {/* Game Wallet (₦) */}
+             <div className="p-6 rounded-3xl bg-gradient-to-br from-yellow-500/15 via-purple-500/10 to-amber-500/10 dark:from-yellow-500/20 dark:to-purple-600/20 border border-slate-200 dark:border-white/10 shadow-xl relative overflow-hidden group text-slate-900 dark:text-white flex flex-col justify-between">
                 <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
                 <div className="flex justify-between items-start relative z-10">
                    <div className="text-left space-y-1">
-                     <p className="text-[10px] font-black uppercase tracking-widest text-yellow-700 dark:text-yellow-500">My Game Wallet</p>
-                     <p className="text-3xl font-black text-slate-900 dark:text-white">₦{gameWalletBalance.toLocaleString()}</p>
+                     <p className="text-[10px] font-black uppercase tracking-widest text-yellow-700 dark:text-yellow-500">Game Wallet (₦)</p>
+                     <p className="text-2xl lg:text-3xl font-black text-slate-900 dark:text-white">₦{gameWalletBalance.toLocaleString()}</p>
                    </div>
-                   <div className="flex flex-col gap-2">
+                   <div className="flex flex-col gap-1.5">
                       <Button 
                         onClick={() => {
                           setWithdrawAmountInput('');
                           setIsWithdrawAmountModalOpen(true);
                         }} 
                         disabled={isWithdrawing} 
-                        className="h-9 px-5 rounded-xl font-black uppercase text-[10px] bg-yellow-500 hover:bg-yellow-400 text-black shadow-lg"
+                        className="h-8 px-3.5 rounded-xl font-black uppercase text-[9px] bg-yellow-500 hover:bg-yellow-400 text-black shadow-md"
                       >
-                        {isWithdrawing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Withdraw'}
+                        {isWithdrawing ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Withdraw'}
                       </Button>
                       <Button 
                         onClick={() => {
                           setFundingAmount('');
                           setIsFundingModalOpen(true);
                         }} 
-                        className="h-9 px-5 rounded-xl font-black uppercase text-[10px] bg-slate-100 hover:bg-slate-200 dark:bg-white/10 dark:hover:bg-white/20 text-slate-900 dark:text-white border border-slate-200 dark:border-white/10"
+                        className="h-8 px-3.5 rounded-xl font-black uppercase text-[9px] bg-slate-100 hover:bg-slate-200 dark:bg-white/10 dark:hover:bg-white/20 text-slate-900 dark:text-white border border-slate-200 dark:border-white/10"
                       >
                         Add Funds
                       </Button>
                    </div>
                 </div>
-                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-white/10 flex items-center justify-between text-[9px] font-bold text-slate-500 dark:text-muted-foreground uppercase tracking-widest relative z-10">
+                <div className="mt-4 pt-3 border-t border-slate-200 dark:border-white/10 flex items-center justify-between text-[9px] font-bold text-slate-500 dark:text-muted-foreground uppercase tracking-widest relative z-10">
                    <span>Winnings & Host Earnings</span>
-                   <span className="text-emerald-600 dark:text-emerald-400 font-black">0% Internal Fee</span>
+                   <span className="text-emerald-600 dark:text-emerald-400 font-black">0% Fee</span>
                 </div>
              </div>
 
-             <div className="p-6 rounded-3xl bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 shadow-xl flex flex-col">
-                 <div className="flex items-center gap-2 mb-4 border-b border-slate-200 dark:border-white/5 pb-2">
-                    <History className="w-3.5 h-3.5 text-primary" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-900 dark:text-white">Recent Activity</span>
+             {/* AuraCoin Balance (🪙) */}
+             <div className="p-6 rounded-3xl bg-gradient-to-br from-amber-500/15 via-yellow-500/10 to-orange-500/10 dark:from-amber-500/20 dark:to-yellow-600/15 border border-slate-200 dark:border-white/10 shadow-xl relative overflow-hidden group text-slate-900 dark:text-white flex flex-col justify-between">
+                <div className="flex justify-between items-start relative z-10">
+                   <div className="text-left space-y-1">
+                     <div className="flex items-center gap-1.5">
+                       <AuraCoinIcon size="xs" className="w-3.5 h-3.5" />
+                       <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-400">AuraCoins</p>
+                     </div>
+                     <p className="text-2xl lg:text-3xl font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                       {auraCoinsBalance.toLocaleString()}
+                       <span className="text-xs font-bold text-amber-500 uppercase tracking-widest">🪙</span>
+                     </p>
+                   </div>
+                   <Badge className="bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30 text-[8px] font-black uppercase tracking-widest">
+                     Reward Coins
+                   </Badge>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-200 dark:border-white/10 flex items-center justify-between text-[9px] font-bold text-slate-500 dark:text-muted-foreground uppercase tracking-widest relative z-10">
+                   <span>Use for Room Prizes & Perks</span>
+                   <span className="text-amber-600 dark:text-amber-400 font-black">Game Utility</span>
+                </div>
+             </div>
+
+             {/* Recent Activity */}
+             <div className="p-6 rounded-3xl bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 shadow-xl flex flex-col justify-between">
+                 <div className="flex items-center justify-between mb-3 border-b border-slate-200 dark:border-white/5 pb-2">
+                    <div className="flex items-center gap-2">
+                       <History className="w-3.5 h-3.5 text-primary" />
+                       <span className="text-[10px] font-black uppercase tracking-widest text-slate-900 dark:text-white">Recent Activity</span>
+                    </div>
+                    {gameActivity.length > 0 && (
+                      <span className="text-[8px] font-black text-muted-foreground uppercase">{gameActivity.length} Recent</span>
+                    )}
                  </div>
-                 <div className="flex-1 space-y-3 overflow-y-auto max-h-24 custom-scrollbar">
+                 <div className="flex-1 space-y-2 overflow-y-auto max-h-32 custom-scrollbar pr-1">
                     {gameActivity.map((act) => {
-                       const dateStr = act.timestamp?.toDate 
-                         ? act.timestamp.toDate().toLocaleDateString() 
-                         : (act.timestamp ? new Date(act.timestamp).toLocaleDateString() : 'Recent');
-                       const isPositive = ['win', 'game_win', 'entry_earnings', 'referral_earning', 'fund_from_main', 'host_reclaim', 'create_room_refund'].includes(act.type);
-                       const amtVal = act.amount !== undefined && act.amount !== null ? act.amount.toLocaleString() : '0';
+                       let dateObj: Date | null = null;
+                       const ts = act.timestamp || act.created_at || act.createdAt;
+                       if (ts) {
+                         if (typeof ts.toDate === 'function') {
+                           dateObj = ts.toDate();
+                         } else if (typeof ts.toMillis === 'function') {
+                           dateObj = new Date(ts.toMillis());
+                         } else if (typeof ts === 'number') {
+                           dateObj = new Date(ts > 1e11 ? ts : ts * 1000);
+                         } else if (ts.seconds) {
+                           dateObj = new Date(ts.seconds * 1000);
+                         } else if (typeof ts === 'string') {
+                           const parsed = new Date(ts);
+                           if (!isNaN(parsed.getTime())) dateObj = parsed;
+                         }
+                       }
+
+                       const dateStr = dateObj 
+                         ? `${dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • ${dateObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`
+                         : 'Recent';
                        
+                       const isAuraCoin = act.currency === 'auracoin' || 
+                                          act.currency === 'aura_coins' || 
+                                          act.type === 'referral_bonus' || 
+                                          act.type === 'referral_reward' || 
+                                          act.desc?.toLowerCase().includes('auracoin') || 
+                                          act.desc?.includes('🪙') ||
+                                          act.title?.toLowerCase().includes('auracoin');
+
+                       const positiveTypes = [
+                         'win', 
+                         'game_win', 
+                         'entry_earnings', 
+                         'referral_earning', 
+                         'referral_reward', 
+                         'referral_bonus', 
+                         'fund_from_main', 
+                         'host_reclaim', 
+                         'create_room_refund', 
+                         'room_cancelled_refund', 
+                         'pool_cancelled_refund', 
+                         'admin_credit',
+                         'deposit'
+                       ];
+
+                       const isPositive = positiveTypes.includes(act.type);
+                       const rawAmt = Math.abs(act.amount !== undefined && act.amount !== null ? Number(act.amount) : 0);
+                       const formattedAmt = isAuraCoin 
+                         ? (Number.isInteger(rawAmt) ? rawAmt.toLocaleString() : rawAmt.toFixed(0)) 
+                         : rawAmt.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+                       
+                       let rawDescription = act.desc || act.description || act.title || 'Game Transaction';
+                       const descriptionText = rawDescription
+                         .replace(/\.?\s*Platform kept fee\.?/gi, '.')
+                         .replace(/\.\.+$/, '.')
+                         .trim();
+
                        return (
-                         <div key={act.id} className="flex justify-between items-center">
-                            <div className="text-left">
-                               <p className="text-[10px] font-bold text-slate-700 dark:text-white/90">{act.desc}</p>
-                               <p className="text-[8px] text-muted-foreground uppercase">{dateStr}</p>
+                         <div key={act.id} className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-white/[0.04] last:border-b-0">
+                            <div className="text-left flex-1 min-w-0 pr-2">
+                               <p className="text-[10px] font-bold text-slate-700 dark:text-white/90 truncate" title={descriptionText}>{descriptionText}</p>
+                               <p className="text-[8px] text-muted-foreground uppercase font-medium">{dateStr}</p>
                             </div>
-                            <span className={`text-[10px] font-black ${isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                               {isPositive ? '+' : '-'}₦{amtVal}
-                            </span>
+                            {isAuraCoin ? (
+                              <span className={`text-[10px] font-black shrink-0 flex items-center gap-1 ${isPositive ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                 {isPositive ? '+' : '-'}{formattedAmt}
+                                 <AuraCoinIcon size="xs" className="w-3 h-3 inline-block" />
+                              </span>
+                            ) : (
+                              <span className={`text-[10px] font-black shrink-0 ${isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                 {isPositive ? '+' : '-'}₦{formattedAmt}
+                              </span>
+                            )}
                          </div>
                        );
                      })}
@@ -847,13 +1151,23 @@ export default function Games() {
                 <div className="pt-4 border-t border-slate-100 dark:border-white/5 flex justify-between items-end">
                    <div className="flex gap-6">
                       <div>
-                        <p className="text-[9px] text-slate-500 dark:text-muted-foreground uppercase font-black tracking-widest">Entry Fee</p>
-                        <p className="text-lg font-black text-slate-900 dark:text-white">₦{game.entryFee}</p>
+                        <p className="text-[9px] text-slate-500 dark:text-muted-foreground uppercase font-black tracking-widest flex items-center gap-1">
+                          {game.entryType === 'auracoin' && <AuraCoinIcon size="xs" className="w-2.5 h-2.5 inline" />}
+                          Entry Fee
+                        </p>
+                        <p className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-1">
+                          {game.entryType === 'auracoin' ? `${(game.entryFee || 0).toLocaleString()} 🪙` : `₦${(game.entryFee || 0).toLocaleString()}`}
+                        </p>
                       </div>
                       {game.prizeAmount > 0 && (
                         <div>
-                          <p className="text-[9px] text-yellow-600 dark:text-yellow-500/80 uppercase font-black tracking-widest">Prize Pool</p>
-                          <p className="text-lg font-black text-yellow-600 dark:text-yellow-500">₦{game.prizeAmount.toLocaleString()}</p>
+                          <p className="text-[9px] text-yellow-600 dark:text-yellow-500/80 uppercase font-black tracking-widest flex items-center gap-1">
+                            {game.prizeType === 'auracoin' && <AuraCoinIcon size="xs" className="w-2.5 h-2.5 inline" />}
+                            Prize Pool
+                          </p>
+                          <p className="text-lg font-black text-yellow-600 dark:text-yellow-500 flex items-center gap-1">
+                            {game.prizeType === 'auracoin' ? `${game.prizeAmount.toLocaleString()} 🪙` : `₦${game.prizeAmount.toLocaleString()}`}
+                          </p>
                         </div>
                       )}
                    </div>
@@ -998,40 +1312,189 @@ export default function Games() {
                     <button onClick={closeCreateModal} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-white/10 text-slate-600 dark:text-white"><X className="w-5 h-5" /></button>
                  </div>
 
-                 <form onSubmit={handleCreateGame} className="p-6 space-y-6">
+                  <form onSubmit={handleCreateGame} className="p-6 space-y-6">
                     <div className="space-y-4">
                        <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Room Name</label>
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground flex items-center">
+                            <span>Room Name</span>
+                            <FieldInfoHelper title="Room Name" description="Give your game room an exciting title to attract players from the lobby (e.g. '50k Friday Clash', 'Aura Winner Takes All')." />
+                          </label>
                           <input type="text" required value={roomName} onChange={e => setRoomName(e.target.value)} placeholder="e.g. 100k Challenge" className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-yellow-500/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60" />
                        </div>
 
-                       <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Entry Fee per User (₦)</label>
-                          <input type="number" required value={entryFee} onChange={e => setEntryFee(e.target.value)} placeholder="e.g. 50" min="0" className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-yellow-500/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60" />
-                       </div>
+                        {/* Entry Fee Currency & Amount Configuration */}
+                        <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 space-y-4">
+                           <div className="space-y-2">
+                              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground flex items-center justify-between">
+                                 <span className="flex items-center">
+                                   <span>Entry Fee Currency</span>
+                                   <FieldInfoHelper title="Entry Fee Currency" description="Choose how contestants pay to join. Real Money uses Game Wallet balances (₦), while AuraCoins (🪙) uses earned platform reward tokens." />
+                                 </span>
+                                 <span className="text-[9px] font-bold text-slate-400">
+                                   {entryType === 'cash' ? `Balance: ₦${gameWalletBalance.toLocaleString()}` : `Balance: ${auraCoinsBalance.toLocaleString()} 🪙`}
+                                 </span>
+                              </label>
+                              <div className="grid grid-cols-2 gap-2">
+                                 <button 
+                                   type="button" 
+                                   onClick={() => setEntryType('cash')} 
+                                   className={`p-3 rounded-xl border flex items-center justify-between transition-all ${
+                                     entryType === 'cash' 
+                                       ? 'bg-yellow-500/15 border-yellow-500 text-yellow-700 dark:text-yellow-400 shadow-md' 
+                                       : 'bg-white dark:bg-black/30 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300'
+                                   }`}
+                                 >
+                                    <div className="text-left">
+                                       <span className="text-xs font-black uppercase block">Game Wallet (₦)</span>
+                                       <span className="text-[9px] opacity-70 font-medium">Real Money Entry</span>
+                                    </div>
+                                    <span className="text-base font-black">₦</span>
+                                 </button>
+                                 <button 
+                                   type="button" 
+                                   onClick={() => setEntryType('auracoin')} 
+                                   className={`p-3 rounded-xl border flex items-center justify-between transition-all ${
+                                     entryType === 'auracoin' 
+                                       ? 'bg-amber-500/15 border-amber-500 text-amber-700 dark:text-amber-400 shadow-md' 
+                                       : 'bg-white dark:bg-black/30 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300'
+                                   }`}
+                                 >
+                                    <div className="text-left">
+                                       <span className="text-xs font-black uppercase block flex items-center gap-1">
+                                         AuraCoins <AuraCoinIcon size="xs" className="inline w-3 h-3" />
+                                       </span>
+                                       <span className="text-[9px] opacity-70 font-medium">Reward Coin Entry</span>
+                                    </div>
+                                    <span className="text-base font-black">🪙</span>
+                                 </button>
+                              </div>
+                           </div>
+
+                           <div className="space-y-2">
+                              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground flex items-center">
+                                 <span>{entryType === 'auracoin' ? 'Entry Fee per User (🪙 AuraCoins)' : 'Entry Fee per User (₦)'}</span>
+                                 <FieldInfoHelper title="Entry Fee Amount" description="The amount each player pays to enter the contestant pool. 80% of all collected entry fees are paid to your host balance upon matchmaking (100% for Admins)." />
+                              </label>
+                              <div className="relative">
+                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 dark:text-white/40 text-sm">
+                                   {entryType === 'auracoin' ? '🪙' : '₦'}
+                                 </span>
+                                 <input 
+                                   type="number" 
+                                   required 
+                                   value={entryFee} 
+                                   onChange={e => setEntryFee(e.target.value)} 
+                                   placeholder={entryType === 'auracoin' ? 'e.g. 50' : 'e.g. 50'} 
+                                   min="0" 
+                                   className="w-full bg-white dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm font-bold outline-none focus:border-yellow-500/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60" 
+                                 />
+                              </div>
+                           </div>
+                        </div>
 
                        <div className="space-y-4 pt-4 border-t border-slate-200 dark:border-white/10">
                           <div className="flex items-center justify-between">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-muted-foreground">Multiple Rounds?</label>
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-muted-foreground flex items-center">
+                              <span>Multiple Rounds?</span>
+                              <FieldInfoHelper title="Multi-Round Arena" description="Enable this to host multiple successive 1v1 showdowns in one room session. 2 players from the pool are paired per round." />
+                            </label>
                             <input type="checkbox" checked={isMultipleRounds} onChange={e => setIsMultipleRounds(e.target.checked)} className="w-4 h-4 accent-yellow-500" />
                           </div>
                           <AnimatePresence>
                              {isMultipleRounds && (
                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-2 overflow-hidden">
-                                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Number of Rounds</label>
+                                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground flex items-center">
+                                    <span>Number of Rounds</span>
+                                    <FieldInfoHelper title="Rounds Count" description="Total number of 1v1 matches in this room. The lobby capacity automatically scales to 2 players per round (e.g. 5 rounds = 10 players required)." />
+                                  </label>
                                   <input type="number" required={isMultipleRounds} value={numberOfRounds} onChange={e => setNumberOfRounds(e.target.value)} placeholder="e.g. 5" min="1" className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-2.5 px-4 text-sm font-bold outline-none focus:border-yellow-500/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60" />
                                </motion.div>
                              )}
                           </AnimatePresence>
                        </div>
 
-                       <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Prize Per Round (₦)</label>
-                          <input type="number" required value={prizePerRound} onChange={e => setPrizePerRound(e.target.value)} placeholder="e.g. 1000" min="0" className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-yellow-500/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60" />
-                       </div>
+                       {/* Prize Currency & Amount Configuration */}
+                        <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 space-y-4">
+                           <div className="space-y-2">
+                              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground flex items-center justify-between">
+                                 <span className="flex items-center">
+                                   <span>Reward Prize Currency</span>
+                                   <FieldInfoHelper title="Reward Prize Currency" description="Select whether round winners receive Real Cash (₦) or AuraCoins (🪙). This prize is funded upfront by the host." />
+                                 </span>
+                                 <span className="text-[9px] font-bold text-slate-400">
+                                   {prizeType === 'cash' ? `Available: ₦${gameWalletBalance.toLocaleString()}` : `Available: ${auraCoinsBalance.toLocaleString()} 🪙`}
+                                 </span>
+                              </label>
+                              <div className="grid grid-cols-2 gap-2">
+                                 <button 
+                                   type="button" 
+                                   onClick={() => setPrizeType('cash')} 
+                                   className={`p-3 rounded-xl border flex items-center justify-between transition-all ${
+                                     prizeType === 'cash' 
+                                       ? 'bg-yellow-500/15 border-yellow-500 text-yellow-700 dark:text-yellow-400 shadow-md' 
+                                       : 'bg-white dark:bg-black/30 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300'
+                                   }`}
+                                 >
+                                    <div className="text-left">
+                                       <span className="text-xs font-black uppercase block">Game Wallet (₦)</span>
+                                       <span className="text-[9px] opacity-70 font-medium">Real Money Prize</span>
+                                    </div>
+                                    <span className="text-base font-black">₦</span>
+                                 </button>
+                                 <button 
+                                   type="button" 
+                                   onClick={() => setPrizeType('auracoin')} 
+                                   className={`p-3 rounded-xl border flex items-center justify-between transition-all ${
+                                     prizeType === 'auracoin' 
+                                       ? 'bg-amber-500/15 border-amber-500 text-amber-700 dark:text-amber-400 shadow-md' 
+                                       : 'bg-white dark:bg-black/30 border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 hover:border-slate-300'
+                                   }`}
+                                 >
+                                    <div className="text-left">
+                                       <span className="text-xs font-black uppercase block flex items-center gap-1">
+                                         AuraCoins <AuraCoinIcon size="xs" className="inline w-3 h-3" />
+                                       </span>
+                                       <span className="text-[9px] opacity-70 font-medium">Reward Coin Prize</span>
+                                    </div>
+                                    <span className="text-base font-black">🪙</span>
+                                 </button>
+                              </div>
+                           </div>
+
+                           <div className="space-y-2">
+                              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground flex items-center justify-between">
+                                 <span className="flex items-center">
+                                   <span>{prizeType === 'auracoin' ? 'Prize Per Round (🪙 AuraCoins)' : 'Prize Per Round (₦)'}</span>
+                                   <FieldInfoHelper title="Prize Per Round" description="The reward pot up for grabs in each 1v1 match. If both Split, they share 50/50. If one Steals, they win 100%. If both Steal, nobody wins." />
+                                 </span>
+                                 {calculateTotalPrizeCost() > 0 && (
+                                   <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400">
+                                     Total: {prizeType === 'auracoin' ? `${calculateTotalPrizeCost().toLocaleString()} Coins` : `₦${calculateTotalPrizeCost().toLocaleString()}`}
+                                   </span>
+                                 )}
+                              </label>
+                              <div className="relative">
+                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 dark:text-white/40 text-sm">
+                                   {prizeType === 'auracoin' ? '🪙' : '₦'}
+                                 </span>
+                                 <input 
+                                   type="number" 
+                                   required 
+                                   value={prizePerRound} 
+                                   onChange={e => setPrizePerRound(e.target.value)} 
+                                   placeholder={prizeType === 'auracoin' ? 'e.g. 500' : 'e.g. 1000'} 
+                                   min="0" 
+                                   className="w-full bg-white dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm font-bold outline-none focus:border-yellow-500/50 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60" 
+                                 />
+                              </div>
+                           </div>
+                        </div>
 
                        <div className="p-4 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 space-y-4">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Start Condition</label>
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground flex items-center">
+                            <span>Start Condition</span>
+                            <FieldInfoHelper title="Start Condition" description="Auto-Start begins the contestant shuffle automatically once the player lobby is full. Manual Start allows the host to shuffle and start whenever ready." />
+                          </label>
                           <div className="flex gap-2">
                              <button type="button" onClick={() => setStartCondition('auto')} className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${startCondition === 'auto' ? 'bg-yellow-500 text-black shadow-lg font-black' : 'bg-slate-200/70 dark:bg-black/40 text-slate-600 dark:text-muted-foreground border border-slate-300 dark:border-white/10'}`}>Auto-Start</button>
                              <button type="button" onClick={() => setStartCondition('manual')} className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${startCondition === 'manual' ? 'bg-yellow-500 text-black shadow-lg font-black' : 'bg-slate-200/70 dark:bg-black/40 text-slate-600 dark:text-muted-foreground border border-slate-300 dark:border-white/10'}`}>Manual Start</button>
@@ -1056,7 +1519,10 @@ export default function Games() {
                            <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <ShieldAlert className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                                <span className="text-[10px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-400">Admin Bypass: Manual Pairing</span>
+                                <span className="text-[10px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-400 flex items-center">
+                                  <span>Admin Bypass: Manual Pairing</span>
+                                  <FieldInfoHelper title="Manual Pairing" description="Allows system administrators to directly assign specific Aura user IDs for Player A and Player B." />
+                                </span>
                               </div>
                               <input type="checkbox" checked={isManualPairing} onChange={e => setIsManualPairing(e.target.checked)} className="w-4 h-4 accent-purple-500" />
                            </div>
@@ -1073,28 +1539,46 @@ export default function Games() {
                        )}
 
                        <div className="flex gap-4">
-                         <div className="flex-1 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 flex flex-col justify-center">
+                         <div className={`flex-1 p-4 rounded-xl border flex flex-col justify-center ${entryType === 'auracoin' ? 'bg-amber-500/10 border-amber-500/30' : 'bg-yellow-500/10 border-yellow-500/30'}`}>
                             <div className="space-y-1">
-                              <p className="text-[10px] font-black uppercase text-yellow-600 dark:text-yellow-500 tracking-widest">
-                                 Host Earnings ({isAdmin ? '100%' : '70%'})
+                              <p className={`text-[10px] font-black uppercase tracking-widest flex items-center ${entryType === 'auracoin' ? 'text-amber-600 dark:text-amber-500' : 'text-yellow-600 dark:text-yellow-500'}`}>
+                                 <span>Host Earnings ({isAdmin ? '100%' : '80%'})</span>
+                                 <FieldInfoHelper title="Host Revenue" description="Your revenue from player entry fees. Regular hosts earn 80% (10% to platform / 10% to active referrer), while System Admins keep 100%." />
                               </p>
-                              <p className="text-[9px] text-slate-500 dark:text-muted-foreground font-medium">From pool</p>
+                              <p className="text-[9px] text-slate-500 dark:text-muted-foreground font-medium">From pool entries</p>
                             </div>
-                            <p className="text-xl font-black text-slate-900 dark:text-white mt-2">₦{calculateHostEarnings().toLocaleString()}</p>
+                            <p className="text-xl font-black text-slate-900 dark:text-white mt-2 flex items-center gap-1">
+                              {entryType === 'auracoin' ? `${calculateHostEarnings().toLocaleString()} 🪙` : `₦${calculateHostEarnings().toLocaleString()}`}
+                            </p>
                          </div>
-                         <div className="flex-1 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 flex flex-col justify-center">
-                            <div className="space-y-1">
-                              <p className="text-[10px] font-black uppercase text-rose-600 dark:text-rose-500 tracking-widest">Total Prize Cost</p>
-                              <p className="text-[9px] text-slate-500 dark:text-muted-foreground font-medium">Deducted from wallet</p>
-                            </div>
-                            <p className="text-xl font-black text-slate-900 dark:text-white mt-2">₦{calculateTotalPrizeCost().toLocaleString()}</p>
-                         </div>
+                         <div className={`flex-1 p-4 rounded-xl border flex flex-col justify-center ${prizeType === 'auracoin' ? 'bg-amber-500/10 border-amber-500/30' : 'bg-rose-500/10 border-rose-500/30'}`}>
+                             <div className="space-y-1">
+                               <p className={`text-[10px] font-black uppercase tracking-widest flex items-center ${prizeType === 'auracoin' ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-500'}`}>
+                                 <span>Total Prize Cost</span>
+                                 <FieldInfoHelper title="Total Prize Cost" description="Total funds deducted from your wallet to back the room prize. Any unplayed rounds or unspent prizes are 100% refunded if the room is cancelled." />
+                               </p>
+                               <p className="text-[9px] text-slate-500 dark:text-muted-foreground font-medium">
+                                 {prizeType === 'auracoin' ? 'Deducted from AuraCoins' : 'Deducted from Game Wallet'}
+                               </p>
+                             </div>
+                             <p className="text-xl font-black text-slate-900 dark:text-white mt-2 flex items-center gap-1">
+                               {prizeType === 'auracoin' ? `${calculateTotalPrizeCost().toLocaleString()} 🪙` : `₦${calculateTotalPrizeCost().toLocaleString()}`}
+                             </p>
+                          </div>
                        </div>
                     </div>
 
                     <Button type="submit" disabled={isSubmitting} className="w-full h-14 bg-yellow-500 hover:bg-yellow-400 text-black font-black uppercase tracking-widest rounded-xl shadow-lg shadow-yellow-500/20 text-xs">
-                       {isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</> : <>{calculateTotalPrizeCost() > 0 ? `Pay ₦${calculateTotalPrizeCost().toLocaleString()} & Create Pool` : 'Create & Open Pool'}</>}
-                    </Button>
+                        {isSubmitting ? (
+                          <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
+                        ) : (
+                          calculateTotalPrizeCost() > 0 
+                            ? (prizeType === 'auracoin' 
+                                ? `Fund ${calculateTotalPrizeCost().toLocaleString()} Coins & Create Pool` 
+                                : `Pay ₦${calculateTotalPrizeCost().toLocaleString()} & Create Pool`)
+                            : 'Create & Open Pool'
+                        )}
+                     </Button>
                  </form>
               </motion.div>
             </div>
@@ -1197,7 +1681,12 @@ export default function Games() {
               <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card bg-white dark:bg-slate-900 border-slate-200 dark:border-white/10 shadow-2xl p-8 text-center space-y-8 rounded-2xl sm:rounded-3xl">
                  <div className="space-y-2">
                     <h2 className="text-2xl font-black uppercase tracking-tight text-slate-900 dark:text-white">How do you want to join?</h2>
-                    <p className="text-xs text-slate-500 dark:text-muted-foreground font-bold uppercase tracking-widest">Room Fee: ₦{joiningGame?.entryFee || 0} <span className="text-yellow-600 dark:text-yellow-500 opacity-80 dark:opacity-60">(Paid from Game Wallet)</span></p>
+                    <p className="text-xs text-slate-500 dark:text-muted-foreground font-bold uppercase tracking-widest">
+                      Room Fee: {joiningGame?.entryType === 'auracoin' ? `${(joiningGame?.entryFee || 0).toLocaleString()} 🪙` : `₦${(joiningGame?.entryFee || 0).toLocaleString()}`} 
+                      <span className="text-yellow-600 dark:text-yellow-500 opacity-80 dark:opacity-60">
+                        ({joiningGame?.entryType === 'auracoin' ? 'Paid from AuraCoins' : 'Paid from Game Wallet'})
+                      </span>
+                    </p>
                  </div>
 
                  <div className="grid grid-cols-1 gap-4">

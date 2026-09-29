@@ -90,10 +90,10 @@ def complete_multipart_upload(bucket_name: str, object_name: str, upload_id: str
         print(f"Error completing multipart: {e}")
         return False
 
-def generate_presigned_download_url(bucket_name: str, object_name: str, expiration=3600):
+def generate_presigned_download_url(bucket_name: str, object_name: str, expiration=86400):
     """
     Generate a presigned URL to download an S3 object securely.
-    Used for signed URLs in paid/private rooms.
+    Used for signed URLs in cinema rooms (defaults to 24 hours).
     """
     s3_client = get_s3_client()
     try:
@@ -102,9 +102,45 @@ def generate_presigned_download_url(bucket_name: str, object_name: str, expirati
                                                             'Key': object_name},
                                                     ExpiresIn=expiration)
     except ClientError as e:
-        print(e)
+        print(f"R2 Presigned Download Error: {e}")
         return None
     return response
+
+def get_presigned_stream_url(key_or_url: str, bucket_name: str = None, expiration: int = 86400):
+    """
+    Given an R2 key or CDN URL, extract the clean key and generate a valid presigned download URL.
+    """
+    if not key_or_url or not isinstance(key_or_url, str):
+        return None
+
+    # Clean query params and hash fragments
+    clean = key_or_url.split("?")[0].split("#")[0].strip()
+    
+    # Extract key
+    key = clean
+    base_url = (settings.R2_PUBLIC_BASE_URL or "").rstrip("/")
+    if base_url and base_url in clean:
+        key = clean.split(base_url)[-1].lstrip("/")
+    elif "r2.cloudflarestorage.com" in clean:
+        parts = clean.split(".r2.cloudflarestorage.com/")[-1].split("/")
+        if len(parts) > 1:
+            key = "/".join(parts[1:]) # Strip bucket name if in path
+        else:
+            key = parts[0]
+    elif clean.startswith("http://") or clean.startswith("https://"):
+        import urllib.parse
+        parsed = urllib.parse.urlparse(clean)
+        key = parsed.path.lstrip("/")
+
+    # Strip bucket prefixes if any
+    if settings.R2_BUCKET_MOVIES and key.startswith(f"{settings.R2_BUCKET_MOVIES}/"):
+        key = key[len(settings.R2_BUCKET_MOVIES) + 1:]
+    if settings.R2_BUCKET_ASSETS and key.startswith(f"{settings.R2_BUCKET_ASSETS}/"):
+        key = key[len(settings.R2_BUCKET_ASSETS) + 1:]
+
+    # Default to movies bucket
+    target_bucket = bucket_name or settings.R2_BUCKET_MOVIES
+    return generate_presigned_download_url(target_bucket, key, expiration)
 
 def delete_object(bucket_name: str, object_name: str):
     s3_client = get_s3_client()
@@ -114,3 +150,4 @@ def delete_object(bucket_name: str, object_name: str):
     except ClientError as e:
         print(e)
         return False
+

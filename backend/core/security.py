@@ -18,6 +18,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(
     token = credentials.credentials
     try:
         decoded_token = auth.verify_id_token(token)
+        if "uid" not in decoded_token:
+            decoded_token["uid"] = decoded_token.get("user_id") or decoded_token.get("sub", "")
         return decoded_token
     except Exception as e:
         raise HTTPException(
@@ -29,19 +31,22 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(
 async def get_current_admin(user: dict = Depends(get_current_user)):
     """
     Dependency to verify if the user is an admin.
-    Assuming 'admin' custom claim is set, or we can check firestore if needed.
-    For now, checking custom claims is faster. If custom claims aren't used, 
-    this will need a Firestore lookup.
+    Checks custom claims and falls back to Firestore document lookup.
     """
-    # Check if 'admin' or 'isAdmin' claim exists
-    if user.get("admin") or user.get("isAdmin"):
+    if user.get("admin") or user.get("isAdmin") or user.get("role") == "admin":
         return user
     
-    # Optional: fallback to Firestore lookup if claims aren't configured yet
-    from firebase_admin import firestore
-    db = firestore.client()
-    user_doc = db.collection('users').document(user['uid']).get()
-    if user_doc.exists and user_doc.to_dict().get('isAdmin', False):
-        return user
+    uid = user.get("uid") or user.get("user_id") or user.get("sub")
+    if uid:
+        try:
+            from firebase_admin import firestore
+            db = firestore.client()
+            user_doc = db.collection('users').document(str(uid)).get()
+            if user_doc.exists:
+                udata = user_doc.to_dict() or {}
+                if udata.get('isAdmin', False) or udata.get('is_admin', False) or udata.get('role') == 'admin':
+                    return user
+        except Exception:
+            pass
         
     raise HTTPException(status_code=403, detail="Not enough permissions")

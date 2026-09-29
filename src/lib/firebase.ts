@@ -440,6 +440,33 @@ export interface GoogleSignInResult {
   isNewUser: boolean;
 }
 
+export const creditSignupBonus = async (uid: string): Promise<void> => {
+  try {
+    // 1. Notification for 1,000 AuraCoins Signup Bonus
+    const notifRef = doc(collection(db, 'users', uid, 'notifications'));
+    await setDoc(notifRef, {
+      title: 'Welcome to StreamAura! 🪙',
+      message: 'You have been awarded 1,000 AuraCoins as a Signup Bonus! Use your AuraCoins to enter Game Rooms, challenge players, or win prizes.',
+      type: 'reward',
+      badgeText: '1,000 🪙 Bonus',
+      read: false,
+      timestamp: Date.now()
+    });
+
+    // 2. Activity ledger in game_wallets
+    const actRef = doc(collection(db, 'game_wallets', uid, 'activity'));
+    await setDoc(actRef, {
+      type: 'signup_bonus',
+      currency: 'auracoin',
+      amount: 1000,
+      desc: 'Welcome Signup Bonus (1,000 AuraCoins)',
+      timestamp: Date.now()
+    });
+  } catch (e) {
+    console.warn('Error creating signup bonus notification/activity:', e);
+  }
+};
+
 export const signInWithGoogle = async (): Promise<GoogleSignInResult | null> => {
   try {
     const result = await signInWithPopup(auth, googleProvider);
@@ -452,26 +479,18 @@ export const signInWithGoogle = async (): Promise<GoogleSignInResult | null> => 
     if (!userDoc.exists()) {
       isNewUser = true;
       const referralCode = getStoredReferralCode();
+      const cleanReferral = (referralCode && referralCode !== user.uid) ? referralCode.trim() : null;
       userData = {
         uid: user.uid, email: user.email, displayName: user.displayName,
         photoURL: user.photoURL, isAdmin: false, createdAt: Date.now(),
-        referralBalance: 0, bonusBalance: 0, auraCoins: 0, referredCount: 0, referredBy: referralCode || null
+        referralBalance: 0, bonusBalance: 0, auraCoins: 1000, referredCount: 0, referredBy: cleanReferral
       };
       await setDoc(userDocRef, userData);
+      await creditSignupBonus(user.uid);
       
-      // Credit Referrer
-      if (referralCode && referralCode !== user.uid) {
-        try {
-          const referrerRef = doc(db, 'users', referralCode);
-          await updateDoc(referrerRef, {
-            bonusBalance: increment(100),
-            auraCoins: increment(100),
-            referredCount: increment(1)
-          });
-        } catch (e) {
-          console.warn("Direct referrer credit note:", e);
-        }
-        await processReferralSignup(user.uid, referralCode);
+      // Securely credit Referrer through backend atomic transaction
+      if (cleanReferral) {
+        await processReferralSignup(user.uid, cleanReferral);
         clearStoredReferralCode();
       }
     } else {
@@ -488,26 +507,18 @@ export const signUpWithEmail = async (email: string, password: string, displayNa
     await updateProfile(user, { displayName });
     
     const referralCode = getStoredReferralCode();
+    const cleanReferral = (referralCode && referralCode !== user.uid) ? referralCode.trim() : null;
     const userData: User = {
       uid: user.uid, email: user.email, displayName: displayName,
       photoURL: null, isAdmin: false, createdAt: Date.now(),
-      referralBalance: 0, bonusBalance: 0, auraCoins: 0, referredCount: 0, referredBy: referralCode || null
+      referralBalance: 0, bonusBalance: 0, auraCoins: 1000, referredCount: 0, referredBy: cleanReferral
     };
     await setDoc(doc(db, 'users', user.uid), userData);
+    await creditSignupBonus(user.uid);
 
-    // Credit Referrer
-    if (referralCode && referralCode !== user.uid) {
-      try {
-        const referrerRef = doc(db, 'users', referralCode);
-        await updateDoc(referrerRef, {
-          bonusBalance: increment(100),
-          auraCoins: increment(100),
-          referredCount: increment(1)
-        });
-      } catch (e) {
-        console.warn("Direct referrer credit note:", e);
-      }
-      await processReferralSignup(user.uid, referralCode);
+    // Securely credit Referrer through backend atomic transaction
+    if (cleanReferral) {
+      await processReferralSignup(user.uid, cleanReferral);
       clearStoredReferralCode();
     }
     return userData;
@@ -565,8 +576,13 @@ export const deleteUserAccount = async (uid: string): Promise<void> => { await d
 
 export interface UserFinancials {
   walletBalance: number;
+  gameWalletBalance: number;
+  vendorWalletBalance: number;
+  auraCoins: number;
+  referralBalance: number;
   totalEarned: number;
   ticketsSold: number;
+  isVendor: boolean;
 }
 
 export interface UserActivitySummary {
@@ -577,18 +593,52 @@ export interface UserActivitySummary {
 
 export const getUserDetails = async (uid: string): Promise<{ financials: UserFinancials, activity: UserActivitySummary }> => {
   try {
-    // 1. Fetch Wallet Info
+    // 1. Fetch Main Wallet Info
     const walletRef = doc(db, 'room_wallets', uid);
     const walletDoc = await getDoc(walletRef);
     const walletData = walletDoc.exists() ? walletDoc.data() : {};
     
+    // 2. Fetch Game Wallet Info
+    let gameBalance = 0;
+    try {
+      const gameWalletRef = doc(db, 'game_wallets', uid);
+      const gameWalletDoc = await getDoc(gameWalletRef);
+      if (gameWalletDoc.exists()) {
+        gameBalance = Number(gameWalletDoc.data().balance || 0);
+      }
+    } catch (e) {}
+
+    // 3. Fetch User Profile Info (for auraCoins, referralBalance, isVendor)
+    const userRef = doc(db, 'users', uid);
+    const userDoc = await getDoc(userRef);
+    const userData = userDoc.exists() ? userDoc.data() : {};
+    
+    // 4. Check Vendor Status & vendor wallet balance
+    let isVendor = !!userData.isVendor;
+    let vendorBalance = Number(walletData.vendor_balance !== undefined ? walletData.vendor_balance : (walletData.vendor_earnings || 0));
+    try {
+      const vendorRef = doc(db, 'vendors', uid);
+      const vendorDoc = await getDoc(vendorRef);
+      if (vendorDoc.exists()) {
+        isVendor = true;
+      }
+    } catch (e) {}
+
+    const auraCoins = Number(userData.auraCoins ?? userData.auraCoin ?? userData.bonusBalance ?? 0);
+    const referralBalance = Number(userData.referralBalance || 0);
+
     const financials: UserFinancials = {
-      walletBalance: walletData.balance || 0,
-      totalEarned: walletData.total_earned || 0,
-      ticketsSold: walletData.tickets_sold || 0
+      walletBalance: Number(walletData.balance || 0),
+      gameWalletBalance: gameBalance,
+      vendorWalletBalance: vendorBalance,
+      auraCoins,
+      referralBalance,
+      totalEarned: Number(walletData.total_earned || 0),
+      ticketsSold: Number(walletData.tickets_sold || 0),
+      isVendor
     };
 
-    // 2. Fetch Rooms Info
+    // 5. Fetch Rooms Info
     const roomsRef = collection(db, 'cinema_rooms');
     const qRooms = query(roomsRef, where('host_uid', '==', uid));
     const roomsSnapshot = await getDocs(qRooms);
@@ -599,10 +649,10 @@ export const getUserDetails = async (uid: string): Promise<{ financials: UserFin
       snacksCount: 0 // Will implement orders check if collection exists
     };
 
-    // 3. Fetch Orders (Snacks)
+    // 6. Fetch Orders (Snacks)
     try {
       const ordersRef = collection(db, 'orders');
-      const qOrders = query(ordersRef, where('customerUid', '==', uid)); // Assuming this field exists
+      const qOrders = query(ordersRef, where('customerUid', '==', uid));
       const ordersSnapshot = await getDocs(qOrders);
       activity.snacksCount = ordersSnapshot.size;
     } catch (e) {}
@@ -610,9 +660,217 @@ export const getUserDetails = async (uid: string): Promise<{ financials: UserFin
     return { financials, activity };
   } catch (error) {
     return {
-      financials: { walletBalance: 0, totalEarned: 0, ticketsSold: 0 },
+      financials: { 
+        walletBalance: 0, 
+        gameWalletBalance: 0, 
+        vendorWalletBalance: 0, 
+        auraCoins: 0, 
+        referralBalance: 0, 
+        totalEarned: 0, 
+        ticketsSold: 0, 
+        isVendor: false 
+      },
       activity: { roomsCreated: 0, moviesHosted: [], snacksCount: 0 }
     };
+  }
+};
+
+export const adminCreditUserWallet = async (
+  userUid: string,
+  walletType: 'main' | 'game' | 'vendor' | 'aura_coins',
+  amount: number,
+  note?: string
+): Promise<{ success: boolean; message?: string; error?: string; [key: string]: any }> => {
+  if (amount <= 0) {
+    return { success: false, error: "Credit amount must be strictly greater than 0. Admin cannot deduct funds." };
+  }
+
+  // 1. Attempt via Backend API (Primary)
+  try {
+    const token = await auth.currentUser?.getIdToken();
+    const resp = await fetch(`${API_BASE_URL}/api/admin/users/${userUid}/credit-wallet`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        wallet_type: walletType,
+        amount: Number(amount),
+        note: note?.trim() || "Admin manual credit"
+      })
+    });
+
+    if (resp.ok) {
+      const res = await resp.json();
+      if (res.success) return res;
+    }
+  } catch (backendErr) {
+    console.warn("Backend credit endpoint unreachable or errored, falling back to direct Firestore update", backendErr);
+  }
+
+  // 2. Direct Firestore Client Fallback (Fully authorized for Admins in firestore.rules)
+  try {
+    const noteText = note?.trim() || "Admin manual credit";
+    const nowMs = Date.now();
+    const cleanType = walletType.toLowerCase().trim();
+
+    if (cleanType === 'main') {
+      const walletRef = doc(db, 'room_wallets', userUid);
+      await setDoc(walletRef, {
+        balance: increment(amount),
+        funded_balance: increment(amount),
+        updated_at: serverTimestamp()
+      }, { merge: true });
+
+      const txId = `admin_credit_${userUid}_${Math.floor(nowMs / 1000)}_${Math.random().toString(36).slice(2, 8)}`;
+      await setDoc(doc(db, 'transactions', txId), {
+        user_uid: userUid,
+        amount: Number(amount),
+        type: 'admin_credit',
+        status: 'completed',
+        title: 'Admin Wallet Top-Up',
+        description: noteText,
+        admin_email: auth.currentUser?.email || 'admin',
+        created_at: serverTimestamp(),
+        timestamp: serverTimestamp(),
+        date: new Date().toISOString().replace('T', ' ').slice(0, 19)
+      });
+
+      const notifId = `credit_main_${Math.floor(nowMs / 1000)}_${Math.random().toString(36).slice(2, 6)}`;
+      await setDoc(doc(db, 'users', userUid, 'notifications', notifId), {
+        title: '💰 Main Wallet Credited',
+        message: `Your Main Wallet has been credited with ₦${amount.toLocaleString()} by Admin. Note: ${noteText}`,
+        timestamp: nowMs,
+        read: false,
+        type: 'success',
+        link: '/wallet'
+      });
+
+      return {
+        success: true,
+        message: `Successfully added ₦${amount.toLocaleString()} to Main Wallet`,
+        wallet_type: 'main',
+        amount
+      };
+    } else if (cleanType === 'game') {
+      const gameWalletRef = doc(db, 'game_wallets', userUid);
+      await setDoc(gameWalletRef, {
+        balance: increment(amount),
+        updated_at: serverTimestamp()
+      }, { merge: true });
+
+      const actId = `admin_credit_${Math.floor(nowMs / 1000)}_${Math.random().toString(36).slice(2, 8)}`;
+      await setDoc(doc(db, 'game_wallets', userUid, 'activity', actId), {
+        type: 'admin_credit',
+        amount: Number(amount),
+        title: 'Admin Game Wallet Credit',
+        description: noteText,
+        admin_email: auth.currentUser?.email || 'admin',
+        timestamp: serverTimestamp(),
+        created_at: nowMs
+      });
+
+      const notifId = `credit_game_${Math.floor(nowMs / 1000)}_${Math.random().toString(36).slice(2, 6)}`;
+      await setDoc(doc(db, 'users', userUid, 'notifications', notifId), {
+        title: '🎮 Game Wallet Credited',
+        message: `Your Game Wallet has been credited with ₦${amount.toLocaleString()} by Admin. Note: ${noteText}`,
+        timestamp: nowMs,
+        read: false,
+        type: 'success',
+        link: '/games'
+      });
+
+      return {
+        success: true,
+        message: `Successfully added ₦${amount.toLocaleString()} to Game Wallet`,
+        wallet_type: 'game',
+        amount
+      };
+    } else if (cleanType === 'vendor') {
+      const walletRef = doc(db, 'room_wallets', userUid);
+      await setDoc(walletRef, {
+        vendor_balance: increment(amount),
+        vendor_earnings: increment(amount),
+        updated_at: serverTimestamp()
+      }, { merge: true });
+
+      const txId = `admin_vendor_credit_${userUid}_${Math.floor(nowMs / 1000)}_${Math.random().toString(36).slice(2, 8)}`;
+      await setDoc(doc(db, 'transactions', txId), {
+        user_uid: userUid,
+        amount: Number(amount),
+        type: 'vendor_earning',
+        status: 'completed',
+        title: 'Admin Vendor Wallet Credit',
+        description: noteText,
+        admin_email: auth.currentUser?.email || 'admin',
+        created_at: serverTimestamp(),
+        timestamp: serverTimestamp(),
+        date: new Date().toISOString().replace('T', ' ').slice(0, 19)
+      });
+
+      const notifId = `credit_vendor_${Math.floor(nowMs / 1000)}_${Math.random().toString(36).slice(2, 6)}`;
+      await setDoc(doc(db, 'users', userUid, 'notifications', notifId), {
+        title: '🏪 Vendor Wallet Credited',
+        message: `Your Vendor Wallet has been credited with ₦${amount.toLocaleString()} by Admin. Note: ${noteText}`,
+        timestamp: nowMs,
+        read: false,
+        type: 'success',
+        link: '/vendor'
+      });
+
+      return {
+        success: true,
+        message: `Successfully added ₦${amount.toLocaleString()} to Vendor Wallet`,
+        wallet_type: 'vendor',
+        amount
+      };
+    } else if (['aura_coins', 'auracoin', 'coins'].includes(cleanType)) {
+      const coinsToAdd = Math.floor(amount);
+      if (coinsToAdd <= 0) {
+        return { success: false, error: "Aura Coins amount must be at least 1." };
+      }
+
+      const userRef = doc(db, 'users', userUid);
+      await setDoc(userRef, {
+        auraCoins: increment(coinsToAdd),
+        auraCoin: increment(coinsToAdd)
+      }, { merge: true });
+
+      const actId = `admin_credit_coins_${Math.floor(nowMs / 1000)}_${Math.random().toString(36).slice(2, 8)}`;
+      await setDoc(doc(db, 'game_wallets', userUid, 'activity', actId), {
+        type: 'admin_credit',
+        currency: 'auracoin',
+        amount: Number(coinsToAdd),
+        title: 'Admin AuraCoins Awarded',
+        desc: `Admin credited ${coinsToAdd.toLocaleString()} AuraCoins: ${noteText}`,
+        description: noteText,
+        admin_email: auth.currentUser?.email || 'admin',
+        timestamp: serverTimestamp(),
+        created_at: nowMs
+      });
+
+      const notifId = `credit_coins_${Math.floor(nowMs / 1000)}_${Math.random().toString(36).slice(2, 6)}`;
+      await setDoc(doc(db, 'users', userUid, 'notifications', notifId), {
+        title: '🪙 AuraCoins Awarded',
+        message: `You have been awarded ${coinsToAdd.toLocaleString()} AuraCoins by Admin! Note: ${noteText}`,
+        timestamp: nowMs,
+        read: false,
+        type: 'success',
+        link: '/profile'
+      });
+
+      return {
+        success: true,
+        message: `Successfully added ${coinsToAdd.toLocaleString()} AuraCoins`,
+        wallet_type: 'aura_coins',
+        amount: coinsToAdd
+      };
+    }
+
+    return { success: false, error: `Invalid wallet type: ${walletType}` };
+  } catch (firestoreErr: any) {
+    return { success: false, error: firestoreErr.message || "Failed to credit user wallet." };
   }
 };
 
@@ -1477,6 +1735,106 @@ export const getStatsSummary = async (forceRefresh = false): Promise<SystemStats
       return statsSummaryCache.data;
     }
     throw new Error('Failed to fetch system statistics'); 
+  }
+};
+
+export interface PlatformFinancials {
+  success: boolean;
+  total_burned_auracoins: number;
+  total_platform_cash_earnings: number;
+  auracoins_breakdown: {
+    burned_from_entry_fees: number;
+    burned_from_forfeits: number;
+    total_in_circulation: number;
+  };
+  cash_breakdown: {
+    cinema_tickets: number;
+    game_entries: number;
+    game_forfeits: number;
+    vendor_store: number;
+    withdrawal_fees: number;
+  };
+  recent_events: Array<{
+    id?: string;
+    type: string;
+    amount: number;
+    currency: string;
+    source: string;
+    desc: string;
+    room_id?: string;
+    timestamp?: any;
+    timestamp_str?: string;
+  }>;
+}
+
+export const getPlatformFinancials = async (): Promise<PlatformFinancials> => {
+  try {
+    const token = await auth.currentUser?.getIdToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE_URL}/api/admin/financial-stats`, { headers });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && typeof data === 'object') {
+        return data as PlatformFinancials;
+      }
+    }
+  } catch (err) {
+    console.warn('Backend financial stats fetch failed, using direct Firestore fallback:', err);
+  }
+
+  // Fallback to direct Firestore
+  try {
+    const finDoc = await getDoc(doc(db, 'system_analytics', 'platform_financials'));
+    const finData = finDoc.exists() ? finDoc.data() : {};
+
+    // Get users for auraCoins circulation
+    let totalCirculation = 0;
+    try {
+      const usersSnap = await getDocs(collection(db, 'users'));
+      usersSnap.docs.forEach(d => {
+        totalCirculation += Number(d.data().auraCoins || 0);
+      });
+    } catch {}
+
+    // Get recent events
+    const recentEvents: any[] = [];
+    try {
+      const eventsSnap = await getDocs(query(collection(db, 'platform_revenue_events'), orderBy('timestamp', 'desc'), limit(25)));
+      eventsSnap.docs.forEach(d => {
+        recentEvents.push({ id: d.id, ...d.data() });
+      });
+    } catch {}
+
+    return {
+      success: true,
+      total_burned_auracoins: Number(finData.total_burned_auracoins || 0),
+      total_platform_cash_earnings: Number(finData.total_platform_cash_earnings || 0),
+      auracoins_breakdown: {
+        burned_from_entry_fees: Number(finData.burned_from_entry_fees || 0),
+        burned_from_forfeits: Number(finData.burned_from_forfeits || 0),
+        total_in_circulation: totalCirculation
+      },
+      cash_breakdown: {
+        cinema_tickets: Number(finData.cash_from_cinema_tickets || 0),
+        game_entries: Number(finData.cash_from_game_entries || 0),
+        game_forfeits: Number(finData.cash_from_game_forfeits || 0),
+        vendor_store: Number(finData.cash_from_vendor_store || 0),
+        withdrawal_fees: Number(finData.cash_from_withdrawal_fees || 0)
+      },
+      recent_events: recentEvents
+    };
+  } catch (e) {
+    console.error('Failed to get platform financials fallback:', e);
+    return {
+      success: false,
+      total_burned_auracoins: 0,
+      total_platform_cash_earnings: 0,
+      auracoins_breakdown: { burned_from_entry_fees: 0, burned_from_forfeits: 0, total_in_circulation: 0 },
+      cash_breakdown: { cinema_tickets: 0, game_entries: 0, game_forfeits: 0, vendor_store: 0, withdrawal_fees: 0 },
+      recent_events: []
+    };
   }
 };
 

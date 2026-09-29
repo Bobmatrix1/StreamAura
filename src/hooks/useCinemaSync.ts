@@ -59,7 +59,7 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
 
     let retryCount = 0;
 
-    const connectWebSocket = () => {
+    const connectWebSocket = async () => {
       if (isDestroyedRef.current || !roomId || !user) return;
 
       // Close previous connection if not in OPEN state
@@ -82,7 +82,27 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
         }
       }
 
-      const socketUrl = `${socketBase}/api/ws/cinema/${roomId}/ws`;
+      let token = '';
+      try {
+        if (auth.currentUser) {
+          token = await auth.currentUser.getIdToken();
+        } else if (user?.getIdToken) {
+          token = await user.getIdToken();
+        }
+      } catch (e) {
+        console.warn('Cinema WS token fetch error:', e);
+      }
+
+      if (!token) {
+        if (retryCount < 5 && !isDestroyedRef.current) {
+          retryCount++;
+          if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = setTimeout(connectWebSocket, 1000);
+        }
+        return;
+      }
+
+      const socketUrl = `${socketBase}/api/ws/cinema/${roomId}/ws?token=${encodeURIComponent(token)}`;
       
       try {
         const socket = new WebSocket(socketUrl);
@@ -129,11 +149,21 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
           }
         };
 
-        socket.onclose = () => {
+        socket.onclose = (event) => {
           if (isDestroyedRef.current) return;
           
-          // Reconnect with backoff (1s, 2s, 4s, max 8s)
-          const delay = Math.min(1000 * Math.pow(1.5, retryCount), 8000);
+          if (event.code === 4003) {
+            // Ticket required or banned - do not loop reconnect
+            return;
+          }
+
+          if (event.code === 4001 || event.code === 4002) {
+            // Force refresh token for next retry
+            auth.currentUser?.getIdToken(true).catch(() => {});
+          }
+
+          // Reconnect with backoff (1s, 1.5s, 2.25s, max 8s)
+          const delay = Math.min(1000 * Math.pow(1.5, Math.min(retryCount, 5)), 8000);
           retryCount++;
           
           if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);

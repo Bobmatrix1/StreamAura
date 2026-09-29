@@ -771,8 +771,8 @@ const Wallet: React.FC = () => {
                    {paginatedTransactions.map(tx => (
                      <div key={tx.id} className="p-4 rounded-xl glass-card border-white/5 flex items-center justify-between group hover:bg-white/[0.02] transition-colors">
                         <div className="flex items-center gap-4">
-                           <div className={`w-10 h-10 rounded-full flex items-center justify-center ${tx.type === 'earning' || tx.type === 'deposit' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
-                             {tx.type === 'earning' || tx.type === 'deposit' ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
+                           <div className={`w-10 h-10 rounded-full flex items-center justify-center ${['earning', 'deposit', 'transfer_in', 'payout_refund', 'admin_credit', 'vendor_earning'].includes(tx.type) ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+                             {['earning', 'deposit', 'transfer_in', 'payout_refund', 'admin_credit', 'vendor_earning'].includes(tx.type) ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
                            </div>
                            <div>
                               <p className="text-xs font-bold text-white uppercase tracking-tight">{tx.title}</p>
@@ -780,8 +780,8 @@ const Wallet: React.FC = () => {
                            </div>
                         </div>
                         <div className="text-right">
-                           <p className={`text-sm font-black ${['earning', 'deposit', 'transfer_in', 'payout_refund'].includes(tx.type) ? 'text-emerald-500' : 'text-foreground'}`}>
-                              {['earning', 'deposit', 'transfer_in', 'payout_refund'].includes(tx.type) ? '+' : '-'}₦{tx.amount.toLocaleString()}
+                           <p className={`text-sm font-black ${['earning', 'deposit', 'transfer_in', 'payout_refund', 'admin_credit', 'vendor_earning'].includes(tx.type) ? 'text-emerald-500' : 'text-foreground'}`}>
+                              {['earning', 'deposit', 'transfer_in', 'payout_refund', 'admin_credit', 'vendor_earning'].includes(tx.type) ? '+' : '-'}₦{tx.amount.toLocaleString()}
                            </p>
                            <Badge variant="outline" className={`mt-1 text-[8px] uppercase tracking-widest ${
                               tx.status === 'completed' 

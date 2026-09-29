@@ -173,12 +173,15 @@ const Signup: React.FC<SignupProps> = ({ onToggleView, isModal, onBack }) => {
             >
               <img src="/logo.png" alt="StreamAura" className="w-full h-full object-contain scale-110" />
             </motion.div>
-            <h1 className="text-2xl font-bold gradient-text mb-2">
+            <h1 className="text-2xl font-bold gradient-text mb-1">
               Create Account
             </h1>
-            <p className="text-muted-foreground text-sm">
+            <p className="text-muted-foreground text-sm mb-3">
               Sign up to start streaming
             </p>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-bold mb-4 shadow-sm">
+              <span>🪙 +1,000 AuraCoins Welcome Bonus</span>
+            </div>
           </div>
 
           {/* Google Sign Up */}

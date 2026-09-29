@@ -178,23 +178,26 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str = No
     from firebase_admin import auth
     
     if not token:
-        await websocket.accept()
-        await websocket.send_json({"type": "error", "message": "Authentication token missing"})
-        await websocket.close(code=4001)
+        await websocket.close(code=4001, reason="Authentication token missing")
         return
         
     try:
         decoded_token = auth.verify_id_token(token)
         uid = decoded_token.get("uid")
-        is_admin = decoded_token.get("admin") or decoded_token.get("isAdmin", False)
+        if not uid:
+            await websocket.close(code=4002, reason="Invalid token UID")
+            return
+            
+        is_admin = bool(decoded_token.get("admin") or decoded_token.get("isAdmin", False))
         if not is_admin:
             db = firestore.client()
             user_doc = db.collection("users").document(uid).get()
-            is_admin = user_doc.exists and user_doc.to_dict().get("isAdmin", False)
+            if user_doc.exists:
+                u_data = user_doc.to_dict() or {}
+                is_admin = bool(u_data.get("isAdmin", False) or u_data.get("role") == "admin" or u_data.get("is_admin", False))
     except Exception as e:
-        await websocket.accept()
-        await websocket.send_json({"type": "error", "message": f"Authentication failed: {str(e)}"})
-        await websocket.close(code=4002)
+        print(f"Cinema WS Auth Verification Failed: {e}")
+        await websocket.close(code=4002, reason=f"Authentication failed: {str(e)}")
         return
 
     try:
@@ -237,7 +240,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str = No
                                    .limit(1).get()
                         if not passes:
                             await websocket.send_json({"type": "error", "message": "Access denied. Ticket required."})
-                            await websocket.close(code=4003)
+                            await websocket.close(code=4003, reason="Ticket required")
                             return
                 
                 await add_user_to_room(room_id, uid)
@@ -298,11 +301,14 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str = No
                 
     except WebSocketDisconnect:
         manager.disconnect(websocket, room_id, uid)
-        await remove_user_from_room(room_id, uid)
+        if uid:
+            await remove_user_from_room(room_id, uid)
         await update_activity(room_id)
         users = await get_room_users(room_id)
         await manager.broadcast({"type": "user_list", "users": users}, room_id)
     except Exception as e:
         print(f"WS Error: {e}")
         manager.disconnect(websocket, room_id, uid)
+        if uid:
+            await remove_user_from_room(room_id, uid)
         await update_activity(room_id)

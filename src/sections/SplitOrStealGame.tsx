@@ -32,6 +32,9 @@ import { Badge } from '../components/ui/badge';
 import { auth } from '../lib/firebase';
 import { API_BASE_URL } from '../api/mediaApi';
 import { SEO } from '../components/SEO';
+import { AuraCoinIcon } from '../components/AuraCoinIcon';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 interface SplitOrStealGameProps {
   gameId: string;
@@ -42,6 +45,23 @@ interface SplitOrStealGameProps {
 const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, onLeave }) => {
   const { user, isAdmin } = useAuth();
   const { gameState, messages, flyingEmojis, sendAction } = useGameSync(gameId, user);
+  const [userGameWallet, setUserGameWallet] = useState(0);
+  const [userAuraCoins, setUserAuraCoins] = useState(0);
+
+  useEffect(() => {
+    if (user?.uid) {
+      const unsubWallet = onSnapshot(doc(db, 'game_wallets', user.uid), (snap) => {
+        if (snap.exists()) setUserGameWallet(snap.data().balance || 0);
+      });
+      const unsubUser = onSnapshot(doc(db, 'users', user.uid), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          setUserAuraCoins(Number(data.auraCoins ?? data.auraCoin ?? data.bonusBalance ?? 0));
+        }
+      });
+      return () => { unsubWallet(); unsubUser(); };
+    }
+  }, [user?.uid]);
   const [chatInput, setChatInput] = useState('');
   const [activeTab, setActiveTab] = useState<'convincing' | 'viewers'>('viewers');
   const [isChatCollapsed, setIsChatCollapsed] = useState(false);
@@ -359,6 +379,7 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
     if (!gameState.revealResult || (gameState.status === 'revealing' && (gameState.timer || 0) > 0)) return null;
 
     const totalPrize = gameState.prizeAmount || gameData.prizeAmount || 0;
+    const isAuraCoin = gameState.prizeType === 'auracoin' || gameData.prizeType === 'auracoin';
     const choiceA = gameState.choices?.[gameState.playerA?.uid];
     const choiceB = gameState.choices?.[gameState.playerB?.uid];
     
@@ -381,17 +402,22 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
       prizeWon = 0;
     }
 
+    const wonText = isAuraCoin ? `+${prizeWon.toLocaleString()} 🪙` : `+₦${prizeWon.toLocaleString()}`;
+    const zeroText = isAuraCoin ? '0 🪙' : '₦0';
+
     return (
       <motion.div
         initial={{ opacity: 0, scale: 0.5 }}
         animate={{ opacity: 1, scale: 1 }}
         className={`px-2.5 py-1 rounded-xl font-black text-[10px] md:text-xs tracking-wider border shrink-0 ${
           prizeWon > 0 
-            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]' 
+            ? (isAuraCoin 
+                ? 'bg-amber-500/15 border-amber-500/30 text-amber-600 dark:text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.15)]' 
+                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]')
             : 'bg-slate-100 dark:bg-zinc-800/40 border-slate-200 dark:border-white/5 text-slate-500 dark:text-muted-foreground'
         }`}
       >
-        {prizeWon > 0 ? `+₦${prizeWon.toLocaleString()}` : '₦0'}
+        {prizeWon > 0 ? wonText : zeroText}
       </motion.div>
     );
   };
@@ -406,7 +432,9 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
   const handleShareRoom = () => {
     const shareUrl = `${window.location.origin}?tab=games&gameId=${gameId}`;
     const shareTitle = `Split or Steal: ${gameData.roomName || 'Arena'}`;
-    const shareText = `Join my live game room "${gameData.roomName || 'Arena'}" on StreamAura! Paid pool entry fee: ₦${gameData.entryFee || 0}. Split or Steal? Convince, Choose, Win!`;
+    const isAuraCoin = gameData.entryType === 'auracoin' || gameState?.entryType === 'auracoin';
+    const feeText = isAuraCoin ? `${(gameData.entryFee || 0).toLocaleString()} AuraCoins` : `₦${(gameData.entryFee || 0).toLocaleString()}`;
+    const shareText = `Join my live game room "${gameData.roomName || 'Arena'}" on StreamAura! Paid pool entry fee: ${feeText}. Split or Steal? Convince, Choose, Win!`;
 
     if (navigator.share) {
       navigator.share({
@@ -541,7 +569,7 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
     <div className={`fixed inset-0 z-[1000] flex flex-col transition-colors duration-1000 ${bgClass} overflow-hidden font-sans`}>
       <SEO 
         title={`Split or Steal: ${gameData.roomName}`}
-        description={`Join the live game room "${gameData.roomName}" hosted by ${gameData.hostName} on StreamAura! Paid pool entry fee: ₦${gameData.entryFee}. split or steal? convince, choose, win!`}
+        description={`Join the live game room "${gameData.roomName}" hosted by ${gameData.hostName} on StreamAura! Paid pool entry fee: ${(gameData.entryType === 'auracoin' || gameState?.entryType === 'auracoin') ? `${(gameData.entryFee || 0).toLocaleString()} AuraCoins` : `₦${(gameData.entryFee || 0).toLocaleString()}`}. split or steal? convince, choose, win!`}
         image={`${window.location.origin}/icons/split%20or%20steal.jpg`}
         url={`${window.location.origin}?tab=games&gameId=${gameId}`}
       />
@@ -664,7 +692,17 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
             </div>
           </div>
         </div>
-        {gameState?.timer !== undefined && gameState.status !== 'waiting' && gameState.status !== 'finished' && (
+        <div className="flex items-center gap-2 md:gap-3">
+          {user && (
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-[10px] font-black">
+              <span className="text-yellow-600 dark:text-yellow-400">₦{userGameWallet.toLocaleString()}</span>
+              <span className="text-slate-300 dark:text-white/20">|</span>
+              <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                <AuraCoinIcon size="xs" className="w-3 h-3 inline" /> {userAuraCoins.toLocaleString()}
+              </span>
+            </div>
+          )}
+          {gameState?.timer !== undefined && gameState.status !== 'waiting' && gameState.status !== 'finished' && (
           <div className={`flex items-center gap-1.5 md:gap-3 px-2 md:px-4 py-1 md:py-2 rounded-lg md:rounded-xl border ${
             gameState.status === 'sudden_death' 
               ? 'bg-rose-600/20 border-rose-500 text-rose-600 dark:text-white shadow-[0_0_20px_rgba(244,63,94,0.3)] animate-pulse' 
@@ -676,20 +714,29 @@ const SplitOrStealGame: React.FC<SplitOrStealGameProps> = ({ gameId, gameData, o
              </span>
           </div>
         )}
+        </div>
       </div>
 
       <div className="flex-1 flex flex-col lg:flex-row relative min-h-0">
         <div className="flex-1 flex flex-col items-center justify-start md:justify-center p-4 md:p-8 space-y-10 md:space-y-16 relative overflow-y-auto custom-scrollbar min-h-0 pt-10 pb-20">
           
           {/* PRIZE DISPLAY - VISIBLE FROM START */}
-          {((gameState?.prizeAmount || gameData.prizeAmount) > 0) && (
-            <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="text-center z-10 bg-white/80 dark:bg-white/5 border border-slate-200 dark:border-white/10 px-8 py-4 rounded-[2rem] backdrop-blur-xl shadow-lg">
-               <p className="text-[10px] md:text-xs font-black text-primary uppercase tracking-[0.5em] mb-1 opacity-80 dark:opacity-50">Competing For</p>
-               <div className="flex items-center justify-center gap-2">
-                  <span className="text-4xl md:text-7xl font-black text-slate-900 dark:text-white italic drop-shadow-sm">₦{(gameState?.prizeAmount || gameData.prizeAmount).toLocaleString()}</span>
-               </div>
-            </motion.div>
-          )}
+          {((gameState?.prizeAmount || gameData.prizeAmount) > 0) && (() => {
+            const isAuraCoin = gameState?.prizeType === 'auracoin' || gameData.prizeType === 'auracoin';
+            const prizeVal = gameState?.prizeAmount || gameData.prizeAmount || 0;
+            return (
+              <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className={`text-center z-10 border px-8 py-4 rounded-[2rem] backdrop-blur-xl shadow-lg ${isAuraCoin ? 'bg-amber-500/10 border-amber-500/30' : 'bg-white/80 dark:bg-white/5 border-slate-200 dark:border-white/10'}`}>
+                 <p className={`text-[10px] md:text-xs font-black uppercase tracking-[0.5em] mb-1 ${isAuraCoin ? 'text-amber-500' : 'text-primary'} opacity-90`}>Competing For</p>
+                 <div className="flex items-center justify-center gap-2.5">
+                    {isAuraCoin && <AuraCoinIcon size="lg" className="w-8 h-8 md:w-12 md:h-12" />}
+                    <span className="text-4xl md:text-7xl font-black text-slate-900 dark:text-white italic drop-shadow-sm">
+                      {isAuraCoin ? `${prizeVal.toLocaleString()}` : `₦${prizeVal.toLocaleString()}`}
+                    </span>
+                    {isAuraCoin && <span className="text-xs md:text-base font-black uppercase text-amber-500">AuraCoins</span>}
+                 </div>
+              </motion.div>
+            );
+          })()}
 
           <div className="flex flex-col md:flex-row items-center justify-center gap-8 md:gap-20 relative w-full max-w-7xl">
              <div className="flex items-center gap-6 md:gap-10 bg-white/90 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-5 md:p-8 rounded-[2rem] md:rounded-[4rem] relative z-10 w-full md:w-auto min-w-[320px] md:min-w-[480px] backdrop-blur-xl shadow-xl">

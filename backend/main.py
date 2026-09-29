@@ -1592,6 +1592,272 @@ async def admin_clear_all_notifications(admin: dict = Depends(get_current_admin)
     except Exception as e:
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
+class AdminCreditWalletRequest(BaseModel):
+    wallet_type: str  # 'main' | 'game' | 'vendor' | 'aura_coins'
+    amount: float
+    note: Optional[str] = "Admin manual credit"
+
+@app.post("/api/admin/users/{user_uid}/credit-wallet")
+async def admin_credit_wallet(user_uid: str, req: AdminCreditWalletRequest, admin: dict = Depends(get_current_admin)):
+    """
+    ADMIN ONLY: Add funds to a user's wallet (Main, Game, Vendor, or AuraCoins).
+    Deductions are strictly prohibited — amount must be > 0.
+    """
+    db = db_admin if db_admin is not None else firestore.client()
+    if not db:
+        return JSONResponse(status_code=500, content={"success": False, "error": "Firebase Offline"})
+    
+    if req.amount <= 0:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Credit amount must be strictly greater than 0. Admin cannot deduct funds."})
+
+    wallet_type = req.wallet_type.lower().strip()
+    if wallet_type not in ["main", "game", "vendor", "aura_coins", "auracoin", "coins"]:
+        return JSONResponse(status_code=400, content={"success": False, "error": f"Invalid wallet type '{req.wallet_type}'. Must be 'main', 'game', 'vendor', or 'aura_coins'."})
+
+    try:
+        user_ref = db.collection('users').document(user_uid)
+        user_snap = user_ref.get()
+        if not user_snap.exists:
+            return JSONResponse(status_code=404, content={"success": False, "error": f"User {user_uid} not found."})
+        
+        user_data = user_snap.to_dict() or {}
+        admin_email = admin.get("email", "admin") if isinstance(admin, dict) else "admin"
+        now_ms = int(time.time() * 1000)
+        note = req.note.strip() if req.note else "Admin top-up"
+
+        if wallet_type == "main":
+            wallet_ref = db.collection('room_wallets').document(user_uid)
+            wallet_snap = wallet_ref.get()
+            cur_bal = 0.0
+            if wallet_snap.exists:
+                w_data = wallet_snap.to_dict() or {}
+                raw_b = w_data.get("balance")
+                if raw_b is not None:
+                    try:
+                        cur_bal = float(raw_b)
+                    except (ValueError, TypeError):
+                        cur_bal = 0.0
+            
+            wallet_ref.set({
+                "balance": firestore.Increment(req.amount),
+                "funded_balance": firestore.Increment(req.amount),
+                "updated_at": firestore.SERVER_TIMESTAMP
+            }, merge=True)
+
+            try:
+                tx_id = f"admin_credit_{user_uid}_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+                db.collection('transactions').document(tx_id).set({
+                    "user_uid": user_uid,
+                    "amount": req.amount,
+                    "type": "admin_credit",
+                    "status": "completed",
+                    "title": "Admin Wallet Top-Up",
+                    "description": note,
+                    "admin_email": admin_email,
+                    "created_at": firestore.SERVER_TIMESTAMP,
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                    "date": time.strftime("%Y-%m-%d %H:%M:%S")
+                })
+            except Exception as te:
+                print(f"Failed to record transaction: {te}")
+
+            try:
+                notif_id = f"credit_main_{int(time.time())}_{uuid.uuid4().hex[:4]}"
+                user_ref.collection('notifications').document(notif_id).set({
+                    "title": "💰 Main Wallet Credited",
+                    "message": f"Your Main Wallet has been credited with ₦{req.amount:,.2f} by Admin. Note: {note}",
+                    "timestamp": now_ms,
+                    "read": False,
+                    "type": "success",
+                    "link": "/wallet"
+                })
+            except Exception as ne:
+                print(f"Failed to record notification: {ne}")
+
+            return {
+                "success": True,
+                "message": f"Successfully added ₦{req.amount:,.2f} to {user_data.get('displayName', 'User')}'s Main Wallet",
+                "wallet_type": "main",
+                "amount": req.amount,
+                "previous_balance": cur_bal,
+                "new_balance": cur_bal + req.amount
+            }
+
+        elif wallet_type == "game":
+            game_wallet_ref = db.collection('game_wallets').document(user_uid)
+            gw_snap = game_wallet_ref.get()
+            cur_bal = 0.0
+            if gw_snap.exists:
+                g_data = gw_snap.to_dict() or {}
+                raw_b = g_data.get("balance")
+                if raw_b is not None:
+                    try:
+                        cur_bal = float(raw_b)
+                    except (ValueError, TypeError):
+                        cur_bal = 0.0
+            
+            game_wallet_ref.set({
+                "balance": firestore.Increment(req.amount),
+                "updated_at": firestore.SERVER_TIMESTAMP
+            }, merge=True)
+
+            try:
+                act_id = f"admin_credit_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+                game_wallet_ref.collection('activity').document(act_id).set({
+                    "type": "admin_credit",
+                    "amount": req.amount,
+                    "title": "Admin Game Wallet Credit",
+                    "description": note,
+                    "admin_email": admin_email,
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                    "created_at": now_ms
+                })
+            except Exception as ae:
+                print(f"Failed to record game activity: {ae}")
+
+            try:
+                notif_id = f"credit_game_{int(time.time())}_{uuid.uuid4().hex[:4]}"
+                user_ref.collection('notifications').document(notif_id).set({
+                    "title": "🎮 Game Wallet Credited",
+                    "message": f"Your Game Wallet has been credited with ₦{req.amount:,.2f} by Admin. Note: {note}",
+                    "timestamp": now_ms,
+                    "read": False,
+                    "type": "success",
+                    "link": "/games"
+                })
+            except Exception as ne:
+                print(f"Failed to record notification: {ne}")
+
+            return {
+                "success": True,
+                "message": f"Successfully added ₦{req.amount:,.2f} to {user_data.get('displayName', 'User')}'s Game Wallet",
+                "wallet_type": "game",
+                "amount": req.amount,
+                "previous_balance": cur_bal,
+                "new_balance": cur_bal + req.amount
+            }
+
+        elif wallet_type == "vendor":
+            is_vendor = user_data.get("isVendor", False)
+            vendor_doc = db.collection('vendors').document(user_uid).get()
+            if not is_vendor and not vendor_doc.exists:
+                return JSONResponse(status_code=400, content={"success": False, "error": f"User {user_data.get('displayName', user_uid)} is not registered as a Vendor."})
+            
+            wallet_ref = db.collection('room_wallets').document(user_uid)
+            wallet_snap = wallet_ref.get()
+            cur_bal = 0.0
+            if wallet_snap.exists:
+                w_data = wallet_snap.to_dict() or {}
+                raw_b = w_data.get("vendor_balance") if "vendor_balance" in w_data else w_data.get("vendor_earnings")
+                if raw_b is not None:
+                    try:
+                        cur_bal = float(raw_b)
+                    except (ValueError, TypeError):
+                        cur_bal = 0.0
+            
+            wallet_ref.set({
+                "vendor_balance": firestore.Increment(req.amount),
+                "vendor_earnings": firestore.Increment(req.amount),
+                "updated_at": firestore.SERVER_TIMESTAMP
+            }, merge=True)
+
+            try:
+                tx_id = f"admin_vendor_credit_{user_uid}_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+                db.collection('transactions').document(tx_id).set({
+                    "user_uid": user_uid,
+                    "amount": req.amount,
+                    "type": "vendor_earning",
+                    "status": "completed",
+                    "title": "Admin Vendor Wallet Credit",
+                    "description": note,
+                    "admin_email": admin_email,
+                    "created_at": firestore.SERVER_TIMESTAMP,
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                    "date": time.strftime("%Y-%m-%d %H:%M:%S")
+                })
+            except Exception as te:
+                print(f"Failed to record vendor tx: {te}")
+
+            try:
+                notif_id = f"credit_vendor_{int(time.time())}_{uuid.uuid4().hex[:4]}"
+                user_ref.collection('notifications').document(notif_id).set({
+                    "title": "🏪 Vendor Wallet Credited",
+                    "message": f"Your Vendor Wallet has been credited with ₦{req.amount:,.2f} by Admin. Note: {note}",
+                    "timestamp": now_ms,
+                    "read": False,
+                    "type": "success",
+                    "link": "/vendor"
+                })
+            except Exception as ne:
+                print(f"Failed to record notification: {ne}")
+
+            return {
+                "success": True,
+                "message": f"Successfully added ₦{req.amount:,.2f} to {user_data.get('displayName', 'User')}'s Vendor Wallet",
+                "wallet_type": "vendor",
+                "amount": req.amount,
+                "previous_balance": cur_bal,
+                "new_balance": cur_bal + req.amount
+            }
+
+        elif wallet_type in ["aura_coins", "auracoin", "coins"]:
+            coins_to_add = int(req.amount)
+            if coins_to_add <= 0:
+                return JSONResponse(status_code=400, content={"success": False, "error": "Aura Coins amount must be at least 1."})
+            
+            raw_coins = user_data.get("auraCoins") or user_data.get("auraCoin") or user_data.get("bonusBalance") or 0
+            try:
+                cur_coins = int(raw_coins)
+            except (ValueError, TypeError):
+                cur_coins = 0
+
+            user_ref.set({
+                "auraCoins": firestore.Increment(coins_to_add),
+                "auraCoin": firestore.Increment(coins_to_add)
+            }, merge=True)
+
+            try:
+                act_id = f"admin_credit_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+                db.collection("game_wallets").document(user_uid).collection('activity').document(act_id).set({
+                    "type": "admin_credit",
+                    "currency": "auracoin",
+                    "amount": coins_to_add,
+                    "title": "Admin AuraCoins Awarded",
+                    "desc": f"Admin credited {coins_to_add:,} AuraCoins: {note}",
+                    "description": note,
+                    "admin_email": admin_email,
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                    "created_at": now_ms
+                })
+            except Exception as ae:
+                print(f"Failed to record game wallet activity: {ae}")
+
+            try:
+                notif_id = f"credit_coins_{int(time.time())}_{uuid.uuid4().hex[:4]}"
+                user_ref.collection('notifications').document(notif_id).set({
+                    "title": "🪙 AuraCoins Awarded",
+                    "message": f"You have been awarded {coins_to_add:,} AuraCoins by Admin! Note: {note}",
+                    "timestamp": now_ms,
+                    "read": False,
+                    "type": "success",
+                    "link": "/profile"
+                })
+            except Exception as ne:
+                print(f"Failed to record notification: {ne}")
+
+            return {
+                "success": True,
+                "message": f"Successfully added {coins_to_add:,} AuraCoins to {user_data.get('displayName', 'User')}",
+                "wallet_type": "aura_coins",
+                "amount": coins_to_add,
+                "previous_balance": cur_coins,
+                "new_balance": cur_coins + coins_to_add
+            }
+
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
 @app.post("/api/extract")
 async def extract_info(request: ExtractRequest):
     raw_url = request.url.strip()
@@ -4126,6 +4392,21 @@ async def process_store_order(order: OrderRequest):
                     order_payload["telegramChatId"] = str(chat_id)
 
                 db_admin.collection('orders').document(order.orderId).set(order_payload, merge=True)
+                
+                # Record 20% Platform Commission on Store Order
+                if order.total and float(order.total) > 0:
+                    try:
+                        from core.payouts import record_platform_cut
+                        platform_cut = round(float(order.total) * 0.20, 2)
+                        record_platform_cut(
+                            db=db_admin,
+                            amount=platform_cut,
+                            currency="cash",
+                            source="vendor_store",
+                            desc=f"20% platform cut (₦{platform_cut:,.2f}) on Store Order #{order_num}"
+                        )
+                    except Exception as fe:
+                        print(f"Failed to record store platform cut: {fe}")
             except Exception as e:
                 print(f"Failed to record order on Firestore: {e}")
                 
@@ -4320,7 +4601,47 @@ async def telegram_webhook(request: Request):
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+@app.get("/api/admin/financial-stats")
+async def get_admin_financial_stats(user: Optional[dict] = Depends(get_current_user)):
+    """
+    Returns platform 20% real cash earnings and burned AuraCoin stats.
+    """
+    if not db_admin:
+        raise HTTPException(status_code=500, detail="Database client unavailable")
+    
+    # If user provided, check admin authorization
+    if user:
+        uid = user.get("uid") or user.get("user_id") or user.get("sub")
+        is_admin = bool(user.get("admin") or user.get("isAdmin", False) or user.get("role") == "admin")
+        if not is_admin and uid:
+            try:
+                user_doc = db_admin.collection("users").document(str(uid)).get()
+                if user_doc.exists:
+                    udata = user_doc.to_dict() or {}
+                    if udata.get("isAdmin", False) or udata.get("is_admin", False) or udata.get("role") == "admin":
+                        is_admin = True
+            except Exception as e:
+                print(f"Error checking user doc for admin: {e}")
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Admin authorization required")
+            
+    try:
+        from core.payouts import get_platform_financials_data
+        stats = get_platform_financials_data(db_admin)
+        return stats
+    except Exception as e:
+        print(f"Error fetching financial stats: {e}")
+        return {
+            "success": False,
+            "total_burned_auracoins": 0,
+            "total_platform_cash_earnings": 0,
+            "auracoins_breakdown": { "burned_from_entry_fees": 0, "burned_from_forfeits": 0, "total_in_circulation": 0 },
+            "cash_breakdown": { "cinema_tickets": 0, "game_entries": 0, "game_forfeits": 0, "vendor_store": 0, "withdrawal_fees": 0 },
+            "recent_events": []
+        }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, ws="wsproto", reload=True)
+
 

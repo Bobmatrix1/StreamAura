@@ -32,27 +32,34 @@ import {
   Film,
   Banknote,
   Handshake,
-  MapPin
+  MapPin,
+  Flame,
+  Coins,
+  Sparkles,
+
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { 
-  getAllUsers, 
+  getAllUsers,
+  adminCreditUserWallet, 
   toggleAdminStatus, 
   toggleVendorStatus,
   deleteUserAccount,
   getGlobalHistory,
   getStatsSummary,
+  getPlatformFinancials,
   clearUserHistory,
   clearAllHistory,
   clearAllTraffic,
   getUserDetails,
   db,
   type SystemStats,
+  type PlatformFinancials,
   type UserFinancials,
   type UserActivitySummary
 } from '../lib/firebase';
-import { collection, getDocs, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, onSnapshot, doc } from 'firebase/firestore';
 import { API_BASE_URL } from '../api/mediaApi';
 import type { User, GlobalHistoryItem } from '../types';
 import {
@@ -63,6 +70,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { AuraCoinIcon } from '../components/AuraCoinIcon';
+import { Plus, Gamepad2, WalletCards } from 'lucide-react';
 import { PreOrderManager } from './PreOrderManager';
 import { StoreManager } from './StoreManager';
 import { PartnersManager } from './PartnersManager';
@@ -126,7 +135,9 @@ const AdminDashboard: React.FC = () => {
   const { user: currentUser } = useAuth();
   const { showSuccess, showError } = useToast();
   
-  const [activeTab, setActiveTab] = useState<'users' | 'history' | 'preorders' | 'traffic' | 'insights' | 'messages' | 'store' | 'cinema' | 'payouts' | 'partners' | 'ads'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'history' | 'financials' | 'preorders' | 'traffic' | 'insights' | 'messages' | 'store' | 'cinema' | 'payouts' | 'partners' | 'ads'>('users');
+  const [financials, setFinancials] = useState<PlatformFinancials | null>(null);
+  const [isFinLoading, setIsFinLoading] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [history, setHistory] = useState<GlobalHistoryItem[]>([]);
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
@@ -167,6 +178,79 @@ const AdminDashboard: React.FC = () => {
   const [expandedInsight, setExpandedInsight] = useState<string | null>('users');
   const [showAllItems, setShowAllItems] = useState<Record<string, boolean>>({});
 
+  // Credit Wallet Modal State
+  const [creditModal, setCreditModal] = useState<{
+    isOpen: boolean;
+    user: User | null;
+    walletType: 'main' | 'game' | 'vendor' | 'aura_coins';
+    amount: string;
+    note: string;
+    isSubmitting: boolean;
+  }>({
+    isOpen: false,
+    user: null,
+    walletType: 'main',
+    amount: '',
+    note: '',
+    isSubmitting: false
+  });
+
+  const openCreditModal = (user: User, initialWalletType: 'main' | 'game' | 'vendor' | 'aura_coins' = 'main') => {
+    setCreditModal({
+      isOpen: true,
+      user,
+      walletType: initialWalletType,
+      amount: '',
+      note: '',
+      isSubmitting: false
+    });
+  };
+
+  const closeCreditModal = () => {
+    if (creditModal.isSubmitting) return;
+    setCreditModal(prev => ({ ...prev, isOpen: false }));
+  };
+
+  const handleExecuteCredit = async () => {
+    if (!creditModal.user) return;
+    const parsedAmount = parseFloat(creditModal.amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      showError("Please enter a valid credit amount strictly greater than 0. Admin cannot deduct funds.");
+      return;
+    }
+
+    if (creditModal.walletType === 'vendor' && !creditModal.user.isVendor) {
+      showError("User is not registered as a Vendor. Please grant vendor status first.");
+      return;
+    }
+
+    setCreditModal(prev => ({ ...prev, isSubmitting: true }));
+    try {
+      const res = await adminCreditUserWallet(
+        creditModal.user.uid,
+        creditModal.walletType,
+        parsedAmount,
+        creditModal.note
+      );
+
+      if (res.success) {
+        showSuccess(res.message || `Successfully credited ${creditModal.walletType.replace('_', ' ')} wallet!`);
+        setCreditModal(prev => ({ ...prev, isOpen: false }));
+        await loadUsers();
+        if (creditModal.user.uid) {
+          const updatedDetails = await getUserDetails(creditModal.user.uid);
+          setUserDetailsMap(prev => ({ ...prev, [creditModal.user!.uid]: updatedDetails }));
+        }
+      } else {
+        showError(res.error || "Failed to credit wallet.");
+      }
+    } catch (err: any) {
+      showError(err.message || "Operation failed.");
+    } finally {
+      setCreditModal(prev => ({ ...prev, isSubmitting: false }));
+    }
+  };
+
   // Modal State
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
@@ -202,6 +286,19 @@ const AdminDashboard: React.FC = () => {
     } catch (err) {
       console.error('Failed to load stats');
     }
+  };
+
+  const loadFinancials = async () => {
+    setIsFinLoading(true);
+    try {
+      const data = await getPlatformFinancials();
+      setFinancials(data);
+    } catch (err) {
+      console.error('Failed to load platform financials', err);
+    } finally {
+      setIsFinLoading(false);
+    }
+
   };
 
   const loadUsers = async () => {
@@ -458,11 +555,42 @@ const AdminDashboard: React.FC = () => {
 
   useEffect(() => {
     loadStats();
+    loadFinancials();
+
+    const finDocRef = doc(db, 'system_analytics', 'platform_financials');
+    const unsub = onSnapshot(finDocRef, (snap) => {
+      if (snap.exists()) {
+        const d = snap.data();
+        setFinancials(prev => ({
+          success: true,
+          total_burned_auracoins: Number(d.total_burned_auracoins || 0),
+          total_platform_cash_earnings: Number(d.total_platform_cash_earnings || 0),
+          auracoins_breakdown: {
+            burned_from_entry_fees: Number(d.burned_from_entry_fees || 0),
+            burned_from_forfeits: Number(d.burned_from_forfeits || 0),
+            total_in_circulation: prev?.auracoins_breakdown?.total_in_circulation || 0
+          },
+          cash_breakdown: {
+            cinema_tickets: Number(d.cash_from_cinema_tickets || 0),
+            game_entries: Number(d.cash_from_game_entries || 0),
+            game_forfeits: Number(d.cash_from_game_forfeits || 0),
+            vendor_store: Number(d.cash_from_vendor_store || 0),
+            withdrawal_fees: Number(d.cash_from_withdrawal_fees || 0)
+          },
+          recent_events: prev?.recent_events || []
+        }));
+      }
+    }, (err) => {
+      console.warn('Realtime financials subscription failed:', err);
+    });
+
+    return () => unsub();
   }, []);
 
   useEffect(() => {
     if (activeTab === 'users') loadUsers();
     else if (activeTab === 'history') loadHistory();
+    else if (activeTab === 'financials') loadFinancials();
     else if (activeTab === 'traffic' || activeTab === 'insights') loadStats();
     else if (activeTab === 'payouts') {
       loadWithdrawals();
@@ -622,6 +750,312 @@ const AdminDashboard: React.FC = () => {
         )}
       </AnimatePresence>
 
+      {/* CREDIT WALLET MODAL (ADD FUNDS ONLY) */}
+      <AnimatePresence>
+        {creditModal.isOpen && creditModal.user && (
+          <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => { if (!creditModal.isSubmitting) closeCreditModal(); }} 
+              className="absolute inset-0 bg-black/80 backdrop-blur-md" 
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }} 
+              animate={{ opacity: 1, scale: 1, y: 0 }} 
+              exit={{ opacity: 0, scale: 0.95, y: 20 }} 
+              className="relative w-full max-w-lg glass-card p-6 md:p-8 border-white/10 shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto custom-scrollbar"
+            >
+              {/* Top Accent bar */}
+              <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-blue-500" />
+              
+              <div className="flex items-center justify-between pb-4 border-b border-white/10">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                    <WalletCards className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-black text-white">Credit User Wallet</h3>
+                      <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[9px] font-black uppercase tracking-wider">
+                        ADD-ONLY
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Admin Balance Top-up & Manual Rewards</p>
+                  </div>
+                </div>
+                <button
+                  onClick={closeCreditModal}
+                  disabled={creditModal.isSubmitting}
+                  className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/5 transition-all disabled:opacity-50"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Security Banner: Add-Only restriction notice */}
+              <div className="mt-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-start gap-2.5">
+                <Shield className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
+                <p className="text-[11px] text-emerald-300/90 leading-relaxed font-medium">
+                  <span className="font-bold text-emerald-300">Add-Only Policy:</span> For security and integrity, admins are strictly restricted to <em>crediting</em> (adding funds). Balance reductions or deductions are disabled.
+                </p>
+              </div>
+
+              {/* User Identity Chip */}
+              <div className="mt-4 p-3 rounded-xl bg-white/[0.03] border border-white/5 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full overflow-hidden bg-white/10 border border-white/10 flex items-center justify-center flex-shrink-0">
+                    {creditModal.user.photoURL ? (
+                      <img src={creditModal.user.photoURL} className="w-full h-full object-cover" />
+                    ) : (
+                      <Users className="w-4 h-4 text-primary" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-bold text-sm text-white truncate">{creditModal.user.displayName || 'User'}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{creditModal.user.email}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-[9px] uppercase tracking-wider font-mono text-white/40 block">UID</span>
+                  <span className="text-[10px] font-mono text-white/70">{creditModal.user.uid.slice(0, 8)}...</span>
+                </div>
+              </div>
+
+              {/* Wallet Type Selection Tabs */}
+              <div className="mt-5 space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block">
+                  Select Target Wallet
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCreditModal(prev => ({ ...prev, walletType: 'main' }))}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      creditModal.walletType === 'main'
+                        ? 'bg-emerald-500/20 border-emerald-500/50 text-white shadow-lg shadow-emerald-500/10'
+                        : 'bg-white/[0.02] border-white/5 text-muted-foreground hover:bg-white/[0.05] hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Banknote className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="text-[10px] font-black uppercase">Main</span>
+                    </div>
+                    <p className="text-xs font-bold text-emerald-400 truncate">
+                      ₦{(creditModal.user.walletBalance || 0).toLocaleString()}
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCreditModal(prev => ({ ...prev, walletType: 'game' }))}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      creditModal.walletType === 'game'
+                        ? 'bg-blue-500/20 border-blue-500/50 text-white shadow-lg shadow-blue-500/10'
+                        : 'bg-white/[0.02] border-white/5 text-muted-foreground hover:bg-white/[0.05] hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Gamepad2 className="w-3.5 h-3.5 text-blue-400" />
+                      <span className="text-[10px] font-black uppercase">Game</span>
+                    </div>
+                    <p className="text-xs font-bold text-blue-400 truncate">
+                      ₦{(creditModal.user.gameWalletBalance || 0).toLocaleString()}
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCreditModal(prev => ({ ...prev, walletType: 'vendor' }))}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      creditModal.walletType === 'vendor'
+                        ? 'bg-amber-500/20 border-amber-500/50 text-white shadow-lg shadow-amber-500/10'
+                        : 'bg-white/[0.02] border-white/5 text-muted-foreground hover:bg-white/[0.05] hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Store className="w-3.5 h-3.5 text-amber-400" />
+                      <span className="text-[10px] font-black uppercase">Vendor</span>
+                    </div>
+                    <p className="text-xs font-bold text-amber-400 truncate">
+                      {creditModal.user.isVendor ? `₦${(creditModal.user.vendorWalletBalance || 0).toLocaleString()}` : 'Non-Vendor'}
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCreditModal(prev => ({ ...prev, walletType: 'aura_coins' }))}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      creditModal.walletType === 'aura_coins'
+                        ? 'bg-purple-500/20 border-purple-500/50 text-white shadow-lg shadow-purple-500/10'
+                        : 'bg-white/[0.02] border-white/5 text-muted-foreground hover:bg-white/[0.05] hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <AuraCoinIcon size="xs" className="w-3.5 h-3.5" />
+                      <span className="text-[10px] font-black uppercase">AuraCoin</span>
+                    </div>
+                    <p className="text-xs font-bold text-amber-400 truncate">
+                      {(creditModal.user.auraCoins || 0).toLocaleString()}
+                    </p>
+                  </button>
+                </div>
+
+                {creditModal.walletType === 'vendor' && !creditModal.user.isVendor && (
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-between text-xs text-amber-400">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                      <span>User is not registered as a Vendor yet.</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleVendorAction(creditModal.user!.uid, creditModal.user!.displayName || 'User', false)}
+                      className="px-2.5 py-1 rounded-lg bg-amber-500 text-black font-black text-[10px] uppercase hover:bg-amber-400 transition-all"
+                    >
+                      Make Vendor
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Amount to Add */}
+              <div className="mt-5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                    Type Amount to Credit ({creditModal.walletType === 'aura_coins' ? 'Coins' : '₦ NGN'})
+                  </label>
+                  {parseFloat(creditModal.amount) > 0 && (
+                    <span className="text-[11px] font-black text-emerald-400">
+                      + {creditModal.walletType === 'aura_coins' ? `${parseInt(creditModal.amount).toLocaleString()} Coins` : `₦${parseFloat(creditModal.amount).toLocaleString()}`}
+                    </span>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground font-black text-base pointer-events-none">
+                    {creditModal.walletType === 'aura_coins' ? <AuraCoinIcon size="sm" className="w-4 h-4" /> : '₦'}
+                  </div>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    autoFocus
+                    placeholder={creditModal.walletType === 'aura_coins' ? "Type coins to award (e.g. 500, 2500)" : "Type any amount to credit (e.g. 1500, 50000)"}
+                    value={creditModal.amount}
+                    onChange={(e) => {
+                      let val = e.target.value.replace(/[^0-9.]/g, '');
+                      const parts = val.split('.');
+                      if (parts.length > 2) {
+                        val = parts[0] + '.' + parts.slice(1).join('');
+                      }
+                      if (creditModal.walletType === 'aura_coins') {
+                        val = val.replace(/\./g, '');
+                      }
+                      setCreditModal(prev => ({ ...prev, amount: val }));
+                    }}
+                    className="w-full pl-10 pr-10 py-3 bg-white/5 border border-white/10 rounded-xl text-white font-black text-lg placeholder:text-white/20 focus:outline-none focus:border-emerald-500 focus:bg-white/[0.08] transition-all"
+                  />
+                  {creditModal.amount && (
+                    <button
+                      type="button"
+                      onClick={() => setCreditModal(prev => ({ ...prev, amount: '' }))}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-white/40 hover:text-white hover:bg-white/10 rounded-full transition-all"
+                      title="Clear amount"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Quick Add Preset Buttons */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[9px] text-white/30 uppercase font-bold mr-1">Quick Select:</span>
+                  {(creditModal.walletType === 'aura_coins'
+                    ? [50, 100, 250, 500, 1000, 2500, 5000]
+                    : [500, 1000, 2500, 5000, 10000, 20000, 50000]
+                  ).map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setCreditModal(prev => ({ ...prev, amount: preset.toString() }))}
+                      className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-emerald-500/20 hover:text-emerald-400 hover:border-emerald-500/30 border border-white/5 text-[10px] font-bold text-white/70 transition-all active:scale-95"
+                    >
+                      +{creditModal.walletType === 'aura_coins' ? `${preset.toLocaleString()} 🪙` : `₦${preset.toLocaleString()}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Balance Calculation Preview */}
+              {parseFloat(creditModal.amount) > 0 && (
+                <div className="mt-4 p-3 rounded-xl bg-white/[0.02] border border-white/5 grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <span className="text-[9px] uppercase tracking-wider text-muted-foreground font-bold block">Current</span>
+                    <span className="text-xs font-bold text-white/70 mt-0.5 block">
+                      {creditModal.walletType === 'aura_coins'
+                        ? `${(creditModal.user.auraCoins || 0).toLocaleString()} 🪙`
+                        : `₦${(creditModal.walletType === 'main' ? creditModal.user.walletBalance || 0 : creditModal.walletType === 'game' ? creditModal.user.gameWalletBalance || 0 : creditModal.user.vendorWalletBalance || 0).toLocaleString()}`}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-center">
+                    <span className="text-xs font-black text-emerald-400">+ Credit</span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] uppercase tracking-wider text-emerald-400 font-bold block">New Balance</span>
+                    <span className="text-xs font-black text-emerald-400 mt-0.5 block">
+                      {creditModal.walletType === 'aura_coins'
+                        ? `${((creditModal.user.auraCoins || 0) + parseInt(creditModal.amount || '0')).toLocaleString()} 🪙`
+                        : `₦${((creditModal.walletType === 'main' ? creditModal.user.walletBalance || 0 : creditModal.walletType === 'game' ? creditModal.user.gameWalletBalance || 0 : creditModal.user.vendorWalletBalance || 0) + parseFloat(creditModal.amount || '0')).toLocaleString()}`}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Reason / Note (Optional) */}
+              <div className="mt-4 space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block">
+                  Admin Memo / Note (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Promotional Top-Up, Event Reward, Manual Resolution"
+                  value={creditModal.note}
+                  onChange={(e) => setCreditModal(prev => ({ ...prev, note: e.target.value }))}
+                  className="w-full px-3.5 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white text-xs placeholder:text-white/20 focus:outline-none focus:border-emerald-500 transition-colors"
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-3 w-full pt-6">
+                <button
+                  type="button"
+                  onClick={closeCreditModal}
+                  disabled={creditModal.isSubmitting}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-sm font-medium hover:bg-white/5 transition-all disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteCredit}
+                  disabled={creditModal.isSubmitting || !creditModal.amount || parseFloat(creditModal.amount) <= 0}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {creditModal.isSubmitting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      <span>Credit Wallet</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* HEADER */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -632,6 +1066,7 @@ const AdminDashboard: React.FC = () => {
           <div className="flex items-center gap-2 p-1 glass rounded-xl min-w-max">
             <button onClick={() => setActiveTab('users')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'users' ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Users className="w-4 h-4" />Users</button>
             <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'history' ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Activity className="w-4 h-4" />Activity</button>
+            <button onClick={() => setActiveTab('financials')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'financials' ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Flame className="w-4 h-4" />Revenue & Burns</button>
             <button onClick={() => setActiveTab('preorders')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'preorders' ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Package className="w-4 h-4" />Pre-orders</button>
             <button onClick={() => setActiveTab('traffic')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'traffic' ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Globe className="w-4 h-4" />Traffic</button>
             <button onClick={() => setActiveTab('insights')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'insights' ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/25' : 'text-muted-foreground hover:text-foreground'}`}><LineChart className="w-4 h-4" />Insights</button>
@@ -645,7 +1080,49 @@ const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+        {/* 20% Platform Revenue Hero Card */}
+        <div 
+          onClick={() => setActiveTab('financials')}
+          className="glass-card p-4 flex items-center gap-3.5 border-emerald-500/30 hover:border-emerald-500/60 transition-all cursor-pointer group relative overflow-hidden bg-gradient-to-br from-emerald-950/30 via-black/20 to-transparent xl:col-span-2"
+        >
+          <div className="w-11 h-11 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-400 border border-emerald-500/30 group-hover:scale-105 transition-transform flex-shrink-0">
+            <Banknote className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <p className="text-[10px] text-emerald-400 uppercase font-black tracking-wider truncate">Platform 20% Earnings</p>
+              <Badge className="bg-emerald-500/20 text-emerald-300 text-[8px] font-black px-1 py-0 h-3.5 leading-none">
+                REVENUE
+              </Badge>
+            </div>
+            <p className="text-xl font-black text-white truncate mt-0.5">
+              ₦{(financials?.total_platform_cash_earnings || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+            </p>
+          </div>
+        </div>
+
+        {/* Burned Coins Hero Card */}
+        <div 
+          onClick={() => setActiveTab('financials')}
+          className="glass-card p-4 flex items-center gap-3.5 border-amber-500/30 hover:border-amber-500/60 transition-all cursor-pointer group relative overflow-hidden bg-gradient-to-br from-amber-950/30 via-black/20 to-transparent xl:col-span-2"
+        >
+          <div className="w-11 h-11 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-400 border border-amber-500/30 group-hover:scale-105 transition-transform flex-shrink-0">
+            <Flame className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <p className="text-[10px] text-amber-400 uppercase font-black tracking-wider truncate">Burned AuraCoins</p>
+              <Badge className="bg-amber-500/20 text-amber-300 text-[8px] font-black px-1 py-0 h-3.5 leading-none">
+                SINK
+              </Badge>
+            </div>
+            <p className="text-xl font-black text-amber-400 flex items-center gap-1.5 truncate mt-0.5">
+              <AuraCoinIcon size="xs" className="w-4 h-4" />
+              <span>{(financials?.total_burned_auracoins || 0).toLocaleString()}</span>
+            </p>
+          </div>
+        </div>
         <div className="glass-card p-4 flex items-center gap-4"><div className="w-12 h-12 rounded-2xl bg-blue-500/20 flex items-center justify-center text-blue-400"><BarChart className="w-6 h-6" /></div><div><p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">Sessions</p><p className="text-2xl font-bold">{formatNumber(stats?.totalVisits)}</p></div></div>
         <div className="glass-card p-4 flex items-center gap-4"><div className="w-12 h-12 rounded-2xl bg-purple-500/20 flex items-center justify-center text-purple-400"><Users className="w-6 h-6" /></div><div><p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">Total Users</p><p className="text-2xl font-bold">{formatNumber(stats?.totalUsers)}</p></div></div>
         <div className="glass-card p-4 flex items-center gap-4"><div className="w-12 h-12 rounded-2xl bg-indigo-500/20 flex items-center justify-center text-indigo-400"><Clock className="w-6 h-6" /></div><div><p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">Daily Users</p><p className="text-2xl font-bold text-indigo-400">{formatNumber(stats?.dailyActiveUsers)}</p></div></div>
@@ -655,7 +1132,7 @@ const AdminDashboard: React.FC = () => {
 
       <div className="glass-card p-6">
         {/* TOOLBAR (Optional for some tabs) */}
-        {activeTab !== 'messages' && activeTab !== 'insights' && activeTab !== 'preorders' && activeTab !== 'ads' && (
+        {activeTab !== 'messages' && activeTab !== 'insights' && activeTab !== 'preorders' && activeTab !== 'ads' && activeTab !== 'financials' && (
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
             <div className="relative w-full sm:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -674,8 +1151,282 @@ const AdminDashboard: React.FC = () => {
 
         {/* MAIN AREA */}
         <div className="overflow-hidden rounded-xl border border-white/5">
-          {isLoading && activeTab !== 'preorders' ? (
+          {isLoading && activeTab !== 'preorders' && activeTab !== 'financials' ? (
             <div className="flex flex-col items-center justify-center py-24"><Loader2 className="w-10 h-10 text-primary animate-spin mb-4" /><p className="text-muted-foreground font-medium tracking-widest text-xs uppercase">Syncing</p></div>
+          ) : activeTab === 'financials' ? (
+            <div className="p-6 space-y-6">
+              {/* Financials Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
+                <div>
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Flame className="w-5 h-5 text-amber-500" /> Platform Revenue & AuraCoin Burns
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Real-time ledger of 20% platform cash profits & AuraCoin burn sinks.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>Live Sync Active</span>
+                  </div>
+                  <button
+                    onClick={() => loadFinancials()}
+                    disabled={isFinLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-white text-xs font-bold border border-white/10 transition-all disabled:opacity-50"
+                  >
+                    <RefreshCcw className={`w-3.5 h-3.5 ${isFinLoading ? 'animate-spin' : ''}`} />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Top 2 Primary Metric Hero Cards */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* 1. Real Cash 20% Earnings Card */}
+                <div className="p-6 rounded-2xl bg-gradient-to-br from-emerald-950/40 via-emerald-900/10 to-black/60 border border-emerald-500/30 space-y-5 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+                  <div className="flex items-start justify-between relative">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 text-[10px] font-black uppercase tracking-wider px-2 py-0.5">
+                          PLATFORM 20% CUT
+                        </Badge>
+                        <span className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">Real Cash (₦)</span>
+                      </div>
+                      <h3 className="text-3xl sm:text-4xl font-black text-white tracking-tight mt-2">
+                        ₦{(financials?.total_platform_cash_earnings || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                      </h3>
+                      <p className="text-xs text-emerald-400/80 font-medium">
+                        Total real cash retained across all platform activities
+                      </p>
+                    </div>
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 flex-shrink-0">
+                      <Banknote className="w-6 h-6" />
+                    </div>
+                  </div>
+
+                  {/* Cash Breakdown Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2 border-t border-emerald-500/15">
+                    <div className="p-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+                      <p className="text-[9px] uppercase font-black tracking-wider text-muted-foreground truncate">Cinema Tickets</p>
+                      <p className="text-sm font-bold text-white mt-0.5 truncate">
+                        ₦{(financials?.cash_breakdown?.cinema_tickets || 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+                      <p className="text-[9px] uppercase font-black tracking-wider text-muted-foreground truncate">Game Entries</p>
+                      <p className="text-sm font-bold text-white mt-0.5 truncate">
+                        ₦{(financials?.cash_breakdown?.game_entries || 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+                      <p className="text-[9px] uppercase font-black tracking-wider text-muted-foreground truncate">Game Forfeits</p>
+                      <p className="text-sm font-bold text-white mt-0.5 truncate">
+                        ₦{(financials?.cash_breakdown?.game_forfeits || 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+                      <p className="text-[9px] uppercase font-black tracking-wider text-muted-foreground truncate">Store 20% Cut</p>
+                      <p className="text-sm font-bold text-white mt-0.5 truncate">
+                        ₦{(financials?.cash_breakdown?.vendor_store || 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/10 col-span-2 sm:col-span-1">
+                      <p className="text-[9px] uppercase font-black tracking-wider text-muted-foreground truncate">Withdrawal Fees</p>
+                      <p className="text-sm font-bold text-white mt-0.5 truncate">
+                        ₦{(financials?.cash_breakdown?.withdrawal_fees || 0).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. AuraCoin Burn Sink Card */}
+                <div className="p-6 rounded-2xl bg-gradient-to-br from-amber-950/40 via-amber-900/10 to-black/60 border border-amber-500/30 space-y-5 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+                  <div className="flex items-start justify-between relative">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/30 text-[10px] font-black uppercase tracking-wider px-2 py-0.5">
+                          TOTAL BURN SINK
+                        </Badge>
+                        <span className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">AuraCoins 🪙</span>
+                      </div>
+                      <h3 className="text-3xl sm:text-4xl font-black text-amber-400 tracking-tight mt-2 flex items-center gap-2">
+                        <AuraCoinIcon size="sm" className="w-8 h-8 inline-block" />
+                        <span>{(financials?.total_burned_auracoins || 0).toLocaleString()}</span>
+                      </h3>
+                      <p className="text-xs text-amber-400/80 font-medium">
+                        AuraCoins permanently retired from circulation (deflationary sinks)
+                      </p>
+                    </div>
+                    <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 flex-shrink-0">
+                      <Flame className="w-6 h-6" />
+                    </div>
+                  </div>
+
+                  {/* AuraCoin Breakdown Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2 border-t border-amber-500/15">
+                    <div className="p-2.5 rounded-xl bg-amber-500/5 border border-amber-500/10">
+                      <p className="text-[9px] uppercase font-black tracking-wider text-muted-foreground truncate">Entry Fee Sinks</p>
+                      <p className="text-sm font-bold text-amber-400 mt-0.5 truncate flex items-center gap-1">
+                        <AuraCoinIcon size="xs" className="w-3 h-3" />
+                        <span>{(financials?.auracoins_breakdown?.burned_from_entry_fees || 0).toLocaleString()}</span>
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-amber-500/5 border border-amber-500/10">
+                      <p className="text-[9px] uppercase font-black tracking-wider text-muted-foreground truncate">Forfeit Sinks</p>
+                      <p className="text-sm font-bold text-amber-400 mt-0.5 truncate flex items-center gap-1">
+                        <AuraCoinIcon size="xs" className="w-3 h-3" />
+                        <span>{(financials?.auracoins_breakdown?.burned_from_forfeits || 0).toLocaleString()}</span>
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 col-span-2 sm:col-span-1">
+                      <p className="text-[9px] uppercase font-black tracking-wider text-muted-foreground truncate">In Circulation</p>
+                      <p className="text-sm font-bold text-white mt-0.5 truncate flex items-center gap-1">
+                        <Coins className="w-3.5 h-3.5 text-yellow-400" />
+                        <span>{(financials?.auracoins_breakdown?.total_in_circulation || 0).toLocaleString()}</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Economic Rules Summary Strip */}
+              <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/5 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 flex-shrink-0 mt-0.5">
+                    <Coins className="w-4 h-4" />
+                  </div>
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-bold text-white">AuraCoin Economy (80/10/10)</p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      80% to Host, 10% to Active Referrer (active in last 90d), and 10% burned by platform (20% burn if host is unreferred).
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 flex-shrink-0 mt-0.5">
+                    <Banknote className="w-4 h-4" />
+                  </div>
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-bold text-white">Real Cash Economy (20% Platform)</p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      20% fixed Platform Cut. Referral 10% bonus is deducted from host's 80% pool (72% Host / 8% Referrer / 20% Platform).
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 flex-shrink-0 mt-0.5">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-bold text-white">Admin Hosts (100% Payout)</p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Rooms created by System Admins retain 100% ticket earnings with 0% platform fee and 0% referral cut.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Platform Revenue & Burn Audit Ledger */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-primary" /> Platform Revenue & Burn Events
+                  </h3>
+                  <Badge className="bg-white/5 text-white/70 border-white/10 font-bold px-2.5">
+                    {financials?.recent_events?.length || 0} Recent Events
+                  </Badge>
+                </div>
+
+                <div className="overflow-x-auto custom-scrollbar no-scrollbar rounded-xl border border-white/5 bg-black/20">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-white/5 text-[10px] font-black uppercase tracking-widest text-white/40 bg-white/[0.02]">
+                        <th className="px-4 py-3">Type & Source</th>
+                        <th className="px-4 py-3">Description</th>
+                        <th className="px-4 py-3">Amount</th>
+                        <th className="px-4 py-3">Room / Target</th>
+                        <th className="px-4 py-3 text-right">Date & Time</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5 text-xs">
+                      {financials?.recent_events && financials.recent_events.length > 0 ? (
+                        financials.recent_events.map((ev, idx) => {
+                          const isCash = ev.currency === 'NGN' || ev.currency === 'cash';
+                          const formattedDate = ev.timestamp_str || (ev.timestamp?.toDate ? ev.timestamp.toDate().toLocaleString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                            hour: 'numeric',
+                            minute: 'numeric',
+                            hour12: true
+                          }) : ev.timestamp ? new Date(ev.timestamp).toLocaleString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                            hour: 'numeric',
+                            minute: 'numeric',
+                            hour12: true
+                          }) : '---');
+
+                          return (
+                            <tr key={ev.id || idx} className="hover:bg-white/[0.02] transition-colors">
+                              <td className="px-4 py-3.5">
+                                <div className="flex items-center gap-2">
+                                  {isCash ? (
+                                    <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 font-black text-[9px] uppercase px-2 py-0.5">
+                                      CASH +20%
+                                    </Badge>
+                                  ) : (
+                                    <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/20 font-black text-[9px] uppercase px-2 py-0.5">
+                                      BURN 🔥
+                                    </Badge>
+                                  )}
+                                  <span className="text-[11px] font-bold text-white/80 capitalize">
+                                    {(ev.source || 'platform').replace(/_/g, ' ')}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3.5 text-white/90 font-medium max-w-xs truncate">
+                                {ev.desc || 'Platform cut recorded'}
+                              </td>
+                              <td className="px-4 py-3.5 whitespace-nowrap">
+                                {isCash ? (
+                                  <span className="font-bold text-emerald-400">
+                                    +₦{Number(ev.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                                  </span>
+                                ) : (
+                                  <span className="font-bold text-amber-400 flex items-center gap-1">
+                                    <AuraCoinIcon size="xs" className="w-3.5 h-3.5" />
+                                    <span>{Number(ev.amount || 0).toLocaleString()} 🪙</span>
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3.5 text-muted-foreground text-[11px] font-mono truncate max-w-[120px]">
+                                {ev.room_id ? `#${ev.room_id.slice(0, 8)}` : '---'}
+                              </td>
+                              <td className="px-4 py-3.5 text-right text-muted-foreground text-[11px] whitespace-nowrap">
+                                {formattedDate}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan={5} className="py-12 text-center text-muted-foreground text-xs italic">
+                            No platform revenue or burn events recorded yet.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           ) : activeTab === 'preorders' ? (
             <PreOrderManager />
           ) : activeTab === 'store' ? (
@@ -890,8 +1641,10 @@ const AdminDashboard: React.FC = () => {
                 <TableRow className="border-white/5 bg-white/[0.02] hover:bg-transparent text-center">
                   <TableHead className="text-muted-foreground font-bold text-left">USER IDENTITY</TableHead>
                   <TableHead className="text-muted-foreground font-bold">DEVICE</TableHead>
-                  <TableHead className="text-muted-foreground font-bold">VISITS</TableHead>
-                  <TableHead className="text-muted-foreground font-bold text-center">WALLET</TableHead>
+                  <TableHead className="text-muted-foreground font-bold text-center">MAIN WALLET</TableHead>
+                  <TableHead className="text-muted-foreground font-bold text-center">GAME WALLET</TableHead>
+                  <TableHead className="text-muted-foreground font-bold text-center">VENDOR WALLET</TableHead>
+                  <TableHead className="text-muted-foreground font-bold text-center">AURACOINS</TableHead>
                   <TableHead className="text-muted-foreground font-bold text-center">REFERRAL</TableHead>
                   <TableHead className="text-muted-foreground font-bold">JOINED</TableHead>
                   <TableHead className="text-right text-muted-foreground font-bold pr-10">CONTROLS</TableHead>
@@ -910,12 +1663,12 @@ const AdminDashboard: React.FC = () => {
                       >
                         <TableCell>
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full border border-white/10 overflow-hidden bg-white/5 flex items-center justify-center">
+                            <div className="w-10 h-10 rounded-full border border-white/10 overflow-hidden bg-white/5 flex items-center justify-center flex-shrink-0">
                               {user.photoURL ? <img src={user.photoURL} className="w-full h-full object-cover" /> : <Users className="w-5 h-5 text-primary" />}
                             </div>
-                            <div className="flex flex-col">
-                              <span className="font-bold text-sm">{user.displayName || 'Anonymous'}</span>
-                              <span className="text-[10px] text-muted-foreground uppercase">{user.email}</span>
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-bold text-sm truncate">{user.displayName || 'Anonymous'}</span>
+                              <span className="text-[10px] text-muted-foreground uppercase truncate">{user.email}</span>
                             </div>
                           </div>
                         </TableCell>
@@ -925,12 +1678,43 @@ const AdminDashboard: React.FC = () => {
                             <span className="text-[10px] font-black uppercase">{(user as any).lastDevice || '---'}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-center font-bold text-sm">{formatNumber((user as any).visitCount)}</TableCell>
-                        <TableCell className="text-center font-bold text-sm text-emerald-400">₦{formatNumber((user as any).walletBalance || 0)}</TableCell>
-                        <TableCell className="text-center font-bold text-sm text-orange-400">₦{formatNumber(user.referralBalance || 0)}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{new Date(user.createdAt).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-center font-bold text-sm text-emerald-400">
+                          ₦{formatNumber((user as any).walletBalance || 0)}
+                        </TableCell>
+                        <TableCell className="text-center font-bold text-sm text-blue-400">
+                          ₦{formatNumber((user as any).gameWalletBalance || 0)}
+                        </TableCell>
+                        <TableCell className="text-center font-bold text-sm">
+                          {(user as any).isVendor ? (
+                            <span className="text-amber-400">₦{formatNumber((user as any).vendorWalletBalance || 0)}</span>
+                          ) : (
+                            <span className="text-white/20 text-xs font-mono">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center font-bold text-sm">
+                          <div className="flex items-center justify-center gap-1 text-amber-400">
+                            <AuraCoinIcon size="xs" className="w-3.5 h-3.5" />
+                            <span>{formatNumber((user as any).auraCoins || 0)}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-center font-bold text-sm text-orange-400">
+                          ₦{formatNumber(user.referralBalance || 0)}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {new Date(user.createdAt).toLocaleDateString()}
+                        </TableCell>
                         <TableCell className="text-right pr-6">
-                          <div className="flex items-center justify-end gap-2 relative z-[100]" onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1.5 relative z-[100]" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault(); e.stopPropagation();
+                                openCreditModal(user, 'main');
+                              }}
+                              className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/40 transition-all shadow-lg active:scale-95 active:brightness-125 border border-emerald-500/30"
+                              title="Credit / Add Funds to User Wallet"
+                            >
+                              <Plus className="w-4 h-4" />
+                            </button>
                             <button
                               onClick={(e) => {
                                 e.preventDefault(); e.stopPropagation();
@@ -972,7 +1756,7 @@ const AdminDashboard: React.FC = () => {
                                 e.preventDefault(); e.stopPropagation();
                                 toggleUserExpansion(user.uid);
                               }}
-                              className="p-2 hover:bg-white/5 rounded-lg transition-colors ml-2"
+                              className="p-2 hover:bg-white/5 rounded-lg transition-colors ml-1"
                             >
                               <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
                             </button>
@@ -983,7 +1767,7 @@ const AdminDashboard: React.FC = () => {
                       <AnimatePresence>
                         {isExpanded && (
                           <TableRow className="border-none bg-black/40 hover:bg-black/40">
-                            <TableCell colSpan={7} className="p-0">
+                            <TableCell colSpan={9} className="p-0">
                               <motion.div 
                                 initial={{ height: 0, opacity: 0 }} 
                                 animate={{ height: 'auto', opacity: 1 }} 
@@ -1000,19 +1784,105 @@ const AdminDashboard: React.FC = () => {
                                     <>
                                       {/* Financial Summary */}
                                       <div className="space-y-4">
-                                        <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-                                          <Banknote className="w-3.5 h-3.5 text-emerald-500" /> Financial Intelligence
-                                        </h4>
-                                        <div className="grid grid-cols-1 gap-3">
-                                          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex justify-between items-center">
-                                            <span className="text-[10px] font-bold text-muted-foreground uppercase">Wallet Balance</span>
-                                            <span className="text-sm font-black text-emerald-400">₦{details.financials.walletBalance.toLocaleString()}</span>
+                                        <div className="flex items-center justify-between">
+                                          <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                                            <Banknote className="w-3.5 h-3.5 text-emerald-500" /> Financial Intelligence
+                                          </h4>
+                                          <button
+                                            onClick={(e) => {
+                                              e.preventDefault(); e.stopPropagation();
+                                              openCreditModal(user, 'main');
+                                            }}
+                                            className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold hover:bg-emerald-500 hover:text-white transition-all flex items-center gap-1"
+                                          >
+                                            <Plus className="w-3 h-3" /> Credit Wallets
+                                          </button>
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-2.5">
+                                          <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/5 flex justify-between items-center">
+                                            <div>
+                                              <span className="text-[10px] font-bold text-muted-foreground uppercase block">Main Wallet</span>
+                                              <span className="text-xs text-white/40">Room & General balance</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-sm font-black text-emerald-400">₦{details.financials.walletBalance.toLocaleString()}</span>
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); openCreditModal(user, 'main'); }}
+                                                className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/30 transition-all text-[10px] font-black"
+                                                title="Add to Main Wallet"
+                                              >
+                                                <Plus className="w-3 h-3" />
+                                              </button>
+                                            </div>
                                           </div>
-                                          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex justify-between items-center">
+
+                                          <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/5 flex justify-between items-center">
+                                            <div>
+                                              <span className="text-[10px] font-bold text-muted-foreground uppercase block">Game Wallet</span>
+                                              <span className="text-xs text-white/40">Split or Steal funds</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-sm font-black text-blue-400">₦{details.financials.gameWalletBalance.toLocaleString()}</span>
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); openCreditModal(user, 'game'); }}
+                                                className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/30 transition-all text-[10px] font-black"
+                                                title="Add to Game Wallet"
+                                              >
+                                                <Plus className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          </div>
+
+                                          <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/5 flex justify-between items-center">
+                                            <div>
+                                              <span className="text-[10px] font-bold text-muted-foreground uppercase block">Vendor Wallet</span>
+                                              <span className="text-xs text-white/40">{details.financials.isVendor ? 'Store earnings' : 'Not registered as vendor'}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              {details.financials.isVendor ? (
+                                                <>
+                                                  <span className="text-sm font-black text-amber-400">₦{details.financials.vendorWalletBalance.toLocaleString()}</span>
+                                                  <button
+                                                    onClick={(e) => { e.stopPropagation(); openCreditModal(user, 'vendor'); }}
+                                                    className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/30 transition-all text-[10px] font-black"
+                                                    title="Add to Vendor Wallet"
+                                                  >
+                                                    <Plus className="w-3 h-3" />
+                                                  </button>
+                                                </>
+                                              ) : (
+                                                <Badge variant="outline" className="text-[9px] uppercase border-white/10 text-white/40">
+                                                  Non-Vendor
+                                                </Badge>
+                                              )}
+                                            </div>
+                                          </div>
+
+                                          <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/5 flex justify-between items-center">
+                                            <div>
+                                              <span className="text-[10px] font-bold text-muted-foreground uppercase block">AuraCoins</span>
+                                              <span className="text-xs text-white/40">Rewards & Cinema Tokens</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              <div className="flex items-center gap-1 text-amber-400 font-black text-sm">
+                                                <AuraCoinIcon size="xs" className="w-3.5 h-3.5" />
+                                                <span>{details.financials.auraCoins.toLocaleString()}</span>
+                                              </div>
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); openCreditModal(user, 'aura_coins'); }}
+                                                className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400 hover:bg-purple-500/30 transition-all text-[10px] font-black"
+                                                title="Award AuraCoins"
+                                              >
+                                                <Plus className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          </div>
+
+                                          <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/5 flex justify-between items-center">
                                             <span className="text-[10px] font-bold text-muted-foreground uppercase">Referral Rewards</span>
                                             <span className="text-sm font-black text-orange-400">₦{(user.referralBalance || 0).toLocaleString()}</span>
                                           </div>
-                                          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex justify-between items-center">
+                                          <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/5 flex justify-between items-center">
                                             <span className="text-[10px] font-bold text-muted-foreground uppercase">Ticket Earnings</span>
                                             <span className="text-sm font-black text-primary">₦{details.financials.totalEarned.toLocaleString()}</span>
                                           </div>

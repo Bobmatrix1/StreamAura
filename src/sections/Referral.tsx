@@ -28,9 +28,10 @@ import { useToast } from '../contexts/ToastContext';
 import { LoginRequired } from '../components/LoginRequired';
 import { Badge } from '../components/ui/badge';
 import { db, auth } from '../lib/firebase';
-import { collection, query, where, orderBy, limit, doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, doc, getDoc, getDocs, updateDoc, onSnapshot } from 'firebase/firestore';
 import { fetchBanks, resolveBankAccount } from '../api/paymentApi';
 import { API_BASE_URL } from '../api/mediaApi';
+import { AuraCoinIcon } from '../components/AuraCoinIcon';
 
 /**
  * Referral Section with Integrated Withdrawal
@@ -166,15 +167,35 @@ const Referral: React.FC = () => {
         const response = await fetch(`${API_BASE_URL}/api/games/referrals/list`, {
           headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) }
         });
-        const data = await response.json();
-        if (data.success) {
-          setReferrals(data.referrals);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && Array.isArray(data.referrals)) {
+            setReferrals(data.referrals);
+            setIsLoadingReferrals(false);
+            return;
+          }
         }
       } catch (err) {
-        console.error('Failed to fetch referrals', err);
-      } finally {
-        setIsLoadingReferrals(false);
+        console.warn('API referrals fetch failed, falling back to direct Firestore:', err);
       }
+
+      // Direct Firestore fallback
+      if (user?.uid) {
+        try {
+          const q = query(collection(db, 'users'), where('referredBy', '==', user.uid));
+          const snap = await getDocs(q);
+          const list = snap.docs.map(d => ({
+            uid: d.id,
+            displayName: d.data().displayName || 'Anonymous',
+            photoURL: d.data().photoURL || null,
+            createdAt: d.data().createdAt || null
+          }));
+          setReferrals(list);
+        } catch (e) {
+          console.warn('Direct Firestore referrals fetch error:', e);
+        }
+      }
+      setIsLoadingReferrals(false);
     };
 
     let unsubHistory: (() => void) | null = null;
@@ -273,7 +294,7 @@ const Referral: React.FC = () => {
       try {
         await navigator.share({
           title: 'Join me on StreamAura!',
-          text: 'Get ₦100 instantly when you sign up for StreamAura with my link! Download anything, watch movies together.',
+          text: 'Get 1,000 AuraCoins instantly when you sign up for StreamAura with my link! Watch movies together, host watch parties, and play game rooms to win rewards.',
           url: referralLink,
         });
       } catch (err) {
@@ -287,11 +308,17 @@ const Referral: React.FC = () => {
   const handleWithdrawClick = () => {
     const bal = user?.referralBalance || 0;
     console.log("Withdraw clicked. Balance:", bal);
-    setWithdrawAmount(bal > 0 ? bal.toString() : '');
+    setWithdrawAmount(bal >= 100 ? bal.toString() : '');
     setIsWithdrawModalOpen(true);
   };
 
   const handleConfirmWithdrawal = async () => {
+    const amt = parseFloat(withdrawAmount);
+    if (isNaN(amt) || amt < 100) {
+      showError("Minimum withdrawal amount is ₦100.00");
+      return;
+    }
+
     if (!bankDetails.name || !bankDetails.account || !bankDetails.bankCode || !bankDetails.bankName || bankDetails.account.length !== 10) {
       showError("Please select a bank and verify your 10-digit account details first.");
       return;
@@ -301,7 +328,7 @@ const Referral: React.FC = () => {
     try {
       const token = await auth.currentUser?.getIdToken();
       const payload = {
-        amount: parseFloat(withdrawAmount),
+        amount: amt,
         bank_code: bankDetails.bankCode,
         bank_name: bankDetails.bankName,
         account_number: bankDetails.account,
@@ -377,7 +404,7 @@ const Referral: React.FC = () => {
   const stats = {
     totalReferred: user?.referredCount || 0,
     balance: user?.referralBalance || 0,
-    bonusBalance: user?.bonusBalance || 0
+    auraCoins: user?.auraCoins ?? user?.auraCoin ?? user?.bonusBalance ?? 0
   };
 
   return (
@@ -406,7 +433,10 @@ const Referral: React.FC = () => {
                     <span className="text-xl font-black text-slate-900 dark:text-white">₦{stats.balance.toLocaleString()}</span>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-[8px] font-black uppercase tracking-widest text-slate-500 dark:text-white/40">Amount to Withdraw</label>
+                    <div className="flex justify-between items-center">
+                      <label className="text-[8px] font-black uppercase tracking-widest text-slate-500 dark:text-white/40">Amount to Withdraw</label>
+                      <span className="text-[8px] font-black uppercase tracking-widest text-emerald-500/70">Min. ₦100 • 1% Payout Fee</span>
+                    </div>
                     <div className="relative">
                       <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 dark:text-muted-foreground" />
                       <input 
@@ -414,16 +444,19 @@ const Referral: React.FC = () => {
                         value={withdrawAmount} 
                         onChange={e => setWithdrawAmount(e.target.value)} 
                         className="w-full bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 rounded-lg py-2 pl-9 pr-4 text-xs font-black outline-none focus:border-primary/50 text-slate-900 dark:text-white" 
-                        placeholder="0.00"
+                        placeholder="100.00"
+                        min="100"
                       />
                     </div>
                   </div>
                </div>
 
-               {stats.balance <= 0 && (
+               {stats.balance < 100 && (
                  <div className="p-3 rounded-xl bg-rose-500/5 border border-rose-500/10 flex items-center gap-3">
-                    <ShieldAlert className="w-4 h-4 text-rose-500 animate-pulse" />
-                    <p className="text-[9px] text-rose-700 dark:text-rose-200/70 font-bold uppercase tracking-tight leading-none">Commissions are earned when your referrals host rooms.</p>
+                    <ShieldAlert className="w-4 h-4 text-rose-500 shrink-0" />
+                    <p className="text-[9px] text-rose-700 dark:text-rose-200/70 font-bold uppercase tracking-tight leading-none">
+                      {stats.balance <= 0 ? "Commissions are earned when your referrals host rooms." : "Minimum withdrawal is ₦100."}
+                    </p>
                  </div>
                )}
 
@@ -557,10 +590,10 @@ const Referral: React.FC = () => {
                   </div>
                )}
 
-               <div className="flex flex-col gap-3 pt-2">
+                <div className="flex flex-col gap-3 pt-2">
                   <Button 
                     onClick={handleConfirmWithdrawal} 
-                    disabled={isSubmittingWithdrawal || !bankDetails.name || !bankDetails.bankName || !bankDetails.bankCode || bankDetails.account.length !== 10 || isResolving || !withdrawAmount || parseFloat(withdrawAmount) <= 0 || parseFloat(withdrawAmount) > stats.balance} 
+                    disabled={isSubmittingWithdrawal || !bankDetails.name || !bankDetails.bankName || !bankDetails.bankCode || bankDetails.account.length !== 10 || isResolving || !withdrawAmount || parseFloat(withdrawAmount) < 100 || parseFloat(withdrawAmount) > stats.balance} 
                     className="w-full h-14 gradient-bg rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 disabled:opacity-50"
                   >
                      {isSubmittingWithdrawal ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Withdrawal'}
@@ -602,8 +635,11 @@ const Referral: React.FC = () => {
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-[7px] uppercase font-black text-white/40 tracking-[0.3em]">Signup Bonus (Non-Withdrawable)</p>
-                  <p className="text-lg font-black text-emerald-400">₦{stats.bonusBalance.toLocaleString()}</p>
+                  <p className="text-[7px] uppercase font-black text-white/40 tracking-[0.3em]">AuraCoins Reward Balance</p>
+                  <p className="text-lg font-black text-amber-400 flex items-center justify-end gap-1.5">
+                    <AuraCoinIcon size="xs" className="w-4 h-4" />
+                    {stats.auraCoins.toLocaleString()} <span className="text-[9px] font-bold text-amber-300">COINS</span>
+                  </p>
                 </div>
               </div>
               <div className="pt-2 flex items-center gap-2 border-t border-white/10">
@@ -643,7 +679,7 @@ const Referral: React.FC = () => {
               <input readOnly value={referralLink} className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-4 pr-12 text-[10px] font-mono outline-none focus:border-primary/50 text-muted-foreground" />
               <button onClick={handleCopyLink} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 hover:bg-white/10 rounded-lg text-primary transition-colors"><Copy className="w-4 h-4" /></button>
             </div>
-            <p className="text-[8px] text-center text-muted-foreground uppercase tracking-widest font-bold">Share this link. When they earn as a host, you earn a 10% commission for 3 months (90 days).</p>
+            <p className="text-[8px] text-center text-muted-foreground uppercase tracking-widest font-bold">Share this link. Friends get 1,000 AuraCoins welcome bonus when they sign up with your link, and you get 500 AuraCoins!</p>
           </div>
         </Card>
       </div>

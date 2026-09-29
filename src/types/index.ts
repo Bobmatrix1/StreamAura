@@ -13,6 +13,9 @@ export interface User {
   auraCoin?: number;
   referredCount: number;
   referredBy: string | null;
+  walletBalance?: number; // Main Room Wallet balance (₦)
+  gameWalletBalance?: number; // Game Wallet balance (₦)
+  vendorWalletBalance?: number; // Vendor Wallet balance (₦)
 }
 
 // Media download types

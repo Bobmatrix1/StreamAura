@@ -15,6 +15,9 @@ export interface GameState {
   participants: any[];
   currentRound?: number;
   prizeAmount?: number;
+  prizeType?: 'cash' | 'auracoin';
+  entryFee?: number;
+  entryType?: 'cash' | 'auracoin';
   numberOfRounds?: number;
   isMultipleRounds?: boolean;
   startCondition?: string;
@@ -48,6 +51,9 @@ export const useGameSync = (gameId: string | null, user: any) => {
           playerA: data.playerA || null,
           playerB: data.playerB || null,
           prizeAmount: data.prizeAmount,
+          prizeType: data.prizeType || 'cash',
+          entryFee: data.entryFee,
+          entryType: data.entryType || 'cash',
           currentRound: data.currentRound || 1,
           numberOfRounds: data.numberOfRounds || 1,
           isMultipleRounds: data.isMultipleRounds || false

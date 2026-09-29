@@ -8,7 +8,7 @@ import uuid
 from core.security import get_current_user
 from firebase_admin import firestore
 
-from core.payouts import calculate_payout_split
+from core.payouts import calculate_payout_split, record_platform_cut
 
 router = APIRouter()
 
@@ -55,28 +55,75 @@ async def run_game_loop(game_id: str):
 
         # Process entry fees for human players selected in this round
         entry_fee = float(state.get("entryFee", 0) or 0)
+        entry_type = state.get("entryType", "cash")
         if entry_fee > 0 and host_uid:
             human_players = sum(1 for p in [state.get("playerA"), state.get("playerB")] if p and not p.get("isBot"))
             round_entry_pool = round(entry_fee * human_players, 2)
             if round_entry_pool > 0:
-                platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, round_entry_pool, db)
-                if host_final > 0:
-                    db.collection("game_wallets").document(host_uid).set({"balance": firestore.Increment(host_final)}, merge=True)
-                    db.collection("game_wallets").document(host_uid).collection("activity").add({
-                        "type": "entry_earnings",
-                        "amount": host_final,
-                        "desc": f"Earnings from {room_name} Round {state.get('currentRound', 1)} entry fees",
-                        "timestamp": firestore.SERVER_TIMESTAMP
-                    })
-                if referrer_uid and referrer_cut > 0:
-                    ref_user_ref = db.collection("users").document(referrer_uid)
-                    ref_user_ref.update({"referralBalance": firestore.Increment(referrer_cut)})
-                    db.collection("game_wallets").document(referrer_uid).collection("activity").add({
-                        "type": "referral_earning",
-                        "amount": referrer_cut,
-                        "desc": f"10% commission from {host_name}'s game entry fees",
-                        "timestamp": firestore.SERVER_TIMESTAMP
-                    })
+                platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, round_entry_pool, db, currency=entry_type)
+                if platform_cut > 0:
+                    if entry_type == "auracoin":
+                        coins_cut = int(platform_cut) if platform_cut.is_integer() else platform_cut
+                        record_platform_cut(
+                            db=db,
+                            amount=platform_cut,
+                            currency="auracoin",
+                            source="game_entry",
+                            desc=f"Burned {coins_cut:,} AuraCoins from {room_name} Round {state.get('currentRound', 1)} entry fees",
+                            room_id=game_id
+                        )
+                    else:
+                        record_platform_cut(
+                            db=db,
+                            amount=platform_cut,
+                            currency="cash",
+                            source="game_entry",
+                            desc=f"20% platform cut (₦{platform_cut:,.2f}) from {room_name} Round {state.get('currentRound', 1)} entry fees",
+                            room_id=game_id
+                        )
+
+                if entry_type == "auracoin":
+                    if host_final > 0:
+                        coins_display = int(host_final) if host_final.is_integer() else host_final
+                        db.collection("users").document(host_uid).set({"auraCoins": firestore.Increment(host_final)}, merge=True)
+                        db.collection("game_wallets").document(host_uid).collection("activity").add({
+                            "type": "entry_earnings",
+                            "currency": "auracoin",
+                            "amount": host_final,
+                            "desc": f"Earnings from {room_name} Round {state.get('currentRound', 1)} entry fees ({coins_display:,} AuraCoins)",
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
+                    if referrer_uid and referrer_cut > 0:
+                        ref_coins = int(referrer_cut) if referrer_cut.is_integer() else referrer_cut
+                        ref_user_ref = db.collection("users").document(referrer_uid)
+                        ref_user_ref.update({"auraCoins": firestore.Increment(referrer_cut)})
+                        db.collection("game_wallets").document(referrer_uid).collection("activity").add({
+                            "type": "referral_earning",
+                            "currency": "auracoin",
+                            "amount": referrer_cut,
+                            "desc": f"10% commission from {host_name}'s game entry fees ({ref_coins:,} AuraCoins)",
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
+                else:
+                    if host_final > 0:
+                        db.collection("game_wallets").document(host_uid).set({"balance": firestore.Increment(host_final)}, merge=True)
+                        db.collection("game_wallets").document(host_uid).collection("activity").add({
+                            "type": "entry_earnings",
+                            "currency": "cash",
+                            "amount": host_final,
+                            "desc": f"Earnings from {room_name} Round {state.get('currentRound', 1)} entry fees",
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
+                    if referrer_uid and referrer_cut > 0:
+                        ref_user_ref = db.collection("users").document(referrer_uid)
+                        ref_user_ref.update({"referralBalance": firestore.Increment(referrer_cut)})
+                        db.collection("game_wallets").document(referrer_uid).collection("activity").add({
+                            "type": "referral_earning",
+                            "currency": "cash",
+                            "amount": referrer_cut,
+                            "desc": f"10% commission from {host_name}'s game entry fees",
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
 
         # 1. Convincing Phase (60s)
         print(f"Game {game_id}: Entering convincing phase")
@@ -97,7 +144,10 @@ async def run_game_loop(game_id: str):
         state["timer"] = 10
         state["choices"] = {}
         room_ref.update({"status": "sudden_death", "timer": 10, "choices": {}})
-        await manager.broadcast({"type": "game_update", "state": state}, game_id)
+        await manager.broadcast({
+            "type": "game_update", 
+            "state": {**state, "choices": {}}
+        }, game_id)
 
         bot_picked = False
 
@@ -112,8 +162,8 @@ async def run_game_loop(game_id: str):
                     if p and p.get("isBot") and p["uid"] not in state.get("choices", {}):
                         state["choices"][p["uid"]] = random.choice(["split", "steal"])
                 bot_picked = True
-                room_ref.update({"choices": state["choices"]})
                 obscured_choices = {k: True for k, v in state.get("choices", {}).items() if v}
+                room_ref.update({"choices": obscured_choices})
                 await manager.broadcast({"type": "game_update", "state": {"choices": obscured_choices}}, game_id)
 
             state["timer"] -= 1
@@ -129,8 +179,12 @@ async def run_game_loop(game_id: str):
         print(f"Game {game_id}: Entering revealing phase (10s)")
         state["status"] = "revealing"
         state["timer"] = 10
-        room_ref.update({"status": "revealing", "timer": 10})
-        await manager.broadcast({"type": "game_update", "state": state}, game_id)
+        obscured_choices = {k: True for k, v in state.get("choices", {}).items() if v}
+        room_ref.update({"status": "revealing", "timer": 10, "choices": obscured_choices})
+        await manager.broadcast({
+            "type": "game_update", 
+            "state": {**state, "choices": obscured_choices}
+        }, game_id)
 
         while state["timer"] > 0:
             await asyncio.sleep(1)
@@ -151,6 +205,7 @@ async def run_game_loop(game_id: str):
         
         result = "none"
         prize_amount = round(float(state.get("prizeAmount", 0)), 2)
+        prize_type = state.get("prizeType", "cash")
         half_prize = round(prize_amount / 2, 2)
         
         # Scenario 1: Both Split -> 50% to Player A, 50% to Player B
@@ -158,116 +213,330 @@ async def run_game_loop(game_id: str):
             result = "share"
             for p in [state.get("playerA"), state.get("playerB")]:
                 if p and not p.get("isBot"):
-                    db.collection("game_wallets").document(p["uid"]).set({"balance": firestore.Increment(half_prize)}, merge=True)
-                    db.collection("game_wallets").document(p["uid"]).collection("activity").add({
-                        "type": "game_win", "amount": half_prize, "desc": "Won Split or Steal (Shared)", "timestamp": firestore.SERVER_TIMESTAMP
-                    })
+                    p_uid = p["uid"]
+                    if prize_type == "auracoin":
+                        coins_display = int(half_prize) if half_prize.is_integer() else half_prize
+                        db.collection("users").document(p_uid).set({"auraCoins": firestore.Increment(half_prize)}, merge=True)
+                        db.collection("game_wallets").document(p_uid).collection("activity").add({
+                            "type": "game_win", 
+                            "currency": "auracoin", 
+                            "amount": half_prize, 
+                            "desc": f"Won Split or Steal (Shared - {coins_display:,} AuraCoins)", 
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
+                    else:
+                        db.collection("game_wallets").document(p_uid).set({"balance": firestore.Increment(half_prize)}, merge=True)
+                        db.collection("game_wallets").document(p_uid).collection("activity").add({
+                            "type": "game_win", 
+                            "currency": "cash", 
+                            "amount": half_prize, 
+                            "desc": "Won Split or Steal (Shared)", 
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
 
         # Scenario 2: Player A Split & Player B AFK -> 50% to Player A, 50% burned to Host
         elif choice_a == "split" and not choice_b:
             result = "afk_split_a"
             if state.get("playerA") and not state["playerA"].get("isBot"):
-                db.collection("game_wallets").document(state["playerA"]["uid"]).set({"balance": firestore.Increment(half_prize)}, merge=True)
-                db.collection("game_wallets").document(state["playerA"]["uid"]).collection("activity").add({
-                    "type": "game_win", "amount": half_prize, "desc": "Split prize won (Opponent AFK / Forfeited)", "timestamp": firestore.SERVER_TIMESTAMP
-                })
-            if host_uid and half_prize > 0:
-                platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, half_prize, db)
-                db.collection("game_wallets").document(host_uid).set({"balance": firestore.Increment(host_final)}, merge=True)
-                db.collection("game_wallets").document(host_uid).collection("activity").add({
-                    "type": "host_reclaim", 
-                    "amount": host_final, 
-                    "desc": f"Half burned prize from {room_name} (Opponent AFK). Platform kept fee.", 
-                    "timestamp": firestore.SERVER_TIMESTAMP
-                })
-                if referrer_uid and referrer_cut > 0:
-                    ref_user_ref = db.collection("users").document(referrer_uid)
-                    ref_user_ref.update({"referralBalance": firestore.Increment(referrer_cut)})
-                    db.collection("game_wallets").document(referrer_uid).collection("activity").add({
-                        "type": "referral_earning",
-                        "amount": referrer_cut,
-                        "desc": f"10% commission from {host_name}'s partial burned game prize",
-                        "room": room_name,
+                p_uid = state["playerA"]["uid"]
+                if prize_type == "auracoin":
+                    coins_display = int(half_prize) if half_prize.is_integer() else half_prize
+                    db.collection("users").document(p_uid).set({"auraCoins": firestore.Increment(half_prize)}, merge=True)
+                    db.collection("game_wallets").document(p_uid).collection("activity").add({
+                        "type": "game_win", 
+                        "currency": "auracoin", 
+                        "amount": half_prize, 
+                        "desc": f"Split prize won (Opponent AFK / Forfeited - {coins_display:,} AuraCoins)", 
                         "timestamp": firestore.SERVER_TIMESTAMP
                     })
+                else:
+                    db.collection("game_wallets").document(p_uid).set({"balance": firestore.Increment(half_prize)}, merge=True)
+                    db.collection("game_wallets").document(p_uid).collection("activity").add({
+                        "type": "game_win", 
+                        "currency": "cash", 
+                        "amount": half_prize, 
+                        "desc": "Split prize won (Opponent AFK / Forfeited)", 
+                        "timestamp": firestore.SERVER_TIMESTAMP
+                    })
+            if host_uid and half_prize > 0:
+                platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, half_prize, db, currency=prize_type)
+                if prize_type == "auracoin":
+                    coins_cut = int(platform_cut) if platform_cut.is_integer() else platform_cut
+                    coins_host = int(host_final) if host_final.is_integer() else host_final
+                    if platform_cut > 0:
+                        record_platform_cut(
+                            db=db,
+                            amount=platform_cut,
+                            currency="auracoin",
+                            source="game_forfeit",
+                            desc=f"Burned {coins_cut:,} AuraCoins from half forfeited prize in {room_name} (Opponent AFK)",
+                            room_id=game_id
+                        )
+                    if host_final > 0:
+                        db.collection("users").document(host_uid).set({"auraCoins": firestore.Increment(host_final)}, merge=True)
+                        db.collection("game_wallets").document(host_uid).collection("activity").add({
+                            "type": "host_reclaim", 
+                            "currency": "auracoin", 
+                            "amount": host_final, 
+                            "desc": f"Half reclaimed prize from {room_name} ({coins_host:,} AuraCoins)", 
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
+                    if referrer_uid and referrer_cut > 0:
+                        ref_coins = int(referrer_cut) if referrer_cut.is_integer() else referrer_cut
+                        db.collection("users").document(referrer_uid).update({"auraCoins": firestore.Increment(referrer_cut)})
+                        db.collection("game_wallets").document(referrer_uid).collection("activity").add({
+                            "type": "referral_earning",
+                            "currency": "auracoin", 
+                            "amount": referrer_cut, 
+                            "desc": f"10% commission from {host_name}'s partial forfeited prize ({ref_coins:,} AuraCoins)",
+                            "room": room_name,
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
+                else:
+                    if platform_cut > 0:
+                        record_platform_cut(
+                            db=db,
+                            amount=platform_cut,
+                            currency="cash",
+                            source="game_forfeit",
+                            desc=f"20% platform cut (₦{platform_cut:,.2f}) on half forfeited prize from {room_name} (Opponent AFK)",
+                            room_id=game_id
+                        )
+                    if host_final > 0:
+                        db.collection("game_wallets").document(host_uid).set({"balance": firestore.Increment(host_final)}, merge=True)
+                        db.collection("game_wallets").document(host_uid).collection("activity").add({
+                            "type": "host_reclaim", 
+                            "currency": "cash", 
+                            "amount": host_final, 
+                            "desc": f"Half burned prize from {room_name} (Opponent AFK).", 
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
+                    if referrer_uid and referrer_cut > 0:
+                        ref_user_ref = db.collection("users").document(referrer_uid)
+                        ref_user_ref.update({"referralBalance": firestore.Increment(referrer_cut)})
+                        db.collection("game_wallets").document(referrer_uid).collection("activity").add({
+                            "type": "referral_earning",
+                            "currency": "cash", 
+                            "amount": referrer_cut, 
+                            "desc": f"10% commission from {host_name}'s partial burned game prize",
+                            "room": room_name,
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
 
         # Scenario 3: Player B Split & Player A AFK -> 50% to Player B, 50% burned to Host
         elif not choice_a and choice_b == "split":
             result = "afk_split_b"
-            half_prize = prize_amount / 2
             if state.get("playerB") and not state["playerB"].get("isBot"):
-                db.collection("game_wallets").document(state["playerB"]["uid"]).set({"balance": firestore.Increment(half_prize)}, merge=True)
-                db.collection("game_wallets").document(state["playerB"]["uid"]).collection("activity").add({
-                    "type": "game_win", "amount": half_prize, "desc": "Split prize won (Opponent AFK / Forfeited)", "timestamp": firestore.SERVER_TIMESTAMP
-                })
-            if host_uid and half_prize > 0:
-                platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, half_prize, db)
-                db.collection("game_wallets").document(host_uid).set({"balance": firestore.Increment(host_final)}, merge=True)
-                db.collection("game_wallets").document(host_uid).collection("activity").add({
-                    "type": "host_reclaim", 
-                    "amount": host_final, 
-                    "desc": f"Half burned prize from {room_name} (Opponent AFK). Platform kept fee.", 
-                    "timestamp": firestore.SERVER_TIMESTAMP
-                })
-                if referrer_uid and referrer_cut > 0:
-                    ref_user_ref = db.collection("users").document(referrer_uid)
-                    ref_user_ref.update({"referralBalance": firestore.Increment(referrer_cut)})
-                    db.collection("game_wallets").document(referrer_uid).collection("activity").add({
-                        "type": "referral_earning",
-                        "amount": referrer_cut,
-                        "desc": f"10% commission from {host_name}'s partial burned game prize",
-                        "room": room_name,
+                p_uid = state["playerB"]["uid"]
+                if prize_type == "auracoin":
+                    coins_display = int(half_prize) if half_prize.is_integer() else half_prize
+                    db.collection("users").document(p_uid).set({"auraCoins": firestore.Increment(half_prize)}, merge=True)
+                    db.collection("game_wallets").document(p_uid).collection("activity").add({
+                        "type": "game_win", 
+                        "currency": "auracoin", 
+                        "amount": half_prize, 
+                        "desc": f"Split prize won (Opponent AFK / Forfeited - {coins_display:,} AuraCoins)", 
                         "timestamp": firestore.SERVER_TIMESTAMP
                     })
+                else:
+                    db.collection("game_wallets").document(p_uid).set({"balance": firestore.Increment(half_prize)}, merge=True)
+                    db.collection("game_wallets").document(p_uid).collection("activity").add({
+                        "type": "game_win", 
+                        "currency": "cash", 
+                        "amount": half_prize, 
+                        "desc": "Split prize won (Opponent AFK / Forfeited)", 
+                        "timestamp": firestore.SERVER_TIMESTAMP
+                    })
+            if host_uid and half_prize > 0:
+                platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, half_prize, db, currency=prize_type)
+                if prize_type == "auracoin":
+                    coins_cut = int(platform_cut) if platform_cut.is_integer() else platform_cut
+                    coins_host = int(host_final) if host_final.is_integer() else host_final
+                    if platform_cut > 0:
+                        record_platform_cut(
+                            db=db,
+                            amount=platform_cut,
+                            currency="auracoin",
+                            source="game_forfeit",
+                            desc=f"Burned {coins_cut:,} AuraCoins from half forfeited prize in {room_name} (Opponent AFK)",
+                            room_id=game_id
+                        )
+                    if host_final > 0:
+                        db.collection("users").document(host_uid).set({"auraCoins": firestore.Increment(host_final)}, merge=True)
+                        db.collection("game_wallets").document(host_uid).collection("activity").add({
+                            "type": "host_reclaim", 
+                            "currency": "auracoin", 
+                            "amount": host_final, 
+                            "desc": f"Half reclaimed prize from {room_name} ({coins_host:,} AuraCoins)", 
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
+                    if referrer_uid and referrer_cut > 0:
+                        ref_coins = int(referrer_cut) if referrer_cut.is_integer() else referrer_cut
+                        db.collection("users").document(referrer_uid).update({"auraCoins": firestore.Increment(referrer_cut)})
+                        db.collection("game_wallets").document(referrer_uid).collection("activity").add({
+                            "type": "referral_earning",
+                            "currency": "auracoin", 
+                            "amount": referrer_cut, 
+                            "desc": f"10% commission from {host_name}'s partial forfeited prize ({ref_coins:,} AuraCoins)",
+                            "room": room_name,
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
+                else:
+                    if platform_cut > 0:
+                        record_platform_cut(
+                            db=db,
+                            amount=platform_cut,
+                            currency="cash",
+                            source="game_forfeit",
+                            desc=f"20% platform cut (₦{platform_cut:,.2f}) on half forfeited prize from {room_name} (Opponent AFK)",
+                            room_id=game_id
+                        )
+                    if host_final > 0:
+                        db.collection("game_wallets").document(host_uid).set({"balance": firestore.Increment(host_final)}, merge=True)
+                        db.collection("game_wallets").document(host_uid).collection("activity").add({
+                            "type": "host_reclaim", 
+                            "currency": "cash", 
+                            "amount": host_final, 
+                            "desc": f"Half burned prize from {room_name} (Opponent AFK).", 
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
+                    if referrer_uid and referrer_cut > 0:
+                        ref_user_ref = db.collection("users").document(referrer_uid)
+                        ref_user_ref.update({"referralBalance": firestore.Increment(referrer_cut)})
+                        db.collection("game_wallets").document(referrer_uid).collection("activity").add({
+                            "type": "referral_earning",
+                            "currency": "cash", 
+                            "amount": referrer_cut, 
+                            "desc": f"10% commission from {host_name}'s partial burned game prize",
+                            "room": room_name,
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
 
         # Scenario 4: Player A Steals (against Split or AFK opponent) -> 100% to Player A
         elif choice_a == "steal" and (choice_b == "split" or not choice_b):
             result = "one_steal"
             desc_note = "Won Split or Steal (Stolen)" if choice_b == "split" else "Won Split or Steal (Opponent AFK / Forfeited)"
             if state.get("playerA") and not state["playerA"].get("isBot"):
-                db.collection("game_wallets").document(state["playerA"]["uid"]).set({"balance": firestore.Increment(prize_amount)}, merge=True)
-                db.collection("game_wallets").document(state["playerA"]["uid"]).collection("activity").add({
-                    "type": "game_win", "amount": prize_amount, "desc": desc_note, "timestamp": firestore.SERVER_TIMESTAMP
-                })
+                p_uid = state["playerA"]["uid"]
+                if prize_type == "auracoin":
+                    coins_display = int(prize_amount) if prize_amount.is_integer() else prize_amount
+                    db.collection("users").document(p_uid).set({"auraCoins": firestore.Increment(prize_amount)}, merge=True)
+                    db.collection("game_wallets").document(p_uid).collection("activity").add({
+                        "type": "game_win", 
+                        "currency": "auracoin", 
+                        "amount": prize_amount, 
+                        "desc": f"{desc_note} ({coins_display:,} AuraCoins)", 
+                        "timestamp": firestore.SERVER_TIMESTAMP
+                    })
+                else:
+                    db.collection("game_wallets").document(p_uid).set({"balance": firestore.Increment(prize_amount)}, merge=True)
+                    db.collection("game_wallets").document(p_uid).collection("activity").add({
+                        "type": "game_win", 
+                        "currency": "cash", 
+                        "amount": prize_amount, 
+                        "desc": desc_note, 
+                        "timestamp": firestore.SERVER_TIMESTAMP
+                    })
 
         # Scenario 5: Player B Steals (against Split or AFK opponent) -> 100% to Player B
         elif choice_b == "steal" and (choice_a == "split" or not choice_a):
             result = "one_steal"
             desc_note = "Won Split or Steal (Stolen)" if choice_a == "split" else "Won Split or Steal (Opponent AFK / Forfeited)"
             if state.get("playerB") and not state["playerB"].get("isBot"):
-                db.collection("game_wallets").document(state["playerB"]["uid"]).set({"balance": firestore.Increment(prize_amount)}, merge=True)
-                db.collection("game_wallets").document(state["playerB"]["uid"]).collection("activity").add({
-                    "type": "game_win", "amount": prize_amount, "desc": desc_note, "timestamp": firestore.SERVER_TIMESTAMP
-                })
+                p_uid = state["playerB"]["uid"]
+                if prize_type == "auracoin":
+                    coins_display = int(prize_amount) if prize_amount.is_integer() else prize_amount
+                    db.collection("users").document(p_uid).set({"auraCoins": firestore.Increment(prize_amount)}, merge=True)
+                    db.collection("game_wallets").document(p_uid).collection("activity").add({
+                        "type": "game_win", 
+                        "currency": "auracoin", 
+                        "amount": prize_amount, 
+                        "desc": f"{desc_note} ({coins_display:,} AuraCoins)", 
+                        "timestamp": firestore.SERVER_TIMESTAMP
+                    })
+                else:
+                    db.collection("game_wallets").document(p_uid).set({"balance": firestore.Increment(prize_amount)}, merge=True)
+                    db.collection("game_wallets").document(p_uid).collection("activity").add({
+                        "type": "game_win", 
+                        "currency": "cash", 
+                        "amount": prize_amount, 
+                        "desc": desc_note, 
+                        "timestamp": firestore.SERVER_TIMESTAMP
+                    })
 
         # Scenario 6: Both Steal OR Both AFK -> 100% burned & returned to Host
         else:
             result = "none"
             desc_note = "Both Steal" if (choice_a == "steal" and choice_b == "steal") else "Both AFK / Forfeit"
             if host_uid and prize_amount > 0:
-                # TREAT BURNED MONEY AS REVENUE (30/7/63 split applies)
-                platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, prize_amount, db)
-                
-                # Update Host Game Wallet
-                db.collection("game_wallets").document(host_uid).set({"balance": firestore.Increment(host_final)}, merge=True)
-                db.collection("game_wallets").document(host_uid).collection("activity").add({
-                    "type": "host_reclaim", 
-                    "amount": host_final, 
-                    "desc": f"Burned prize from {room_name} ({desc_note}). Platform kept fee.", 
-                    "timestamp": firestore.SERVER_TIMESTAMP
-                })
+                platform_cut, host_final, referrer_uid, referrer_cut = calculate_payout_split(host_uid, prize_amount, db, currency=prize_type)
+                if prize_type == "auracoin":
+                    coins_cut = int(platform_cut) if platform_cut.is_integer() else platform_cut
+                    coins_host = int(host_final) if host_final.is_integer() else host_final
+                    if platform_cut > 0:
+                        record_platform_cut(
+                            db=db,
+                            amount=platform_cut,
+                            currency="auracoin",
+                            source="game_forfeit",
+                            desc=f"Burned {coins_cut:,} AuraCoins from {room_name} ({desc_note})",
+                            room_id=game_id
+                        )
+                    if host_final > 0:
+                        db.collection("users").document(host_uid).set({"auraCoins": firestore.Increment(host_final)}, merge=True)
+                        db.collection("game_wallets").document(host_uid).collection("activity").add({
+                            "type": "host_reclaim", 
+                            "currency": "auracoin", 
+                            "amount": host_final, 
+                            "desc": f"Reclaimed prize from {room_name} ({desc_note} - {coins_host:,} AuraCoins)", 
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
+                    if referrer_uid and referrer_cut > 0:
+                        ref_coins = int(referrer_cut) if referrer_cut.is_integer() else referrer_cut
+                        db.collection("users").document(referrer_uid).update({"auraCoins": firestore.Increment(referrer_cut)})
+                        db.collection("game_wallets").document(referrer_uid).collection("activity").add({
+                            "type": "referral_earning",
+                            "currency": "auracoin", 
+                            "amount": referrer_cut, 
+                            "desc": f"10% commission from {host_name}'s forfeited game prize ({ref_coins:,} AuraCoins)",
+                            "room": room_name,
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
+                else:
+                    # TREAT BURNED MONEY AS REVENUE (payout split applies)
+                    if platform_cut > 0:
+                        record_platform_cut(
+                            db=db,
+                            amount=platform_cut,
+                            currency="cash",
+                            source="game_forfeit",
+                            desc=f"20% platform cut (₦{platform_cut:,.2f}) on burned prize from {room_name} ({desc_note})",
+                            room_id=game_id
+                        )
+                    
+                    # Update Host Game Wallet
+                    if host_final > 0:
+                        db.collection("game_wallets").document(host_uid).set({"balance": firestore.Increment(host_final)}, merge=True)
+                        db.collection("game_wallets").document(host_uid).collection("activity").add({
+                            "type": "host_reclaim", 
+                            "currency": "cash", 
+                            "amount": host_final, 
+                            "desc": f"Burned prize from {room_name} ({desc_note}).", 
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
 
-                # Update Referrer if active
-                if referrer_uid and referrer_cut > 0:
-                    ref_user_ref = db.collection("users").document(referrer_uid)
-                    ref_user_ref.update({"referralBalance": firestore.Increment(referrer_cut)})
-                    db.collection("game_wallets").document(referrer_uid).collection("activity").add({
-                        "type": "referral_earning",
-                        "amount": referrer_cut,
-                        "desc": f"10% commission from {host_name}'s burned game prize",
-                        "room": room_name,
-                        "timestamp": firestore.SERVER_TIMESTAMP
-                    })
+                    # Update Referrer if active
+                    if referrer_uid and referrer_cut > 0:
+                        ref_user_ref = db.collection("users").document(referrer_uid)
+                        ref_user_ref.update({"referralBalance": firestore.Increment(referrer_cut)})
+                        db.collection("game_wallets").document(referrer_uid).collection("activity").add({
+                            "type": "referral_earning",
+                            "currency": "cash", 
+                            "amount": referrer_cut, 
+                            "desc": f"10% commission from {host_name}'s burned game prize",
+                            "room": room_name,
+                            "timestamp": firestore.SERVER_TIMESTAMP
+                        })
 
         state["revealResult"] = result
         
@@ -307,6 +576,9 @@ async def run_game_loop(game_id: str):
         print(f"ERROR in run_game_loop for {game_id}: {str(e)}")
         import traceback
         traceback.print_exc()
+    finally:
+        if game_id in manager.game_states:
+            manager.game_states[game_id]["is_loop_running"] = False
 
 async def cleanup_game_room(game_id: str):
     """Background task to delete a room after 1 hour of inactivity/finish."""
@@ -443,8 +715,10 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                         "numberOfRounds": data.get("numberOfRounds", 1),
                         "isMultipleRounds": data.get("isMultipleRounds", False),
                         "prizeAmount": data.get("prizeAmount", 0),
+                        "prizeType": data.get("prizeType", "cash"),
                         "hostUid": data.get("hostUid"),
-                        "entryFee": data.get("entryFee", 0)
+                        "entryFee": data.get("entryFee", 0),
+                        "entryType": data.get("entryType", "cash")
                     }
                 else:
                     print(f"Room {game_id} not found in Firestore, using default state")
@@ -540,13 +814,16 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                     is_admin_action = is_admin or (uid == state.get("hostUid"))
                     if not is_admin_action:
                         continue
+                    if state.get("is_loop_running") or state.get("status") in ["selecting", "convincing", "sudden_death", "revealing"]:
+                        continue
                         
+                    state["is_loop_running"] = True
                     state["status"] = "selecting"
                     state["choices"] = {}
                     state["revealResult"] = None
                     try:
                         room_ref.update({"status": "selecting", "choices": {}, "revealResult": None})
-                        await manager.broadcast({"type": "game_update", "state": state}, game_id)
+                        await manager.broadcast({"type": "game_update", "state": {**state, "choices": {}}}, game_id)
                         await asyncio.sleep(4)
                         
                         played = set(state.get("playedUsers", []))
@@ -582,13 +859,15 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                                 "choices": {},
                                 "revealResult": None
                             })
-                            await manager.broadcast({"type": "game_update", "state": state}, game_id)
+                            await manager.broadcast({"type": "game_update", "state": {**state, "choices": {}}}, game_id)
                             asyncio.create_task(run_game_loop(game_id))
                         else:
                             state["status"] = "waiting"
+                            state["is_loop_running"] = False
                             room_ref.update({"status": "waiting"})
                             await manager.broadcast({"type": "game_update", "state": state}, game_id)
                     except Exception as e:
+                        state["is_loop_running"] = False
                         print(f"Error picking players: {str(e)}")
                         import traceback
                         traceback.print_exc()
@@ -596,17 +875,20 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                 elif action == "make_choice":
                     player_uids = [p["uid"] for p in [state.get("playerA"), state.get("playerB")] if p]
                     if uid in player_uids:
-                        if state["status"] in ["choosing", "sudden_death", "revealing"]:
-                            if state["status"] == "revealing" and state.get("timer", 0) <= 5:
+                        if state.get("status") in ["choosing", "sudden_death", "revealing"]:
+                            if state.get("status") == "revealing" and state.get("timer", 0) <= 5:
                                 # Locked in, cannot change choice
                                 pass
                             else:
-                                state["choices"][uid] = msg.get("choice")
-                                room_ref.update({"choices": state["choices"]})
-                                await manager.broadcast({
-                                    "type": "game_update", 
-                                    "state": {"choices": {k: True for k, v in state["choices"].items() if v}}
-                                }, game_id)
+                                raw_choice = str(msg.get("choice", "")).lower().strip()
+                                if raw_choice in ["split", "steal"]:
+                                    state["choices"][uid] = raw_choice
+                                    obscured_choices = {k: True for k, v in state["choices"].items() if v}
+                                    room_ref.update({"choices": obscured_choices})
+                                    await manager.broadcast({
+                                        "type": "game_update", 
+                                        "state": {"choices": obscured_choices}
+                                    }, game_id)
 
                 elif action == "emoji":
                     await manager.broadcast({
@@ -637,26 +919,52 @@ async def game_websocket_endpoint(websocket: WebSocket, game_id: str, token: str
                                     unspent_pz = round(pz_amount * rem_rounds, 2)
                                     
                                     if unspent_pz > 0 and h_uid:
-                                        db.collection("game_wallets").document(h_uid).set({"balance": firestore.Increment(unspent_pz)}, merge=True)
-                                        db.collection("game_wallets").document(h_uid).collection("activity").add({
-                                            "type": "room_cancelled_refund",
-                                            "amount": unspent_pz,
-                                            "desc": f"Refunded unspent prize from cancelled room: {r_data.get('roomName', 'Game')}",
-                                            "timestamp": firestore.SERVER_TIMESTAMP
-                                        })
+                                        p_type = r_data.get("prizeType", "cash")
+                                        if p_type == "auracoin":
+                                            coins_display = int(unspent_pz) if unspent_pz.is_integer() else unspent_pz
+                                            db.collection("users").document(h_uid).set({"auraCoins": firestore.Increment(unspent_pz)}, merge=True)
+                                            db.collection("game_wallets").document(h_uid).collection("activity").add({
+                                                "type": "room_cancelled_refund",
+                                                "currency": "auracoin",
+                                                "amount": unspent_pz,
+                                                "desc": f"Refunded unspent prize from cancelled room: {r_data.get('roomName', 'Game')} ({coins_display:,} AuraCoins)",
+                                                "timestamp": firestore.SERVER_TIMESTAMP
+                                            })
+                                        else:
+                                            db.collection("game_wallets").document(h_uid).set({"balance": firestore.Increment(unspent_pz)}, merge=True)
+                                            db.collection("game_wallets").document(h_uid).collection("activity").add({
+                                                "type": "room_cancelled_refund",
+                                                "currency": "cash",
+                                                "amount": unspent_pz,
+                                                "desc": f"Refunded unspent prize from cancelled room: {r_data.get('roomName', 'Game')}",
+                                                "timestamp": firestore.SERVER_TIMESTAMP
+                                            })
 
                                     e_fee = float(r_data.get("entryFee", 0) or 0)
+                                    e_type = r_data.get("entryType", "cash")
                                     parts = r_data.get("participants", [])
                                     for p in parts:
                                         p_id = p.get("uid")
                                         if not p.get("isBot") and p_id and p_id not in ply_users and e_fee > 0:
-                                            db.collection("game_wallets").document(p_id).set({"balance": firestore.Increment(e_fee)}, merge=True)
-                                            db.collection("game_wallets").document(p_id).collection("activity").add({
-                                                "type": "pool_cancelled_refund",
-                                                "amount": e_fee,
-                                                "desc": f"Refunded entry fee from cancelled room: {r_data.get('roomName', 'Game')}",
-                                                "timestamp": firestore.SERVER_TIMESTAMP
-                                            })
+                                            coins_display = int(e_fee) if e_fee.is_integer() else e_fee
+                                            if e_type == "auracoin":
+                                                db.collection("users").document(p_id).set({"auraCoins": firestore.Increment(e_fee)}, merge=True)
+                                                db.collection("game_wallets").document(p_id).collection("activity").add({
+                                                    "type": "pool_cancelled_refund",
+                                                    "currency": "auracoin",
+                                                    "amount": e_fee,
+                                                    "desc": f"Refunded entry fee from cancelled room: {r_data.get('roomName', 'Game')} ({coins_display:,} AuraCoins)",
+                                                    "timestamp": firestore.SERVER_TIMESTAMP
+                                                })
+                                            else:
+                                                db.collection("game_wallets").document(p_id).set({"balance": firestore.Increment(e_fee)}, merge=True)
+                                                db.collection("game_wallets").document(p_id).collection("activity").add({
+                                                    "type": "pool_cancelled_refund",
+                                                    "currency": "cash",
+                                                    "amount": e_fee,
+                                                    "desc": f"Refunded entry fee from cancelled room: {r_data.get('roomName', 'Game')}",
+                                                    "timestamp": firestore.SERVER_TIMESTAMP
+                                                })
                             
                             # 1. Inform remaining users
                             await manager.broadcast({

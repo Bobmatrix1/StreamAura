@@ -36,6 +36,7 @@ import { doc, getDoc, collection, query, where, getDocs, orderBy, limit, onSnaps
 import { initializePaystackPayment, verifyPaymentOnBackend } from '../api/paymentApi';
 import { CinemaLiveRoom } from './CinemaLiveRoom';
 import { setCinemaActive } from '@/lib/appLifecycle';
+import { AuraCoinIcon } from '../components/AuraCoinIcon';
 
 interface CinemaSlide {
   id: string;
@@ -326,10 +327,10 @@ const CinemaRoom: React.FC = () => {
   const [episodes, setEpisodes] = useState<{ number: number; title: string; file: File | null }[]>([
     { number: 1, title: '', file: null }
   ]);
-  const [paymentWallet, setPaymentWallet] = useState<'normal' | 'referral' | 'bonus'>('normal');
+  const [paymentWallet, setPaymentWallet] = useState<'normal' | 'referral' | 'auracoin'>('auracoin');
   const [privateWallet, setPrivateWallet] = useState<'normal' | 'referral'>('normal');
-  const [userBalances, setUserBalances] = useState({ normal: 0, referral: 0, bonus: 0 });
-  const [insufficientFunds, setInsufficientFunds] = useState<{ show: boolean; type: 'normal' | 'referral' | 'bonus'; required: number } | null>(null);
+  const [userBalances, setUserBalances] = useState({ normal: 0, referral: 0, auracoin: 0 });
+  const [insufficientFunds, setInsufficientFunds] = useState<{ show: boolean; type: 'normal' | 'referral' | 'auracoin'; required: number } | null>(null);
 
   // Fetch Balances when modal opens
   useEffect(() => {
@@ -345,14 +346,14 @@ const CinemaRoom: React.FC = () => {
       const walletDoc = await getDoc(walletRef);
       const normalBal = walletDoc.exists() ? (walletDoc.data().balance || 0) : 0;
 
-      // 2. Referral & Bonus Balances
+      // 2. Referral & AuraCoin Balances
       const userRef = doc(db, 'users', auth.currentUser!.uid);
       const userDoc = await getDoc(userRef);
       const userData = userDoc.exists() ? userDoc.data() : {};
       const referralBal = userData.referralBalance || 0;
-      const bonusBal = userData.bonusBalance || 0;
+      const auracoinBal = Number(userData.auraCoins ?? userData.auraCoin ?? userData.bonusBalance ?? 0);
 
-      setUserBalances({ normal: normalBal, referral: referralBal, bonus: bonusBal });
+      setUserBalances({ normal: normalBal, referral: referralBal, auracoin: auracoinBal });
     } catch (err) {
       console.error('Error fetching balances:', err);
     }
@@ -375,12 +376,12 @@ const CinemaRoom: React.FC = () => {
   const calculateTotalCost = () => {
     let normalRequired = 0;
     let referralRequired = 0;
-    let bonusRequired = 0;
+    let auracoinRequired = 0;
 
-    // 1. Episode Cost (if series)
+    // 1. Episode Cost (50 AuraCoins or ₦50 Cash/Referral per episode)
     if (contentType === 'series') {
-      const perEp = paymentWallet === 'bonus' ? 50 : 100;
-      if (paymentWallet === 'bonus') bonusRequired += (episodes.length * perEp);
+      const perEp = 50;
+      if (paymentWallet === 'auracoin') auracoinRequired += (episodes.length * perEp);
       else if (paymentWallet === 'referral') referralRequired += (episodes.length * perEp);
       else normalRequired += (episodes.length * perEp);
     }
@@ -395,8 +396,8 @@ const CinemaRoom: React.FC = () => {
     return { 
       normal: normalRequired, 
       referral: referralRequired, 
-      bonus: bonusRequired,
-      total: normalRequired + referralRequired + bonusRequired 
+      auracoin: auracoinRequired,
+      total: normalRequired + referralRequired + auracoinRequired 
     };
   };
 
@@ -527,6 +528,10 @@ const CinemaRoom: React.FC = () => {
     const costs = calculateTotalCost();
 
     // 1. Balance Verification
+    if (costs.auracoin > userBalances.auracoin) {
+      setInsufficientFunds({ show: true, type: 'auracoin', required: costs.auracoin });
+      return;
+    }
     if (costs.normal > userBalances.normal) {
       setInsufficientFunds({ show: true, type: 'normal', required: costs.normal });
       return;
@@ -1097,7 +1102,7 @@ const CinemaRoom: React.FC = () => {
               
               <div className="p-5 flex-1 flex flex-col">
                 <h3 className="font-black text-lg leading-tight mb-2 uppercase tracking-tighter">{item.title}</h3>
-                <p className="text-xs text-muted-foreground mb-4 line-clamp-2 font-medium">{item.description}</p>
+                <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed mb-4">{item.description}</p>
                 
                 <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between">
                   <div className="flex flex-col">
@@ -1344,35 +1349,74 @@ const CinemaRoom: React.FC = () => {
 
                              {/* Payment Method for Episodes */}
                              <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/20 space-y-4 mt-4">
-                                <div className="flex justify-between items-end">
+                                <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-3">
                                    <div>
                                       <p className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Episode Hosting Cost</p>
-                                      <p className="text-xl font-black text-white">₦{(episodes.length * (paymentWallet === 'referral' ? 50 : 100)).toLocaleString()}</p>
+                                      <p className="text-xl font-black text-white flex items-center gap-1.5 mt-1">
+                                        {paymentWallet === 'auracoin' ? (
+                                          <>
+                                            <AuraCoinIcon size="sm" className="w-5 h-5 text-amber-400" />
+                                            <span className="text-amber-400">{(episodes.length * 50).toLocaleString()}</span>
+                                            <span className="text-xs font-bold text-amber-300/80 uppercase">AuraCoins</span>
+                                          </>
+                                        ) : (
+                                          `₦${(episodes.length * 50).toLocaleString()}`
+                                        )}
+                                      </p>
                                    </div>
-                                   <div className="flex flex-col gap-2 w-full max-w-[200px]">
-                                      <p className="text-[8px] font-black text-muted-foreground uppercase text-right">Choose Wallet</p>
-                                      <div className="flex p-1 bg-black/40 rounded-lg border border-white/5">
+                                   <div className="flex flex-col gap-1.5 w-full sm:max-w-[270px]">
+                                      <div className="flex justify-between items-center text-[8px] font-black text-muted-foreground uppercase">
+                                        <span>Pay Episodes With</span>
+                                        <span className="text-white/70">
+                                          {paymentWallet === 'auracoin' 
+                                            ? `Bal: ${userBalances.auracoin.toLocaleString()} 🪙` 
+                                            : paymentWallet === 'referral' 
+                                            ? `Bal: ₦${userBalances.referral.toLocaleString()}` 
+                                            : `Bal: ₦${userBalances.normal.toLocaleString()}`}
+                                        </span>
+                                      </div>
+                                      <div className="grid grid-cols-3 p-1 bg-black/40 rounded-lg border border-white/5 gap-1">
                                          <button 
                                           type="button" 
-                                          onClick={() => setPaymentWallet('normal')}
-                                          className={`flex-1 py-1 rounded text-[8px] font-black transition-all ${paymentWallet === 'normal' ? 'bg-primary text-white shadow-lg' : 'text-muted-foreground'}`}
+                                          onClick={() => setPaymentWallet('auracoin')}
+                                          className={`py-1.5 px-2 rounded text-[8px] font-black transition-all flex items-center justify-center gap-1 ${
+                                            paymentWallet === 'auracoin' 
+                                              ? 'bg-amber-500 text-black shadow-lg font-black' 
+                                              : 'text-muted-foreground hover:text-white'
+                                          }`}
                                          >
-                                           MAIN (100)
+                                           <AuraCoinIcon size="xs" className="w-3 h-3" />
+                                           50 🪙
                                          </button>
                                          <button 
                                           type="button" 
-                                          onClick={() => setPaymentWallet('bonus')}
-                                          className={`flex-1 py-1 rounded text-[8px] font-black transition-all ${paymentWallet === 'bonus' ? 'bg-emerald-600 text-white shadow-lg' : 'text-muted-foreground'}`}
+                                          onClick={() => setPaymentWallet('normal')}
+                                          className={`py-1.5 px-2 rounded text-[8px] font-black transition-all ${
+                                            paymentWallet === 'normal' 
+                                              ? 'bg-primary text-white shadow-lg' 
+                                              : 'text-muted-foreground hover:text-white'
+                                          }`}
                                          >
-                                           BONUS (50)
+                                           ₦50 CASH
+                                         </button>
+                                         <button 
+                                          type="button" 
+                                          onClick={() => setPaymentWallet('referral')}
+                                          className={`py-1.5 px-2 rounded text-[8px] font-black transition-all ${
+                                            paymentWallet === 'referral' 
+                                              ? 'bg-emerald-600 text-white shadow-lg' 
+                                              : 'text-muted-foreground hover:text-white'
+                                          }`}
+                                         >
+                                           ₦50 REF
                                          </button>
                                       </div>
                                    </div>
                                 </div>
-                                <p className="text-[9px] text-muted-foreground leading-relaxed italic">
-                                  {paymentWallet === 'bonus' 
-                                    ? "Using your Signup Bonus Balance. Get episodes at just ₦50 each!" 
-                                    : "Standard rate applied. Episodes are hosted until the entire season is watched."}
+                                <p className="text-[9px] text-muted-foreground leading-relaxed">
+                                  {paymentWallet === 'auracoin' 
+                                    ? "✨ 50 AuraCoins per episode. Use your AuraCoin rewards to host and watch series episodes with friends!" 
+                                    : "₦50 per episode. Paid via Room Wallet balance or Referral earnings."}
                                 </p>
                              </div>
                           </div>
@@ -1803,7 +1847,11 @@ const CinemaRoom: React.FC = () => {
                            </div>
                          ) : (
                            <>
-                             {calculateTotalCost().total > 0 ? `Pay ₦${calculateTotalCost().total.toLocaleString()} & Create` : 'Create Room'}
+                             {calculateTotalCost().total > 0
+                               ? (paymentWallet === 'auracoin' && contentType === 'series'
+                                   ? `Pay ${calculateTotalCost().auracoin.toLocaleString()} 🪙 & Create`
+                                   : `Pay ₦${calculateTotalCost().total.toLocaleString()} & Create`)
+                               : 'Create Room'}
                              <Plus className="w-4 h-4" />
                            </>
                          )}
@@ -1883,15 +1931,19 @@ const CinemaRoom: React.FC = () => {
               </div>
               <div className="space-y-2">
                  <h3 className="text-xl font-black uppercase text-white tracking-tighter">
-                   {insufficientFunds.type === 'referral' ? 'Referral Balance Low' : insufficientFunds.type === 'bonus' ? 'Bonus Balance Low' : 'Wallet Balance Low'}
+                   {insufficientFunds.type === 'referral'
+                     ? 'Referral Balance Low'
+                     : insufficientFunds.type === 'auracoin'
+                     ? 'AuraCoins Balance Low'
+                     : 'Wallet Balance Low'}
                  </h3>
-                 <p className="text-xs text-muted-foreground font-medium uppercase leading-relaxed tracking-wider">
-                    {insufficientFunds.type === 'referral' 
-                      ? "You don't have enough referral earnings. Refer more friends to earn sales commissions or pay with your main wallet balance." 
-                      : insufficientFunds.type === 'bonus'
-                      ? "You don't have enough Signup Bonuses. Refer more friends to get ₦100 per person and access the ₦50/episode discount!"
-                      : `You need ₦${insufficientFunds.required.toLocaleString()} in your wallet to create this room.`}
-                 </p>
+                  <p className="text-xs text-muted-foreground font-medium uppercase leading-relaxed tracking-wider">
+                     {insufficientFunds.type === 'referral'
+                       ? "You don't have enough referral earnings. Refer more friends to earn sales commissions or pay with your main wallet balance."
+                       : insufficientFunds.type === 'auracoin'
+                       ? `You need ${insufficientFunds.required.toLocaleString()} AuraCoins (50 AuraCoins per episode) to host/watch this series. Win AuraCoins in Game Rooms or pay with Cash.`
+                       : `You need ₦${insufficientFunds.required.toLocaleString()} in your wallet to create this room.`}
+                  </p>
               </div>
               <div className="flex flex-col gap-3">
                  {insufficientFunds.type === 'normal' && (

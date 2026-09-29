@@ -51,6 +51,8 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
   const [showSettings, setShowSettings] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [resolvedVideoSrc, setResolvedVideoSrc] = useState<string | null>(null);
+  const [isResolvingStream, setIsResolvingStream] = useState<boolean>(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -92,9 +94,69 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
     }
   }, [roomData, user]);
 
-  const currentVideoSrc = isSeries
+  const rawVideoSrc = isSeries
     ? episodes[currentEpIndex]?.url
     : roomData.movie_file;
+
+  // Resilient Cloudflare R2 / Stream URL Resolver
+  useEffect(() => {
+    let active = true;
+
+    const resolveStream = async () => {
+      if (!rawVideoSrc) {
+        setResolvedVideoSrc(null);
+        return;
+      }
+
+      if (rawVideoSrc.includes('X-Amz-Signature') || rawVideoSrc.startsWith('data:') || rawVideoSrc.startsWith('blob:')) {
+        setResolvedVideoSrc(rawVideoSrc);
+        return;
+      }
+
+      const isR2 = rawVideoSrc.includes('cdn.streamaura.site') || 
+                   rawVideoSrc.includes('r2.cloudflarestorage.com') || 
+                   !rawVideoSrc.startsWith('http');
+
+      if (isR2) {
+        setIsResolvingStream(true);
+        try {
+          const token = await auth.currentUser?.getIdToken();
+          const headers: Record<string, string> = {};
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+
+          const res = await fetch(
+            `${API_BASE_URL}/api/cinema/stream-url?url=${encodeURIComponent(rawVideoSrc)}&room_id=${roomId}&episode_index=${currentEpIndex}`,
+            { headers }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            if (active && data.stream_url) {
+              setResolvedVideoSrc(data.stream_url);
+              setVideoError(null);
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn('Cinema stream resolution error:', err);
+        } finally {
+          if (active) setIsResolvingStream(false);
+        }
+      }
+
+      if (active) {
+        setResolvedVideoSrc(rawVideoSrc);
+        setVideoError(null);
+      }
+    };
+
+    resolveStream();
+
+    return () => {
+      active = false;
+    };
+  }, [rawVideoSrc, roomId, currentEpIndex]);
+
+  const currentVideoSrc = resolvedVideoSrc || rawVideoSrc;
 
   const currentEpTitle = isSeries
     ? `S1 E${episodes[currentEpIndex]?.number}: ${episodes[currentEpIndex]?.title}`
@@ -237,8 +299,31 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
     setActiveReactionId(null);
   };
 
-  const handleVideoError = () => {
-    setVideoError("Unsupported video format or source unreachable.");
+  const handleVideoError = async () => {
+    // If not already resolved through backend, attempt signed stream resolution
+    if (rawVideoSrc && currentVideoSrc === rawVideoSrc) {
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        const headers: Record<string, string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const res = await fetch(
+          `${API_BASE_URL}/api/cinema/stream-url?url=${encodeURIComponent(rawVideoSrc)}&room_id=${roomId}&episode_index=${currentEpIndex}`,
+          { headers }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.stream_url && data.stream_url !== currentVideoSrc) {
+            setResolvedVideoSrc(data.stream_url);
+            setVideoError(null);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Fallback stream resolution error:', e);
+      }
+    }
+    setVideoError("Video stream unreachable or format unsupported.");
   };
 
   const toggleChatVisibility = () => {
@@ -487,7 +572,12 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
 
         {/* Video Player Container */}
         <div className="flex-1 bg-black flex items-center justify-center relative group overflow-hidden">
-           {currentVideoSrc ? (
+           {isResolvingStream ? (
+             <div className="flex flex-col items-center gap-4">
+                <Loader2 className="w-10 h-10 text-primary animate-spin" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Securing High-Speed Stream...</p>
+             </div>
+           ) : currentVideoSrc ? (
              <>
                <video
                  key={currentVideoSrc}
@@ -499,7 +589,6 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
                  onPause={() => handleVideoAction('pause')}
                  onSeeked={() => handleVideoAction('seek')}
                  onError={handleVideoError}
-                 crossOrigin="anonymous"
                >
                  <source src={currentVideoSrc} type="video/mp4" />
                  <source src={currentVideoSrc} type="video/webm" />
@@ -507,22 +596,53 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
                  Your browser does not support the video tag.
                </video>
                {videoError && (
-                 <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 p-8 text-center gap-4">
-                    <Loader2 className="w-12 h-12 text-rose-500" />
-                    <p className="text-white font-black uppercase tracking-widest text-xs">{videoError}</p>
-                     <Button 
-                       variant="outline" 
-                       onClick={() => {
-                         setVideoError(null);
-                         if (videoRef.current) {
-                           videoRef.current.load();
-                           videoRef.current.play().catch(() => {});
-                         }
-                       }} 
-                       className="border-white/10 text-white rounded-xl"
-                     >
-                       Retry Stream
-                     </Button>
+                 <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/90 p-8 text-center gap-4 backdrop-blur-md">
+                    <div className="w-14 h-14 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 shadow-xl shadow-rose-500/10">
+                      <Tv className="w-7 h-7" />
+                    </div>
+                    <div className="space-y-1 max-w-md">
+                      <p className="text-white font-black uppercase tracking-wider text-xs">{videoError}</p>
+                      <p className="text-white/50 text-[10px] font-medium">The uploaded media source is taking longer to respond or is temporarily unreachable.</p>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+                      <Button 
+                        variant="outline" 
+                        onClick={() => {
+                          setVideoError(null);
+                          if (rawVideoSrc) {
+                            setResolvedVideoSrc(null); // Re-trigger resolver
+                          }
+                          if (videoRef.current) {
+                            videoRef.current.load();
+                            videoRef.current.play().catch(() => {});
+                          }
+                        }} 
+                        className="border-white/10 text-white hover:bg-white/10 rounded-xl text-[10px] font-black uppercase tracking-wider h-9 px-4"
+                      >
+                        Retry Stream
+                      </Button>
+                      {roomData.trailer_url && roomData.trailer_url !== currentVideoSrc && (
+                        <Button
+                          variant="secondary"
+                          onClick={() => {
+                            setVideoError(null);
+                            setResolvedVideoSrc(roomData.trailer_url);
+                          }}
+                          className="bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wider h-9 px-4"
+                        >
+                          Play Trailer Preview
+                        </Button>
+                      )}
+                      {canControl && (
+                        <Button
+                          variant="ghost"
+                          onClick={() => setShowSettings(true)}
+                          className="text-white/70 hover:text-white hover:bg-white/10 rounded-xl text-[10px] font-black uppercase tracking-wider h-9 px-4"
+                        >
+                          Room Settings
+                        </Button>
+                      )}
+                    </div>
                  </div>
                )}
              </>
