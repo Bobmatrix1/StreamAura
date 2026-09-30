@@ -325,6 +325,12 @@ const CinemaRoom: React.FC = () => {
   const [movieTitle, setMovieTitle] = useState('');
   const [movieGenre, setMovieGenre] = useState('');
   const [movieDescription, setMovieDescription] = useState('');
+  const [releaseYear, setReleaseYear] = useState('');
+  const [runtime, setRuntime] = useState('');
+  const [ageRating, setAgeRating] = useState('');
+  const [director, setDirector] = useState('');
+  const [cast, setCast] = useState('');
+  const [tagline, setTagline] = useState('');
   const [ticketPrice, setTicketPrice] = useState('');
   const [movieFile, setMovieFile] = useState<File | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
@@ -337,7 +343,7 @@ const CinemaRoom: React.FC = () => {
     { number: 1, title: '', file: null }
   ]);
   const [paymentWallet, setPaymentWallet] = useState<'normal' | 'referral' | 'auracoin'>('auracoin');
-  const [privateWallet, setPrivateWallet] = useState<'normal' | 'referral'>('normal');
+  const [privateWallet, setPrivateWallet] = useState<'normal' | 'referral' | 'auracoin'>('normal');
   const [userBalances, setUserBalances] = useState({ normal: 0, referral: 0, auracoin: 0 });
   const [insufficientFunds, setInsufficientFunds] = useState<{ show: boolean; type: 'normal' | 'referral' | 'auracoin'; required: number } | null>(null);
 
@@ -395,11 +401,15 @@ const CinemaRoom: React.FC = () => {
       else normalRequired += (episodes.length * perEp);
     }
 
-    // 2. Private Room Cost
+    // 2. Private Room Cost (2,500 AuraCoins, ₦2,500 Referral, or ₦1,000 Main per seat)
     if (roomType === 'private') {
-      const perSeat = 1000; // Same cost for both wallets
-      if (privateWallet === 'referral') referralRequired += (privateSeats * perSeat);
-      else normalRequired += (privateSeats * perSeat);
+      if (privateWallet === 'auracoin') {
+        auracoinRequired += (privateSeats * 2500);
+      } else if (privateWallet === 'referral') {
+        referralRequired += (privateSeats * 2500);
+      } else {
+        normalRequired += (privateSeats * 1000);
+      }
     }
 
     return { 
@@ -561,17 +571,17 @@ const CinemaRoom: React.FC = () => {
       return;
     }
 
-    // 2. Standard Validations
+    // 2. Standard Validations (Only compulsory fields enforced)
     const hasCover = coverFile || preFilledCoverUrl;
     if (!roomName.trim() || !movieTitle.trim() || !hasCover || !movieGenre) {
-      showError('Please fill all required fields and upload a cover poster.');
+      showError('Please fill all compulsory fields (Room Name, Movie Title, Genre, and Cover Poster).');
       return;
     }
 
     if (contentType === 'movie') {
       const hasMovie = movieFile || preFilledMovieUrl;
       if (!hasMovie) {
-        showError('Please upload a movie file or provide a stream URL.');
+        showError('Please upload a movie video file or provide a stream URL.');
         return;
       }
     } else {
@@ -584,6 +594,11 @@ const CinemaRoom: React.FC = () => {
         showError(`Episode ${invalidEp.number} is missing a title or video file.`);
         return;
       }
+    }
+
+    if (!isLiveNow && (!scheduledDate || !scheduledTime)) {
+      showError('Please select both scheduled date and time.');
+      return;
     }
 
     if (!isUnlimited && roomType !== 'private') {
@@ -649,7 +664,7 @@ const CinemaRoom: React.FC = () => {
         trailerUrl = await uploadFile(trailerFile, 'cinema/trailers', 'movies', (p) => setUploadProgress(p));
       }
 
-      // 4. Prepare payload
+      // 4. Prepare payload with optional movie metadata
       const payload = {
         room_name: roomName,
         room_type: roomType,
@@ -659,7 +674,13 @@ const CinemaRoom: React.FC = () => {
         movie_file: contentType === 'movie' ? movieUrl : null,
         episodes: episodesData,
         trailer_url: trailerUrl,
-        description: movieDescription,
+        description: movieDescription || null,
+        release_year: releaseYear.trim() || null,
+        duration: runtime.trim() || null,
+        age_rating: ageRating.trim() || null,
+        director: director.trim() || null,
+        cast: cast.trim() || null,
+        tagline: tagline.trim() || null,
         max_seats: isUnlimited ? null : (roomType === 'private' ? Math.max(1, privateSeats) : Math.max(1, parseInt(limitedCapacity, 10) || 50)),
         category: movieGenre,
         scheduled_start_time: isLiveNow ? null : new Date(`${scheduledDate}T${scheduledTime}`).getTime(),
@@ -668,6 +689,7 @@ const CinemaRoom: React.FC = () => {
         camera_enabled: roomType === 'private',
         ticket_price: roomType === 'paid' ? parseFloat(ticketPrice) : null,
         invite_only: roomType === 'private',
+        private_guests: roomType === 'private' ? privateGuests.map(g => g.trim()).filter(Boolean) : [],
         payment_wallet_episodes: contentType === 'series' ? paymentWallet : 'normal',
         payment_wallet_private: roomType === 'private' ? privateWallet : 'normal',
         auto_start_at: autoStartValue !== 'none' ? parseInt(autoStartValue) : null
@@ -711,6 +733,12 @@ const CinemaRoom: React.FC = () => {
     setMovieTitle('');
     setMovieGenre('');
     setMovieDescription('');
+    setReleaseYear('');
+    setRuntime('');
+    setAgeRating('');
+    setDirector('');
+    setCast('');
+    setTagline('');
     setTicketPrice('');
     setLimitedCapacity('50');
     setIsUnlimited(true);
@@ -1522,7 +1550,7 @@ const CinemaRoom: React.FC = () => {
                                           onClick={() => setPaymentWallet('referral')}
                                           className={`py-1.5 px-2 rounded text-[8px] font-black transition-all ${
                                             paymentWallet === 'referral' 
-                                              ? 'bg-emerald-600 text-white shadow-lg' 
+                                              ? 'bg-gradient-to-r from-orange-500 to-rose-600 text-white shadow-lg shadow-orange-500/25' 
                                               : 'text-muted-foreground hover:text-white'
                                           }`}
                                          >
@@ -1533,7 +1561,7 @@ const CinemaRoom: React.FC = () => {
                                 </div>
                                 <p className="text-[9px] text-muted-foreground leading-relaxed">
                                   {paymentWallet === 'auracoin' 
-                                    ? "✨ 50 AuraCoins per episode. Use your AuraCoin rewards to host and watch series episodes with friends!" 
+                                    ? "50 AuraCoins per episode. Use your AuraCoin rewards to host and watch series episodes with friends!" 
                                     : "₦50 per episode. Paid via Room Wallet balance or Referral earnings."}
                                 </p>
                              </div>
@@ -1542,11 +1570,14 @@ const CinemaRoom: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Room Details */}
+                    {/* Room & Movie Details */}
                     <div className="space-y-4">
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Room Name</label>
-                        <input type="text" required value={roomName} onChange={e => setRoomName(e.target.value)} placeholder="e.g. Midnight Watch Party" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-primary/50" />
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center justify-between">
+                          <span>Room Name</span>
+                          <span className="text-[9px] text-rose-500 font-bold uppercase">Required</span>
+                        </label>
+                        <input type="text" required value={roomName} onChange={e => setRoomName(e.target.value)} placeholder="e.g. Midnight Watch Party" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-primary/50 text-white" />
                       </div>
                       
                       <div className="grid grid-cols-2 gap-4">
@@ -1601,12 +1632,93 @@ const CinemaRoom: React.FC = () => {
                           </div>
                         </div>
                       </div>
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-end">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Description</label>
-                          <span className="text-[10px] text-muted-foreground">Max 200 words</span>
+                      {/* Additional Movie Metadata (Optional) */}
+                      <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.05] space-y-4">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-primary/90">Additional Movie Info</span>
+                          <span className="text-[8px] font-black text-muted-foreground/60 uppercase tracking-widest">Optional</span>
                         </div>
-                        <textarea required value={movieDescription} onChange={e => setMovieDescription(e.target.value)} rows={3} placeholder="What is this room about?" className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm outline-none focus:border-primary/50 resize-none" />
+
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="space-y-1.5">
+                            <label className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Release Year</label>
+                            <input 
+                              type="text" 
+                              value={releaseYear} 
+                              onChange={e => setReleaseYear(e.target.value)} 
+                              placeholder="e.g. 2024" 
+                              className="w-full bg-white/5 border border-white/10 rounded-xl py-2 px-3 text-xs outline-none focus:border-primary/50 text-white placeholder:text-muted-foreground/40" 
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Runtime / Duration</label>
+                            <input 
+                              type="text" 
+                              value={runtime} 
+                              onChange={e => setRuntime(e.target.value)} 
+                              placeholder="e.g. 2h 15m" 
+                              className="w-full bg-white/5 border border-white/10 rounded-xl py-2 px-3 text-xs outline-none focus:border-primary/50 text-white placeholder:text-muted-foreground/40" 
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Age Rating</label>
+                            <input 
+                              type="text" 
+                              value={ageRating} 
+                              onChange={e => setAgeRating(e.target.value)} 
+                              placeholder="e.g. PG-13, 18+" 
+                              className="w-full bg-white/5 border border-white/10 rounded-xl py-2 px-3 text-xs outline-none focus:border-primary/50 text-white placeholder:text-muted-foreground/40" 
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="space-y-1.5">
+                            <label className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Director / Creator</label>
+                            <input 
+                              type="text" 
+                              value={director} 
+                              onChange={e => setDirector(e.target.value)} 
+                              placeholder="e.g. Christopher Nolan" 
+                              className="w-full bg-white/5 border border-white/10 rounded-xl py-2 px-3 text-xs outline-none focus:border-primary/50 text-white placeholder:text-muted-foreground/40" 
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Cast / Starring</label>
+                            <input 
+                              type="text" 
+                              value={cast} 
+                              onChange={e => setCast(e.target.value)} 
+                              placeholder="e.g. Cillian Murphy, Emily Blunt" 
+                              className="w-full bg-white/5 border border-white/10 rounded-xl py-2 px-3 text-xs outline-none focus:border-primary/50 text-white placeholder:text-muted-foreground/40" 
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Movie Tagline</label>
+                          <input 
+                            type="text" 
+                            value={tagline} 
+                            onChange={e => setTagline(e.target.value)} 
+                            placeholder="e.g. The world forever changes" 
+                            className="w-full bg-white/5 border border-white/10 rounded-xl py-2 px-3 text-xs outline-none focus:border-primary/50 text-white placeholder:text-muted-foreground/40" 
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Description / Synopsis</label>
+                          <textarea 
+                            value={movieDescription} 
+                            onChange={e => setMovieDescription(e.target.value)} 
+                            rows={3} 
+                            placeholder="What is this movie or screening about? (Optional)" 
+                            className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 px-3 text-xs outline-none focus:border-primary/50 resize-none text-white placeholder:text-muted-foreground/40" 
+                          />
+                        </div>
                       </div>
                     </div>
 
@@ -1861,30 +1973,47 @@ const CinemaRoom: React.FC = () => {
                                   </div>
                                   <div className="md:text-right">
                                     <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest">Seat Cost</p>
-                                    <p className="text-2xl font-black text-white">₦{(privateSeats * (privateWallet === 'referral' ? 2500 : 1000)).toLocaleString()}</p>
+                                    {privateWallet === 'auracoin' ? (
+                                      <p className="text-2xl font-black text-amber-400 flex items-center justify-start md:justify-end gap-1.5">
+                                        <AuraCoinIcon size="sm" className="w-5 h-5" />
+                                        {(privateSeats * 2500).toLocaleString()}
+                                      </p>
+                                    ) : (
+                                      <p className="text-2xl font-black text-white">₦{(privateSeats * (privateWallet === 'referral' ? 2500 : 1000)).toLocaleString()}</p>
+                                    )}
                                   </div>
                                 </div>
 
                                 <div className="space-y-4 pt-4 border-t border-amber-500/20 relative z-10">
                                    <div className="flex justify-between items-center">
-                                      <label className="text-[10px] font-black uppercase tracking-widest text-amber-300">Seats ({privateWallet === 'referral' ? '₦2.5k' : '₦1k'}/seat)</label>
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-amber-300">
+                                        Seats ({privateWallet === 'auracoin' ? '2.5k Coins' : privateWallet === 'referral' ? '₦2.5k' : '₦1k'}/seat)
+                                      </label>
                                       
-                                      <div className="flex flex-col gap-1.5 w-1/2">
+                                      <div className="flex flex-col gap-1.5 w-7/12">
                                          <p className="text-[8px] font-black text-amber-500/60 uppercase text-right">Pay Seats With</p>
-                                         <div className="flex p-1 bg-black/40 rounded-lg border border-white/5">
+                                         <div className="flex p-1 bg-black/40 rounded-lg border border-white/5 gap-1">
                                             <button 
                                               type="button" 
                                               onClick={() => setPrivateWallet('normal')}
-                                              className={`flex-1 py-1 rounded text-[8px] font-black transition-all ${privateWallet === 'normal' ? 'bg-primary text-white shadow-lg' : 'text-muted-foreground'}`}
+                                              className={`flex-1 py-1 rounded text-[8px] font-black transition-all ${privateWallet === 'normal' ? 'bg-primary text-white shadow-lg' : 'text-muted-foreground hover:text-white'}`}
                                             >
                                               MAIN
                                             </button>
                                             <button 
                                               type="button" 
                                               onClick={() => setPrivateWallet('referral')}
-                                              className={`flex-1 py-1 rounded text-[8px] font-black transition-all ${privateWallet === 'referral' ? 'bg-orange-600 text-white shadow-lg' : 'text-muted-foreground'}`}
+                                              className={`flex-1 py-1 rounded text-[8px] font-black transition-all ${privateWallet === 'referral' ? 'bg-gradient-to-r from-orange-500 to-rose-600 text-white shadow-lg' : 'text-muted-foreground hover:text-white'}`}
                                             >
                                               REF
+                                            </button>
+                                            <button 
+                                              type="button" 
+                                              onClick={() => setPrivateWallet('auracoin')}
+                                              className={`flex-1 py-1 rounded text-[8px] font-black transition-all flex items-center justify-center gap-0.5 ${privateWallet === 'auracoin' ? 'bg-amber-500 text-black shadow-lg font-black' : 'text-muted-foreground hover:text-white'}`}
+                                            >
+                                              <AuraCoinIcon size="xs" className="w-2.5 h-2.5" />
+                                              COIN
                                             </button>
                                          </div>
                                       </div>

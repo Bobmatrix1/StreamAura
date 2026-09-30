@@ -12,6 +12,12 @@ class RoomCreateRequest(BaseModel):
     
     trailer_url: Optional[str] = None
     description: Optional[str] = None
+    release_year: Optional[str] = None
+    duration: Optional[str] = None
+    age_rating: Optional[str] = None
+    director: Optional[str] = None
+    cast: Optional[str] = None
+    tagline: Optional[str] = None
     max_seats: Optional[int] = None
     category: Optional[str] = None
     scheduled_start_time: Optional[int] = None
@@ -25,9 +31,11 @@ class RoomCreateRequest(BaseModel):
     
     invite_only: Optional[bool] = False # For private rooms
     private_theme: Optional[str] = None
+    private_guests: Optional[List[str]] = None # List of invited guest Aura IDs or UIDs
+    invite_code: Optional[str] = None
 
-    payment_wallet_episodes: Optional[str] = "normal" # 'normal', 'referral'
-    payment_wallet_private: Optional[str] = "normal" # 'normal', 'referral'
+    payment_wallet_episodes: Optional[str] = "normal" # 'normal', 'referral', 'auracoin'
+    payment_wallet_private: Optional[str] = "normal" # 'normal', 'referral', 'auracoin'
     auto_start_at: Optional[int] = None
 
 class PresignedUrlRequest(BaseModel):

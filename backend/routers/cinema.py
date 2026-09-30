@@ -380,14 +380,16 @@ async def get_cinema_stream_url(
     url: Optional[str] = None, 
     room_id: Optional[str] = None, 
     episode_index: int = 0,
-    user: Optional[dict] = Depends(get_current_user)
+    user: dict = Depends(get_current_user)
 ):
     """
-    Resolves the playable stream URL for a cinema room or video file.
+    Resolves the playable stream URL for a cinema room or video file with strict authorization.
     Generates high-speed, secure Cloudflare R2 presigned download URLs for movies and series episodes.
     """
     target_url = url
     db = get_db()
+    uid = user.get("uid")
+    is_admin = check_is_admin(user)
     
     if room_id:
         room_doc = db.collection("cinema_rooms").document(room_id).get()
@@ -395,10 +397,12 @@ async def get_cinema_stream_url(
             raise HTTPException(status_code=404, detail="Cinema room not found")
         room_data = room_doc.to_dict()
         
-        # Access Verification for paid rooms
-        if room_data.get("room_type") == "paid" and user:
-            uid = user.get("uid")
-            is_admin = check_is_admin(user)
+        # 1. Check if user is banned
+        if room_data.get("bannedUsers", {}).get(uid):
+            raise HTTPException(status_code=403, detail="You are banned from this cinema room.")
+
+        # 2. Access Verification for Paid Rooms
+        if room_data.get("room_type") == "paid":
             if room_data.get("host_uid") != uid and not is_admin:
                 passes = db.collection("room_access_passes") \
                            .where("room_id", "==", room_id) \
@@ -406,6 +410,22 @@ async def get_cinema_stream_url(
                            .limit(1).get()
                 if not passes:
                     raise HTTPException(status_code=403, detail="Ticket required to access room stream")
+
+        # 3. Access Verification for Private Rooms
+        elif room_data.get("room_type") == "private":
+            if room_data.get("host_uid") != uid and not is_admin:
+                allowed_guests = (room_data.get("private_guests") or []) + (room_data.get("allowed_uids") or [])
+                # Check user profile for Aura ID match
+                user_aura_id = user.get("aura_id") or user.get("auraId") or ""
+                is_whitelisted = (uid in allowed_guests) or (user_aura_id and user_aura_id in allowed_guests)
+                
+                if not is_whitelisted:
+                    passes = db.collection("room_access_passes") \
+                               .where("room_id", "==", room_id) \
+                               .where("user_uid", "==", uid) \
+                               .limit(1).get()
+                    if not passes:
+                        raise HTTPException(status_code=403, detail="Access denied. Private screening invitation required.")
 
         if room_data.get("content_type") == "series":
             episodes = room_data.get("episodes", [])
@@ -415,6 +435,18 @@ async def get_cinema_stream_url(
                 target_url = episodes[0].get("url")
         else:
             target_url = room_data.get("movie_file") or room_data.get("trailer_url")
+
+    elif target_url:
+        # Direct URL was passed without room_id - verify ownership or public trailer status
+        key = extract_r2_key(target_url)
+        is_trailer = key and ("trailer" in key.lower() or "trailers" in key.lower())
+        is_owner = key and key.startswith(f"{uid}/")
+        
+        if not (is_admin or is_owner or is_trailer):
+            raise HTTPException(
+                status_code=403, 
+                detail="Direct movie stream access requires room authorization. Please provide room_id."
+            )
 
     if not target_url:
         raise HTTPException(status_code=400, detail="No video URL or room ID provided")
@@ -599,11 +631,11 @@ async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(ge
     if request.room_type == "private":
         seats = max(1, request.max_seats or 1)
         if request.payment_wallet_private in ["auracoin", "bonus"]:
-            auracoin_to_deduct += (seats * 2500) # Premium rate for auracoin
+            auracoin_to_deduct += (seats * 2500) # 2,500 AuraCoins per seat
         elif request.payment_wallet_private == "referral":
-            referral_to_deduct += (seats * 1000) # Normal rate
+            referral_to_deduct += (seats * 2500) # ₦2,500 Referral balance per seat
         else:
-            normal_to_deduct += (seats * 1000) # Normal rate
+            normal_to_deduct += (seats * 1000) # ₦1,000 Normal cash rate per seat
     # --- PERFORM DEDUCTIONS ---
     try:
         user_ref = db.collection("users").document(uid)
@@ -622,15 +654,15 @@ async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(ge
             if auracoin_to_deduct > 0:
                 user_coins = float(user_data.get("auraCoins") or user_data.get("auraCoin") or user_data.get("bonusBalance") or 0)
                 if user_coins < auracoin_to_deduct:
-                    raise HTTPException(status_code=400, detail=f"Insufficient AuraCoins balance. You need {auracoin_to_deduct} AuraCoins ({ep_count if request.content_type == 'series' else seats} x 50 AuraCoins).")
+                    raise HTTPException(status_code=400, detail=f"Insufficient AuraCoins balance. You need {auracoin_to_deduct:,} AuraCoins.")
                     
             if referral_to_deduct > 0:
                 if user_data.get("referralBalance", 0) < referral_to_deduct:
-                    raise HTTPException(status_code=400, detail="Insufficient referral commission balance.")
+                    raise HTTPException(status_code=400, detail=f"Insufficient referral commission balance. You need ₦{referral_to_deduct:,.2f}.")
                     
             if normal_to_deduct > 0:
                 if w_data.get("balance", 0) < normal_to_deduct:
-                    raise HTTPException(status_code=400, detail="Insufficient wallet balance.")
+                    raise HTTPException(status_code=400, detail=f"Insufficient wallet balance. You need ₦{normal_to_deduct:,.2f}.")
                     
             # Perform Writes
             user_updates = {}
@@ -706,7 +738,12 @@ async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(ge
                 "videoUrl": request.trailer_url,
                 "description": request.description or "",
                 "category": request.category or "General",
-                "duration": "Trailer",
+                "duration": request.duration or "Trailer",
+                "release_year": request.release_year or "",
+                "age_rating": request.age_rating or "",
+                "director": request.director or "",
+                "cast": request.cast or "",
+                "tagline": request.tagline or "",
                 "roomId": room_id,
                 "roomName": request.room_name,
                 "host_uid": uid,
@@ -1291,13 +1328,47 @@ async def process_payout(withdrawal_id: str, action: str, reason: str = None, ad
 @router.post("/agora/token")
 async def get_agora_token(request: AgoraTokenRequest, user: dict = Depends(get_current_user)):
     """
-    Generate Agora RTC token for voice/video chat in a specific room.
+    Generate Agora RTC token for voice/video chat in a specific room with strict access control.
     """
     db = get_db()
+    uid = user["uid"]
+    is_admin = check_is_admin(user)
+
     room_doc = db.collection("cinema_rooms").document(request.room_id).get()
-    if not room_doc.exists: raise HTTPException(status_code=404, detail="Room not found")
+    if not room_doc.exists:
+        raise HTTPException(status_code=404, detail="Room not found")
+        
+    room_data = room_doc.to_dict()
+
+    # 1. Check if banned
+    if room_data.get("bannedUsers", {}).get(uid):
+        raise HTTPException(status_code=403, detail="You are banned from this room.")
+
+    # 2. Check Paid Room Access
+    if room_data.get("room_type") == "paid" and room_data.get("host_uid") != uid and not is_admin:
+        passes = db.collection("room_access_passes") \
+                   .where("room_id", "==", request.room_id) \
+                   .where("user_uid", "==", uid) \
+                   .limit(1).get()
+        if not passes:
+            raise HTTPException(status_code=403, detail="Ticket required for voice/video access in this room")
+
+    # 3. Check Private Room Access
+    if room_data.get("room_type") == "private" and room_data.get("host_uid") != uid and not is_admin:
+        allowed_guests = (room_data.get("private_guests") or []) + (room_data.get("allowed_uids") or [])
+        user_aura_id = user.get("aura_id") or user.get("auraId") or ""
+        is_whitelisted = (uid in allowed_guests) or (user_aura_id and user_aura_id in allowed_guests)
+        
+        if not is_whitelisted:
+            passes = db.collection("room_access_passes") \
+                       .where("room_id", "==", request.room_id) \
+                       .where("user_uid", "==", uid) \
+                       .limit(1).get()
+            if not passes:
+                raise HTTPException(status_code=403, detail="Private screening invitation required")
+
     import hashlib
-    numeric_uid = int(hashlib.md5(user['uid'].encode()).hexdigest()[:8], 16)
+    numeric_uid = int(hashlib.md5(uid.encode()).hexdigest()[:8], 16)
     token = generate_rtc_token(request.room_id, numeric_uid, request.role)
     return {'token': token, 'uid': numeric_uid, 'app_id': settings.AGORA_APP_ID}
 

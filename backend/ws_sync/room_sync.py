@@ -221,27 +221,56 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str = No
             if event_type == "join":
                 manager.user_websockets[uid] = websocket
                 
-                # Check for ban and ticket access
+                # Check for ban, paid ticket access, and private screening authorization
                 db = firestore.client()
-                room_doc = db.collection("cinema_rooms").document(room_id).get()
+                room_doc = await asyncio.to_thread(lambda: db.collection("cinema_rooms").document(room_id).get())
                 if room_doc.exists:
                     room_data = room_doc.to_dict()
+                    host_uid = room_data.get("host_uid")
+                    room_type = room_data.get("room_type", "free")
+                    co_hosts = room_data.get("coHosts", {})
                     
                     # 1. Check if banned
                     if room_data.get("bannedUsers", {}).get(uid):
                         await websocket.send_json({"type": "error", "message": "You are banned from this room."})
-                        continue
+                        await websocket.close(code=4003, reason="Banned from room")
+                        return
                         
                     # 2. Check if paid room and has access pass
-                    if room_data.get("room_type") == "paid" and room_data.get("host_uid") != uid and not is_admin:
-                        passes = db.collection("room_access_passes") \
-                                   .where("room_id", "==", room_id) \
-                                   .where("user_uid", "==", uid) \
-                                   .limit(1).get()
+                    if room_type == "paid" and host_uid != uid and not is_admin:
+                        passes = await asyncio.to_thread(
+                            lambda: db.collection("room_access_passes")
+                                      .where("room_id", "==", room_id)
+                                      .where("user_uid", "==", uid)
+                                      .limit(1).get()
+                        )
                         if not passes:
                             await websocket.send_json({"type": "error", "message": "Access denied. Ticket required."})
                             await websocket.close(code=4003, reason="Ticket required")
                             return
+
+                    # 3. Check if private room and is authorized guest
+                    if room_type == "private" and host_uid != uid and not is_admin:
+                        allowed_guests = (room_data.get("private_guests") or []) + (room_data.get("allowed_uids") or [])
+                        is_guest = (uid in allowed_guests)
+                        if not is_guest:
+                            passes = await asyncio.to_thread(
+                                lambda: db.collection("room_access_passes")
+                                          .where("room_id", "==", room_id)
+                                          .where("user_uid", "==", uid)
+                                          .limit(1).get()
+                            )
+                            if not passes:
+                                await websocket.send_json({"type": "error", "message": "Access denied. Private screening invitation required."})
+                                await websocket.close(code=4003, reason="Private screening invitation required")
+                                return
+
+                    # Cache host and co-host info in Redis room state for fast non-blocking controls
+                    state = await get_room_state(room_id)
+                    state["host_uid"] = host_uid
+                    state["coHosts"] = co_hosts
+                    state["room_type"] = room_type
+                    await set_room_state(room_id, state)
                 
                 await add_user_to_room(room_id, uid)
                 await update_activity(room_id)
@@ -249,79 +278,97 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str = No
                 await manager.broadcast({"type": "user_list", "users": users}, room_id)
                 
             elif event_type in ["play", "pause", "seek"]:
-                # Check if caller is room host, admin, or co-host
-                db = firestore.client()
-                room_doc = db.collection("cinema_rooms").document(room_id).get()
-                if room_doc.exists:
-                    room_data = room_doc.to_dict()
-                    is_cohost = bool(room_data.get("coHosts", {}).get(uid))
-                    if room_data.get("host_uid") == uid or is_admin or is_cohost:
-                        new_time = float(message.get("time", 0.0))
-                        status = "playing" if event_type != "pause" else "paused"
-                        await update_room_time(room_id, new_time, status)
-                        await update_activity(room_id)
-                        await manager.broadcast({
-                            "type": "playback_sync",
-                            "status": status,
-                            "time": new_time,
-                            "uid": uid
-                        }, room_id)
-                    else:
-                        await websocket.send_json({"type": "error", "message": "Only the host, co-host, or admin can control playback."})
+                state = await get_room_state(room_id)
+                host_uid = state.get("host_uid")
+                co_hosts = state.get("coHosts", {})
+                is_cohost = bool(co_hosts.get(uid) if isinstance(co_hosts, dict) else False)
+                
+                # Fast in-memory / Redis authorization (or fallback to DB if cache missed)
+                if not host_uid:
+                    db = firestore.client()
+                    room_doc = await asyncio.to_thread(lambda: db.collection("cinema_rooms").document(room_id).get())
+                    if room_doc.exists:
+                        r_data = room_doc.to_dict()
+                        host_uid = r_data.get("host_uid")
+                        co_hosts = r_data.get("coHosts", {})
+                        is_cohost = bool(co_hosts.get(uid) if isinstance(co_hosts, dict) else False)
+                        state["host_uid"] = host_uid
+                        state["coHosts"] = co_hosts
+                        await set_room_state(room_id, state)
+
+                if host_uid == uid or is_admin or is_cohost:
+                    new_time = float(message.get("time", 0.0))
+                    status = "playing" if event_type != "pause" else "paused"
+                    await update_room_time(room_id, new_time, status)
+                    await update_activity(room_id)
+                    await manager.broadcast({
+                        "type": "playback_sync",
+                        "status": status,
+                        "time": new_time,
+                        "uid": uid
+                    }, room_id)
+                else:
+                    await websocket.send_json({"type": "error", "message": "Only the host, co-host, or admin can control playback."})
 
             elif event_type == "next_episode":
-                # Check if caller is room host, admin, or co-host
-                db = firestore.client()
-                room_doc = db.collection("cinema_rooms").document(room_id).get()
-                if room_doc.exists:
-                    room_data = room_doc.to_dict()
-                    is_cohost = bool(room_data.get("coHosts", {}).get(uid))
-                    if room_data.get("host_uid") == uid or is_admin or is_cohost:
-                        state = await get_room_state(room_id)
-                        state["currentEpisodeIndex"] = message.get("index", 0)
-                        state["status"] = "playing"
-                        state["movieTime"] = 0.0
-                        await set_room_state(room_id, state)
-                        await update_room_time(room_id, 0.0, "playing")
-                        await manager.broadcast({
-                            "type": "episode_sync",
-                            "index": message.get("index", 0),
-                            "uid": uid
-                        }, room_id)
-                    else:
-                        await websocket.send_json({"type": "error", "message": "Only the host or co-host can change episodes."})
+                state = await get_room_state(room_id)
+                host_uid = state.get("host_uid")
+                co_hosts = state.get("coHosts", {})
+                is_cohost = bool(co_hosts.get(uid) if isinstance(co_hosts, dict) else False)
+                
+                if not host_uid:
+                    db = firestore.client()
+                    room_doc = await asyncio.to_thread(lambda: db.collection("cinema_rooms").document(room_id).get())
+                    if room_doc.exists:
+                        r_data = room_doc.to_dict()
+                        host_uid = r_data.get("host_uid")
+                        co_hosts = r_data.get("coHosts", {})
+                        is_cohost = bool(co_hosts.get(uid) if isinstance(co_hosts, dict) else False)
+
+                if host_uid == uid or is_admin or is_cohost:
+                    state["currentEpisodeIndex"] = message.get("index", 0)
+                    state["status"] = "playing"
+                    state["movieTime"] = 0.0
+                    await set_room_state(room_id, state)
+                    await update_room_time(room_id, 0.0, "playing")
+                    await manager.broadcast({
+                        "type": "episode_sync",
+                        "index": message.get("index", 0),
+                        "uid": uid
+                    }, room_id)
+                else:
+                    await websocket.send_json({"type": "error", "message": "Only the host or co-host can change episodes."})
 
             elif event_type == "mute_all":
-                db = firestore.client()
-                room_doc = db.collection("cinema_rooms").document(room_id).get()
-                if room_doc.exists:
-                    room_data = room_doc.to_dict()
-                    is_cohost = bool(room_data.get("coHosts", {}).get(uid))
-                    if room_data.get("host_uid") == uid or is_admin or is_cohost:
-                        muted_val = bool(message.get("mutedAll", False))
-                        state = await get_room_state(room_id)
-                        state["mutedAll"] = muted_val
-                        await set_room_state(room_id, state)
-                        db.collection("cinema_rooms").document(room_id).update({"mutedAll": muted_val})
-                        await manager.broadcast({
-                            "type": "room_state_update",
-                            "mutedAll": muted_val,
-                            "state": state
-                        }, room_id)
+                state = await get_room_state(room_id)
+                host_uid = state.get("host_uid")
+                co_hosts = state.get("coHosts", {})
+                is_cohost = bool(co_hosts.get(uid) if isinstance(co_hosts, dict) else False)
+                
+                if host_uid == uid or is_admin or is_cohost:
+                    muted_val = bool(message.get("mutedAll", False))
+                    state["mutedAll"] = muted_val
+                    await set_room_state(room_id, state)
+                    db = firestore.client()
+                    await asyncio.to_thread(lambda: db.collection("cinema_rooms").document(room_id).update({"mutedAll": muted_val}))
+                    await manager.broadcast({
+                        "type": "room_state_update",
+                        "mutedAll": muted_val,
+                        "state": state
+                    }, room_id)
 
             elif event_type == "kick":
-                # Check if caller is room host, admin, or co-host
-                db = firestore.client()
-                room_doc = db.collection("cinema_rooms").document(room_id).get()
-                if room_doc.exists:
-                    room_data = room_doc.to_dict()
-                    is_cohost = bool(room_data.get("coHosts", {}).get(uid))
-                    if room_data.get("host_uid") == uid or is_admin or is_cohost:
-                        target_uid = message.get("target_uid")
-                        if target_uid:
-                            await manager.send_to_user({"type": "kicked"}, target_uid)
-                    else:
-                        await websocket.send_json({"type": "error", "message": "Only the host can kick users."})
+                state = await get_room_state(room_id)
+                host_uid = state.get("host_uid")
+                co_hosts = state.get("coHosts", {})
+                is_cohost = bool(co_hosts.get(uid) if isinstance(co_hosts, dict) else False)
+                
+                if host_uid == uid or is_admin or is_cohost:
+                    target_uid = message.get("target_uid")
+                    if target_uid:
+                        await manager.send_to_user({"type": "kicked"}, target_uid)
+                else:
+                    await websocket.send_json({"type": "error", "message": "Only the host can kick users."})
                 
     except WebSocketDisconnect:
         manager.disconnect(websocket, room_id, uid)
