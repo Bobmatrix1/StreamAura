@@ -1,6 +1,6 @@
 /**
  * Music Downloader Component
- * Comprehensive support for Spotify, YouTube Music, Apple Music, SoundCloud & Audiomack
+ * Comprehensive support for Spotify, YouTube Music, Apple Music & SoundCloud
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
@@ -66,13 +66,6 @@ const SoundCloudLogo: React.FC<{ className?: string }> = ({ className = "w-6 h-6
   </svg>
 );
 
-const AudiomackLogo: React.FC<{ className?: string }> = ({ className = "w-6 h-6" }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="24" height="24" rx="6" fill="#FFA200" />
-    <path d="M5.5 14.8l2.2-5.6 2.2 5.6M14.1 14.8l2.2-5.6 2.2 5.6M11.5 14.8V8.2" stroke="#000000" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
-
 interface SupportedMusicPlatform {
   id: string;
   name: string;
@@ -114,14 +107,6 @@ const SUPPORTED_PLATFORMS: SupportedMusicPlatform[] = [
     accent: 'text-orange-500',
     description: 'Direct Original MP3 & Remix Streams',
     icon: <SoundCloudLogo className="w-6 h-6" />
-  },
-  {
-    id: 'audiomack',
-    name: 'Audiomack',
-    badge: 'Fast Audio',
-    accent: 'text-amber-400',
-    description: 'Direct Mixtape & High Quality Audio',
-    icon: <AudiomackLogo className="w-6 h-6" />
   }
 ];
 
@@ -311,13 +296,13 @@ const MusicDownloader: React.FC = () => {
             Spotify, YouTube & Apple Music <span className="gradient-text">Downloader</span>
           </h2>
           <p className="text-muted-foreground text-sm sm:text-base max-w-xl mx-auto px-4">
-            Download ultra-high bitrate MP3s (up to 320kbps) from <strong className="text-foreground">Spotify</strong>, <strong className="text-foreground">YouTube Music</strong>, <strong className="text-foreground">Apple Music</strong>, <strong className="text-foreground">SoundCloud</strong>, and <strong className="text-foreground">Audiomack</strong> with original album artwork.
+            Download ultra-high bitrate MP3s (up to 320kbps) from <strong className="text-foreground">Spotify</strong>, <strong className="text-foreground">YouTube Music</strong>, <strong className="text-foreground">Apple Music</strong>, and <strong className="text-foreground">SoundCloud</strong> with original album artwork.
           </p>
         </div>
       </div>
 
       {/* Supported Platforms Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 sm:gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
         {SUPPORTED_PLATFORMS.map((platform) => {
           const isDetected = detectedPlatform === platform.id || (platform.id === 'youtube-music' && detectedPlatform === 'youtube');
           return (
@@ -602,7 +587,7 @@ const MusicDownloader: React.FC = () => {
           <div className="space-y-2 max-w-md mx-auto">
             <h3 className="text-xl font-bold text-foreground">How to Download Music</h3>
             <p className="text-muted-foreground text-sm leading-relaxed">
-              Copy any track or song link from <strong className="text-foreground">Spotify</strong>, <strong className="text-foreground">YouTube Music</strong>, <strong className="text-foreground">Apple Music</strong>, <strong className="text-foreground">SoundCloud</strong>, or <strong className="text-foreground">Audiomack</strong> and paste it above to download high-fidelity 320kbps MP3s.
+              Copy any track or song link from <strong className="text-foreground">Spotify</strong>, <strong className="text-foreground">YouTube Music</strong>, <strong className="text-foreground">Apple Music</strong>, or <strong className="text-foreground">SoundCloud</strong> and paste it above to download high-fidelity 320kbps MP3s.
             </p>
           </div>
 
@@ -636,7 +621,7 @@ const MusicDownloader: React.FC = () => {
       <div className="p-4 rounded-2xl bg-foreground/5 border border-border/40 flex items-start gap-3">
         <AlertCircle className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
         <p className="text-xs text-muted-foreground leading-relaxed">
-          <strong className="text-foreground">High-Speed Music Engine:</strong> Apple Music, Spotify, YouTube Music, SoundCloud, and Audiomack tracks are automatically matched with ultra-high bitrate audio streams and embedded metadata with full cover art.
+          <strong className="text-foreground">High-Speed Music Engine:</strong> Apple Music, Spotify, YouTube Music, and SoundCloud tracks are automatically matched with ultra-high bitrate audio streams and embedded metadata with full cover art.
         </p>
       </div>
     </div>

@@ -31,7 +31,6 @@ export const detectPlatform = (url: string): Platform => {
   if (lowerUrl.includes('spotify.com')) return 'spotify';
   if (lowerUrl.includes('soundcloud.com')) return 'soundcloud';
   if (lowerUrl.includes('music.apple') || lowerUrl.includes('itunes')) return 'apple-music';
-  if (lowerUrl.includes('audiomack.com')) return 'audiomack';
   if (lowerUrl.includes('deezer.com')) return 'deezer';
   if (lowerUrl.includes('moviebox')) return 'moviebox';
   
@@ -44,7 +43,7 @@ export const detectPlatform = (url: string): Platform => {
 export const isPlatformSupported = (platform: Platform): boolean => {
   const supportedPlatforms: Platform[] = [
     'youtube', 'youtube-music', 'tiktok', 'instagram', 'facebook', 'twitter',
-    'spotify', 'soundcloud', 'apple-music', 'audiomack', 'deezer', 'moviebox'
+    'spotify', 'soundcloud', 'apple-music', 'deezer', 'moviebox'
   ];
   return supportedPlatforms.includes(platform);
 };

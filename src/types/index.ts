@@ -176,7 +176,6 @@ export type Platform =
   | 'spotify' 
   | 'soundcloud' 
   | 'apple-music'
-  | 'audiomack'
   | 'deezer'
   | 'moviebox'
   | 'unknown';

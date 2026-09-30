@@ -1,7 +1,7 @@
 /**
  * Pro Bulk Downloader Component
  * Advanced multi-link batch downloader supporting YouTube, TikTok, Spotify, Apple Music,
- * Instagram, Facebook, Twitter/X, SoundCloud & Audiomack.
+ * Instagram, Facebook, Twitter/X & SoundCloud.
  */
 
 import React, { useState, useRef, useMemo } from 'react';
@@ -111,13 +111,6 @@ const SoundCloudLogo: React.FC<{ className?: string }> = ({ className = "w-5 h-5
   </svg>
 );
 
-const AudiomackLogo: React.FC<{ className?: string }> = ({ className = "w-5 h-5" }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="24" height="24" rx="6" fill="#FFA200" />
-    <path d="M5.5 14.8l2.2-5.6 2.2 5.6M14.1 14.8l2.2-5.6 2.2 5.6M11.5 14.8V8.2" stroke="#000000" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
-
 const getPlatformIcon = (platform: string, className = "w-4 h-4") => {
   const p = platform.toLowerCase();
   if (p.includes('youtube-music') || p.includes('youtube music')) return <YouTubeLogo className={className} />;
@@ -129,7 +122,6 @@ const getPlatformIcon = (platform: string, className = "w-4 h-4") => {
   if (p.includes('facebook') || p.includes('fb')) return <FacebookLogo className={className} />;
   if (p.includes('twitter') || p.includes('x.com')) return <TwitterXLogo className={className} />;
   if (p.includes('soundcloud')) return <SoundCloudLogo className={className} />;
-  if (p.includes('audiomack')) return <AudiomackLogo className={className} />;
   return <Link2 className={className} />;
 };
 
@@ -144,7 +136,6 @@ const getPlatformBadgeColor = (platform: string) => {
   if (p.includes('facebook')) return 'bg-blue-500/15 text-blue-400 border-blue-500/30';
   if (p.includes('twitter')) return 'bg-sky-500/15 text-sky-400 border-sky-500/30';
   if (p.includes('soundcloud')) return 'bg-orange-500/15 text-orange-400 border-orange-500/30';
-  if (p.includes('audiomack')) return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
   return 'bg-white/10 text-white/70 border-white/15';
 };
 
@@ -519,7 +510,6 @@ const BulkDownloader: React.FC = () => {
             { name: 'Facebook', icon: <FacebookLogo className="w-4 h-4" /> },
             { name: 'X / Twitter', icon: <TwitterXLogo className="w-4 h-4" /> },
             { name: 'SoundCloud', icon: <SoundCloudLogo className="w-4 h-4" /> },
-            { name: 'Audiomack', icon: <AudiomackLogo className="w-4 h-4" /> },
           ].map((plat) => (
             <div 
               key={plat.name}
