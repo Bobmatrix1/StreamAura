@@ -45,6 +45,8 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isLocalTalking, setIsLocalTalking] = useState(false);
 
   const ws = useRef<WebSocket | null>(null);
   const agoraClient = useRef<IAgoraRTCClient | null>(null);
@@ -342,8 +344,18 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
       agoraClient.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
       await agoraClient.current.join(app_id, roomId, token, uid);
 
+      // Enable volume indicator for audio ducking
+      (AgoraRTC as any).setParameter?.('AUDIO_VOLUME_INDICATION_INTERVAL', 200);
+      agoraClient.current.enableAudioVolumeIndicator();
+      agoraClient.current.on('volume-indicator', (volumes) => {
+        // Detect if any remote user is speaking with volume level > 12
+        const remoteSpeaking = volumes.some(v => v.level > 12);
+        setIsSpeaking(remoteSpeaking);
+      });
+
       localAudioTrack.current = await AgoraRTC.createMicrophoneAudioTrack();
-      await localAudioTrack.current.setEnabled(!isMuted);
+      await localAudioTrack.current.setEnabled(false); // Start muted by default for Push-to-Talk
+      setIsMuted(true);
       await agoraClient.current.publish([localAudioTrack.current]);
 
       agoraClient.current.on('user-published', async (remoteUser, mediaType) => {
@@ -359,11 +371,36 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
     }
   };
 
+  const startPushToTalk = useCallback(async () => {
+    if (localAudioTrack.current) {
+      try {
+        await localAudioTrack.current.setEnabled(true);
+        setIsMuted(false);
+        setIsLocalTalking(true);
+      } catch (err) {
+        console.warn('PTT start error:', err);
+      }
+    }
+  }, []);
+
+  const stopPushToTalk = useCallback(async () => {
+    if (localAudioTrack.current) {
+      try {
+        await localAudioTrack.current.setEnabled(false);
+        setIsMuted(true);
+        setIsLocalTalking(false);
+      } catch (err) {
+        console.warn('PTT stop error:', err);
+      }
+    }
+  }, []);
+
   const toggleMute = async () => {
     if (localAudioTrack.current) {
       const newMute = !isMuted;
       await localAudioTrack.current.setEnabled(!newMute);
       setIsMuted(newMute);
+      setIsLocalTalking(!newMute);
     }
   };
 
@@ -372,6 +409,8 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
     localAudioTrack.current?.close();
     await agoraClient.current?.leave();
     setIsVoiceActive(false);
+    setIsLocalTalking(false);
+    setIsSpeaking(false);
   };
 
   const toggleMuteAll = useCallback((muted: boolean) => {
@@ -387,6 +426,10 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
     messages,
     isVoiceActive,
     isMuted,
+    isSpeaking,
+    isLocalTalking,
+    startPushToTalk,
+    stopPushToTalk,
     syncPlayback,
     syncEpisode,
     toggleMuteAll,

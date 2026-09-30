@@ -123,14 +123,15 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
     viewers,
     messages,
     isVoiceActive,
-    isMuted,
+    isSpeaking,
+    isLocalTalking,
+    startPushToTalk,
+    stopPushToTalk,
     syncPlayback,
     syncEpisode,
     toggleMuteAll,
     sendChatMessage,
     joinVoice,
-    leaveVoice,
-    toggleMute,
     reactToMessage,
     moderateUser,
     activeUserUids
@@ -143,7 +144,17 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
   const currentEpIndex = roomState?.currentEpisodeIndex ?? 0;
   const episodes = roomData?.episodes || [];
   const isFreeRoom = roomData?.room_type === 'free';
+  const isPaidRoom = roomData?.room_type === 'paid';
+  const isPrivateRoom = roomData?.room_type === 'private';
+  const isVoiceEligible = isPaidRoom || isPrivateRoom;
   const isMutedAll = Boolean(roomState?.mutedAll ?? roomData?.mutedAll);
+
+  // Auto-connect to voice for paid/private room attendees in muted Push-to-Talk mode
+  useEffect(() => {
+    if (isVoiceEligible && !isVoiceActive && user) {
+      joinVoice();
+    }
+  }, [isVoiceEligible, isVoiceActive, user]);
 
   // Enforcement Logic: Check for Ban
   useEffect(() => {
@@ -484,9 +495,15 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
     }
   };
 
+  // Master Volume Reference & Audio Ducking Animation
+  const masterVolumeRef = useRef<number>(volume);
+  masterVolumeRef.current = volume;
+  const duckAnimationRef = useRef<number | null>(null);
+
   // Volume & Audio Controls
   const handleVolumeChange = (newVol: number) => {
     setVolume(newVol);
+    masterVolumeRef.current = newVol;
     if (videoRef.current) {
       videoRef.current.volume = newVol;
       videoRef.current.muted = newVol === 0;
@@ -501,10 +518,91 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
       setIsAudioMuted(nextMute);
       if (!nextMute && volume === 0) {
         setVolume(0.5);
+        masterVolumeRef.current = 0.5;
         videoRef.current.volume = 0.5;
       }
     }
   };
+
+  // Smooth Audio Ducking Animation (Fast Fade Down 250ms, Smooth Graceful Slide Up 450ms)
+  useEffect(() => {
+    if (!videoRef.current || isAudioMuted) return;
+
+    const shouldDuck = Boolean(isSpeaking || isLocalTalking);
+    const video = videoRef.current;
+    const masterVol = masterVolumeRef.current;
+    if (masterVol <= 0) return;
+
+    const targetDuckVol = shouldDuck ? masterVol * 0.25 : masterVol;
+
+    if (duckAnimationRef.current) cancelAnimationFrame(duckAnimationRef.current);
+
+    const startVol = video.volume;
+    const startTime = performance.now();
+    const duration = shouldDuck ? 250 : 450;
+
+    const animateVolume = (currentTime: number) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      // Smooth cosine easing
+      const easedProgress = 0.5 * (1 - Math.cos(Math.PI * progress));
+      const currentVol = startVol + (targetDuckVol - startVol) * easedProgress;
+
+      if (video) {
+        video.volume = Math.max(0, Math.min(1, currentVol));
+      }
+
+      if (progress < 1) {
+        duckAnimationRef.current = requestAnimationFrame(animateVolume);
+      } else {
+        duckAnimationRef.current = null;
+      }
+    };
+
+    duckAnimationRef.current = requestAnimationFrame(animateVolume);
+
+    return () => {
+      if (duckAnimationRef.current) cancelAnimationFrame(duckAnimationRef.current);
+    };
+  }, [isSpeaking, isLocalTalking, isAudioMuted]);
+
+  // Spacebar Push-to-Talk Listener (Active when not typing in chat/input)
+  useEffect(() => {
+    if (!isVoiceActive || isFreeRoom) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
+      if (e.code === 'Space' && !e.repeat) {
+        if (isMutedAll && !canControl) {
+          toast.error("Host has muted audience microphones.");
+          return;
+        }
+        e.preventDefault();
+        startPushToTalk();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
+      if (e.code === 'Space') {
+        e.preventDefault();
+        stopPushToTalk();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [isVoiceActive, isFreeRoom, isMutedAll, canControl, startPushToTalk, stopPushToTalk]);
 
   // Autohide Controls on Inactivity
   const handleMouseMoveControls = () => {
@@ -675,7 +773,7 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
               <div className="flex-1 overflow-y-auto space-y-6 pr-2 custom-scrollbar">
                 {/* Global Moderation Controls */}
                 <div className="space-y-3">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Room Chat Controls</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Audience Voice & Chat Moderation</label>
                   <Button 
                     variant="outline"
                     onClick={handleToggleMuteEveryone}
@@ -685,8 +783,11 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
                         : 'text-rose-400 border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20'
                     }`}
                   >
-                    {isMutedAll ? '🔊 Unmute Everyone (Chat)' : '🔇 Mute Everyone (Chat)'}
+                    {isMutedAll ? '🔊 Unmute Everyone (Mic & Chat)' : '🔇 Mute Everyone (Mic & Chat)'}
                   </Button>
+                  <p className="text-[9px] text-white/40 font-medium px-1">
+                    When muted, audience members cannot type in chat or use Push-to-Talk. Hosts & Co-hosts can always speak.
+                  </p>
                 </div>
 
                 {/* Invite & Share */}
@@ -1149,6 +1250,51 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
                             className="w-16 md:w-20 h-1 bg-white/20 rounded-full appearance-none accent-primary cursor-pointer"
                           />
                        </div>
+
+                       {/* Audio Ducking Indicator */}
+                       {(isSpeaking || isLocalTalking) && !isAudioMuted && (
+                         <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[9px] font-black uppercase tracking-wider animate-pulse">
+                           <Volume2 className="w-3 h-3 text-amber-400" />
+                           <span>Ducking (25%)</span>
+                         </div>
+                       )}
+
+                       {/* Desktop Push-to-Talk Action Pill */}
+                       {isVoiceEligible && (
+                         <div className="hidden sm:flex items-center gap-2">
+                           {isMutedAll && !canControl ? (
+                             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px] font-black uppercase tracking-wider">
+                               <MicOff className="w-3.5 h-3.5" />
+                               <span>🔒 Muted by Host</span>
+                             </div>
+                           ) : (
+                             <button
+                               onPointerDown={(e) => {
+                                 e.preventDefault();
+                                 startPushToTalk();
+                               }}
+                               onPointerUp={(e) => {
+                                 e.preventDefault();
+                                 stopPushToTalk();
+                               }}
+                               onPointerCancel={(e) => {
+                                 e.preventDefault();
+                                 stopPushToTalk();
+                               }}
+                               onContextMenu={(e) => e.preventDefault()}
+                               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all select-none cursor-pointer ${
+                                 isLocalTalking
+                                   ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30 scale-105 ring-2 ring-rose-400/50'
+                                   : 'bg-white/10 hover:bg-white/20 text-white/90 border border-white/10'
+                               }`}
+                               title="Hold to Speak (or hold Spacebar)"
+                             >
+                               <Mic className={`w-3.5 h-3.5 ${isLocalTalking ? 'animate-pulse text-white' : 'text-primary'}`} />
+                               <span>{isLocalTalking ? 'Speaking Live...' : 'Hold Space / Talk'}</span>
+                             </button>
+                           )}
+                         </div>
+                       )}
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -1183,21 +1329,47 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
         </div>
 
         {/* Mobile Bottom Voice / Chat Bar */}
-        <div className="md:hidden p-3 bg-zinc-950 border-t border-white/10 flex items-center justify-between">
-           <div className="flex items-center gap-3">
-              <button 
-                onClick={isVoiceActive ? leaveVoice : joinVoice} 
-                disabled={isFreeRoom}
-                className={`p-2 rounded-full transition-all ${isVoiceActive ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-white/5 text-white/60'} ${isFreeRoom && 'opacity-30 grayscale cursor-not-allowed'}`}
-              >
-                 {isVoiceActive ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-              </button>
-              <div className="flex flex-col">
-                <span className="text-[9px] font-black uppercase text-white/50">Voice Room</span>
-                {isFreeRoom && <span className="text-[7px] font-black text-rose-500/60 uppercase tracking-tighter leading-none">Inactive (Free)</span>}
-              </div>
+        <div className="md:hidden p-3 bg-zinc-950 border-t border-white/10 flex items-center justify-between gap-3">
+           <div className="flex items-center gap-2">
+              {isVoiceEligible ? (
+                isMutedAll && !canControl ? (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[9px] font-black uppercase">
+                    <MicOff className="w-3.5 h-3.5" />
+                    <span>🔒 Muted by Host</span>
+                  </div>
+                ) : (
+                  <button 
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      startPushToTalk();
+                    }}
+                    onPointerUp={(e) => {
+                      e.preventDefault();
+                      stopPushToTalk();
+                    }}
+                    onPointerCancel={(e) => {
+                      e.preventDefault();
+                      stopPushToTalk();
+                    }}
+                    onContextMenu={(e) => e.preventDefault()}
+                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all select-none ${
+                      isLocalTalking 
+                        ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30 ring-2 ring-rose-400/50 scale-105' 
+                        : 'bg-primary/20 text-primary border border-primary/30 active:bg-primary active:text-white'
+                    }`}
+                  >
+                     <Mic className={`w-3.5 h-3.5 ${isLocalTalking ? 'animate-pulse' : ''}`} />
+                     <span>{isLocalTalking ? 'Speaking...' : 'Hold to Talk'}</span>
+                  </button>
+                )
+              ) : (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 text-white/40 text-[9px] font-black uppercase">
+                  <MicOff className="w-3.5 h-3.5" />
+                  <span>Voice Off (Free)</span>
+                </div>
+              )}
            </div>
-           <button onClick={() => setShowChat(!showChat)} className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white font-black text-[10px] uppercase">
+           <button onClick={() => setShowChat(!showChat)} className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 border border-white/10 text-white font-black text-[10px] uppercase">
               <MessageSquare className="w-3.5 h-3.5 text-primary" />
               <span>{showChat ? 'Hide Chat' : 'Open Chat'}</span>
            </button>
@@ -1221,14 +1393,42 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
                 <h3 className="text-xs font-black uppercase tracking-widest text-white">Live Discussion</h3>
               </div>
               <div className="flex items-center gap-1.5">
-                 <button 
-                  onClick={toggleMute} 
-                  disabled={isFreeRoom || !isVoiceActive}
-                  className={`p-2 rounded-xl transition-all ${!isMuted ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20' : 'bg-white/5 text-white/40 border border-white/10'} ${isFreeRoom && 'opacity-20 grayscale cursor-not-allowed'}`}
-                  title={isMuted ? "Unmute Mic" : "Mute Mic"}
-                 >        
-                    {isMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}      
-                 </button>
+                 {isVoiceEligible && (
+                   isMutedAll && !canControl ? (
+                     <div 
+                       className="px-2.5 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[9px] font-black uppercase flex items-center gap-1.5"
+                       title="Microphones muted by host"
+                     >
+                       <MicOff className="w-3 h-3" />
+                       <span className="hidden sm:inline">Muted</span>
+                     </div>
+                   ) : (
+                     <button 
+                       onPointerDown={(e) => {
+                         e.preventDefault();
+                         startPushToTalk();
+                       }}
+                       onPointerUp={(e) => {
+                         e.preventDefault();
+                         stopPushToTalk();
+                       }}
+                       onPointerCancel={(e) => {
+                         e.preventDefault();
+                         stopPushToTalk();
+                       }}
+                       onContextMenu={(e) => e.preventDefault()}
+                       className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all select-none flex items-center gap-1.5 ${
+                         isLocalTalking 
+                           ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20 scale-105' 
+                           : 'bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30'
+                       }`}
+                       title="Hold to Speak (or hold Spacebar)"
+                     >        
+                        <Mic className={`w-3.5 h-3.5 ${isLocalTalking ? 'animate-pulse' : ''}`} />      
+                        <span>{isLocalTalking ? 'Speaking' : 'Hold Talk'}</span>
+                     </button>
+                   )
+                 )}
                  {canControl && (
                    <button 
                      onClick={() => setShowSettings(true)}

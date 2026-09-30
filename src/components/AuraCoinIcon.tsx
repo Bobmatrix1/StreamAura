@@ -31,7 +31,8 @@ export const AuraCoinIcon: React.FC<AuraCoinIconProps> = ({
     >
       <span className="w-full h-full rounded-full bg-slate-950/90 flex items-center justify-center overflow-hidden p-[1px]">
         <img 
-          src="/logo.png" 
+          src="/auracoin.jpeg" 
+          onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/logo.png'; }}
           alt="AuraCoin" 
           className={`w-full h-full object-contain scale-110 drop-shadow-[0_0_6px_rgba(245,158,11,0.7)] ${imgClassName}`} 
         />
