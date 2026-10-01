@@ -1254,26 +1254,59 @@ export const logMediaInteraction = async (
   } catch (error) {}
 };
 
-export const updateUserPresence = async (uid: string, device?: string): Promise<void> => {
+export const getClientDeviceName = (): string => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return 'Desktop';
+  const ua = navigator.userAgent || '';
+  if (/android/i.test(ua)) return 'Android';
+  if (/iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream) return 'iOS';
+  if (/Macintosh|Mac OS X/.test(ua)) return 'macOS';
+  if (/Windows NT/.test(ua)) return 'Windows';
+  if (/Linux/.test(ua)) return 'Linux';
+  return 'Desktop';
+};
+
+export const updateUserPresence = async (uid: string, device?: string, page?: string): Promise<void> => {
   if (!uid) return;
+  const dev = device && device !== 'Unknown' ? device : getClientDeviceName();
   try {
     const userDocRef = doc(db, 'users', uid);
-    await updateDoc(userDocRef, { 
+    const updateData: any = { 
       lastActive: serverTimestamp(),
-      lastDevice: device || 'Unknown',
-      totalTimeMinutes: increment(2)
-    });
+      lastSeen: serverTimestamp(),
+      lastDevice: dev,
+      isOnline: true,
+      totalTimeMinutes: increment(1)
+    };
+    if (page) {
+      updateData.currentPage = page;
+    }
+    await updateDoc(userDocRef, updateData);
   } catch (error) {
     const userDocRef = doc(db, 'users', uid);
     try { 
       await setDoc(userDocRef, { 
         lastActive: serverTimestamp(), 
+        lastSeen: serverTimestamp(),
+        lastDevice: dev,
+        isOnline: true,
         createdAt: Date.now(),
         totalTimeMinutes: 0,
         visitCount: 1
       }, { merge: true }); 
     } catch (e) {}
   }
+};
+
+export const setUserOffline = async (uid: string): Promise<void> => {
+  if (!uid) return;
+  try {
+    const userDocRef = doc(db, 'users', uid);
+    await updateDoc(userDocRef, {
+      lastActive: serverTimestamp(),
+      lastSeen: serverTimestamp(),
+      isOnline: false
+    });
+  } catch (e) {}
 };
 
 export interface SystemStats {

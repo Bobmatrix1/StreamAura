@@ -27,6 +27,8 @@ import { GlobalAdLayer } from '@/components/ads/GlobalAdLayer';
 import { 
   logVisit, 
   updateUserPresence, 
+  setUserOffline,
+  getClientDeviceName,
   logFeatureUsage, 
   requestNotificationPermission, 
   listenToNotifications, 
@@ -187,20 +189,41 @@ export const AppContent: React.FC = () => {
         }
       });
 
-      // Presence Sync
-      const syncPresence = async () => {
+      // Presence Sync with strict 35s write throttle to protect Firebase quotas
+      let lastPresenceWriteMs = 0;
+      const syncPresence = async (tab?: string, force = false) => {
+        const now = Date.now();
+        if (!force && now - lastPresenceWriteMs < 35000) return;
+        lastPresenceWriteMs = now;
         try {
-          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-          const resp = await fetch(`${API_BASE_URL}/api/analytics/location?tz=${encodeURIComponent(tz)}`);
-          const data = await resp.json();
-          updateUserPresence(user.uid, data.device || 'Desktop');
+          const clientDev = getClientDeviceName();
+          updateUserPresence(user.uid, clientDev, tab || activeView);
         } catch (e) {
-          updateUserPresence(user.uid);
+          updateUserPresence(user.uid, undefined, tab || activeView);
         }
       };
 
-      syncPresence();
-      interval = setInterval(syncPresence, 2 * 60 * 1000);
+      // Initial ping
+      syncPresence(undefined, true);
+      // Regular 45-second heartbeat
+      interval = setInterval(() => syncPresence(), 45 * 1000);
+
+      // Trigger presence on visibility change or window focus (respects 35s throttle)
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+          syncPresence();
+        }
+      };
+      const handleFocus = () => syncPresence();
+
+      const handleBeforeUnload = () => {
+        setUserOffline(user.uid).catch(() => {});
+      };
+
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      window.addEventListener('focus', handleFocus);
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      window.addEventListener('pagehide', handleBeforeUnload);
       
       // Auto-request notification permission
       requestNotificationPermission(user.uid).catch(console.error);
@@ -208,9 +231,13 @@ export const AppContent: React.FC = () => {
       return () => {
         if (interval) clearInterval(interval);
         unsubscribeBadge();
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        window.removeEventListener('focus', handleFocus);
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+        window.removeEventListener('pagehide', handleBeforeUnload);
       };
     }
-  }, [isAuthenticated, user?.uid]);
+  }, [isAuthenticated, user?.uid, activeView]);
 
   const handleTabChange = (tab: ViewType) => {
     if (tab === activeView) return;
@@ -235,6 +262,7 @@ export const AppContent: React.FC = () => {
     }, 50);
 
     if (isAuthenticated && user?.uid) {
+      updateUserPresence(user.uid, undefined, tab).catch(() => {});
       logFeatureUsage(tab, user.uid);
     }
   };
