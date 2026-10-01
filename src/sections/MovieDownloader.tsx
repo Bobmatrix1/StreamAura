@@ -330,7 +330,7 @@ const MovieDownloader: React.FC = () => {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestTimerRef = useRef<any>(null);
-  const skipNextSuggestRef = useRef(false);
+  const isInputFocusedRef = useRef(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
   const { showError, showSuccess } = useToast();
@@ -340,6 +340,7 @@ const MovieDownloader: React.FC = () => {
     const handleClickOutside = (e: MouseEvent | TouchEvent) => {
       if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
         setShowSuggestions(false);
+        isInputFocusedRef.current = false;
       }
     };
 
@@ -351,27 +352,26 @@ const MovieDownloader: React.FC = () => {
     };
   }, []);
 
-  // Auto-fetch suggestions on typing
-  useEffect(() => {
+  // Handle typing inside search box with debounce
+  const handleQueryChange = (val: string) => {
+    setQuery(val);
     if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
-    
-    // If user just picked a suggestion or clicked search, do not reopen
-    if (skipNextSuggestRef.current) {
-      skipNextSuggestRef.current = false;
-      return;
-    }
 
-    const trimmed = query.trim();
+    const trimmed = val.trim();
     if (!trimmed || trimmed.length < 2) {
       setSuggestions([]);
       setShowSuggestions(false);
+      if (!trimmed) {
+        loadTrending();
+      }
       return;
     }
 
     suggestTimerRef.current = setTimeout(async () => {
+      if (!isInputFocusedRef.current) return;
       try {
         const res = await mediaApi.getMovieSuggestions(trimmed);
-        if (res.success && res.data && res.data.length > 0) {
+        if (res.success && res.data && res.data.length > 0 && isInputFocusedRef.current) {
           setSuggestions(res.data);
           setShowSuggestions(true);
         } else {
@@ -383,11 +383,7 @@ const MovieDownloader: React.FC = () => {
         setShowSuggestions(false);
       }
     }, 250);
-
-    return () => {
-      if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
-    };
-  }, [query]);
+  };
 
   // Scroll position restorer
   const restoreScrollPosition = (instant: boolean = true) => {
@@ -611,10 +607,18 @@ const MovieDownloader: React.FC = () => {
           // Backend returned categorized rows (MovieBox operatingList)
           rows = (result.data as any[]).map((cat, idx) => {
             const meta = getCategoryMeta(cat.category || '');
-            const cleanItems = (cat.items || []).map((m: MovieInfo) => ({
-              ...m,
-              mediaType: currentType
-            }));
+            const cleanItems: MovieInfo[] = [];
+            const seenRowItemKeys = new Set<string>();
+            for (const m of (cat.items || [])) {
+              const k = String(m.id || m.detailPath || m.title);
+              if (!seenRowItemKeys.has(k)) {
+                seenRowItemKeys.add(k);
+                cleanItems.push({
+                  ...m,
+                  mediaType: currentType
+                });
+              }
+            }
             return {
               id: `row-${idx}-${meta.genreId}`,
               category: cat.category,
@@ -649,19 +653,26 @@ const MovieDownloader: React.FC = () => {
   };
 
   const handleSelectSuggestion = (sug: string) => {
-    skipNextSuggestRef.current = true;
+    isInputFocusedRef.current = false;
     if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
-    setQuery(sug);
     setShowSuggestions(false);
     setSuggestions([]);
+    setQuery(sug);
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     handleSearch(sug, 1);
   };
 
   const handleSearch = async (overrideQuery?: string, pageNum: number = 1, typeOverride?: 'movie' | 'series') => {
-    skipNextSuggestRef.current = true;
+    isInputFocusedRef.current = false;
     if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
     setShowSuggestions(false);
     setSuggestions([]);
+
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
 
     const q = overrideQuery !== undefined ? overrideQuery : query;
     const currentType = typeOverride || searchType;
@@ -687,18 +698,28 @@ const MovieDownloader: React.FC = () => {
       }
       const result = await mediaApi.searchMovies(q, currentType, pageNum, 40);
       if (result.success && result.data) {
-        const newItems = (result.data || []).map((m: MovieInfo) => ({
+        const rawItems = (result.data || []).map((m: MovieInfo) => ({
           ...m,
           mediaType: currentType
         }));
+        
+        // Deduplicate incoming search items strictly by ID
+        const seenNewKeys = new Set<string>();
+        const newItems = rawItems.filter((item: MovieInfo) => {
+          const k = String(item.id || item.detailPath || item.title);
+          if (seenNewKeys.has(k)) return false;
+          seenNewKeys.add(k);
+          return true;
+        });
+
         if (pageNum === 1) {
           setSearchResults(newItems);
           movieGlobalCache.searchResults[currentType] = newItems;
           movieGlobalCache.query = q;
         } else {
           setSearchResults(prev => {
-            const seen = new Set(prev.map(p => p.id));
-            const fresh = newItems.filter(i => !seen.has(i.id));
+            const seen = new Set(prev.map(p => String(p.id)));
+            const fresh = newItems.filter(i => !seen.has(String(i.id)));
             const merged = [...prev, ...fresh];
             movieGlobalCache.searchResults[currentType] = merged;
             return merged;
@@ -1490,16 +1511,25 @@ const MovieDownloader: React.FC = () => {
                 <input
                   type="text"
                   value={query}
-                  onFocus={() => { if (suggestions.length > 0 && query.trim().length >= 2) setShowSuggestions(true); }}
-                  onChange={(e) => {
-                    setQuery(e.target.value);
-                    if (!e.target.value.trim()) {
-                      loadTrending();
+                  onFocus={() => {
+                    isInputFocusedRef.current = true;
+                    if (!isSearching && suggestions.length > 0 && query.trim().length >= 2) {
+                      setShowSuggestions(true);
                     }
                   }}
+                  onBlur={() => {
+                    setTimeout(() => {
+                      isInputFocusedRef.current = false;
+                    }, 250);
+                  }}
+                  onChange={(e) => handleQueryChange(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
+                      isInputFocusedRef.current = false;
+                      if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
                       setShowSuggestions(false);
+                      setSuggestions([]);
+                      (e.target as HTMLInputElement).blur();
                       handleSearch(undefined, 1);
                     }
                   }}
@@ -1509,8 +1539,11 @@ const MovieDownloader: React.FC = () => {
                 {query && (
                   <button 
                     onClick={() => {
+                      isInputFocusedRef.current = false;
+                      if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
                       setQuery('');
                       setShowSuggestions(false);
+                      setSuggestions([]);
                       loadTrending();
                     }}
                     className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-white/40 hover:text-white transition-colors cursor-pointer"
@@ -1520,17 +1553,27 @@ const MovieDownloader: React.FC = () => {
                 )}
 
                 {/* Live StreamAura Autocomplete Suggestions Floating Menu */}
-                {showSuggestions && suggestions.length > 0 && (
-                  <div className="absolute top-full left-0 right-0 mt-2 z-50 rounded-2xl bg-[#0b1021]/95 backdrop-blur-xl border border-white/15 shadow-2xl p-2 space-y-1">
+                {showSuggestions && !isSearching && suggestions.length > 0 && (
+                  <div 
+                    onMouseDown={(e) => e.preventDefault()}
+                    className="absolute top-full left-0 right-0 mt-2 z-50 rounded-2xl bg-[#0b1021]/95 backdrop-blur-xl border border-white/15 shadow-2xl p-2 space-y-1"
+                  >
                     <div className="px-3 py-1.5 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-white/40 border-b border-white/5 mb-1">
                       <span>StreamAura Recommendations</span>
                       <span>Press to Search</span>
                     </div>
                     {suggestions.map((sug, idx) => (
                       <button
-                        key={`sug-${idx}`}
+                        key={`sug-${sug}-${idx}`}
                         type="button"
-                        onClick={() => handleSelectSuggestion(sug)}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          handleSelectSuggestion(sug);
+                        }}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleSelectSuggestion(sug);
+                        }}
                         className="w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold text-white hover:bg-cyan-500/20 hover:text-cyan-300 transition-colors flex items-center justify-between group/item cursor-pointer"
                       >
                         <span className="flex items-center gap-2.5 truncate">
@@ -1545,7 +1588,16 @@ const MovieDownloader: React.FC = () => {
               </div>
 
               <button
-                onClick={() => handleSearch(undefined, 1)}
+                onClick={() => {
+                  isInputFocusedRef.current = false;
+                  if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+                  setShowSuggestions(false);
+                  setSuggestions([]);
+                  if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+                    document.activeElement.blur();
+                  }
+                  handleSearch(undefined, 1);
+                }}
                 disabled={isSearching || !query.trim()}
                 className="px-8 py-3.5 rounded-xl font-black uppercase tracking-wider text-xs text-white bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 shadow-lg shadow-cyan-500/20 disabled:opacity-50 flex items-center justify-center min-w-[140px] gap-2 transition-all cursor-pointer active:scale-95"
               >
@@ -2120,9 +2172,9 @@ const MovieDownloader: React.FC = () => {
                 ) : (
                   <div className="space-y-8">
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
-                      {filteredSectionItems.map(movie => (
+                      {filteredSectionItems.map((movie, idx) => (
                         <MovieCard 
-                          key={`section-${movie.id}`} 
+                          key={`section-${movie.id || 'm'}-${idx}`} 
                           movie={movie} 
                           onSelect={handleSelectMovie} 
                           isHighlighted={Boolean(highlightedMovieId && String(movie.id) === String(highlightedMovieId))}
@@ -2165,7 +2217,7 @@ const MovieDownloader: React.FC = () => {
                   <div className="space-y-12">
                     {trendingRows.map((row, rIdx) => (
                       <MovieRow
-                        key={`row-${row.id || rIdx}`}
+                        key={`row-${row.id || row.category || rIdx}-${rIdx}`}
                         row={row}
                         onSelectMovie={handleSelectMovie}
                         onOpenSection={handleOpenSection}
@@ -2201,9 +2253,9 @@ const MovieDownloader: React.FC = () => {
                         </div>
 
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
-                          {searchResults.map(movie => (
+                          {searchResults.map((movie, idx) => (
                             <MovieCard 
-                              key={movie.id} 
+                              key={`search-${movie.id || 'm'}-${idx}`} 
                               movie={movie} 
                               onSelect={handleSelectMovie} 
                               isHighlighted={Boolean(highlightedMovieId && String(movie.id) === String(highlightedMovieId))}
@@ -2712,7 +2764,7 @@ const MovieRow = React.memo<{
       {/* Smooth Netflix-Style Horizontal Touch/Swipe Slider */}
       <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-3 pt-1 snap-x snap-mandatory scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden overscroll-x-contain touch-pan-x select-none">
         {displayItems.map((movie, idx) => (
-          <div key={`carousel-${movie.id}`} className="w-32 sm:w-44 flex-shrink-0 snap-start select-none">
+          <div key={`carousel-${row.id || 'r'}-${movie.id || 'm'}-${idx}`} className="w-32 sm:w-44 flex-shrink-0 snap-start select-none">
             <MovieCard 
               movie={movie} 
               onSelect={onSelectMovie} 

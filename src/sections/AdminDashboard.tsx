@@ -78,7 +78,7 @@ import { PartnersManager } from './PartnersManager';
 import { CinemaContentManager } from './CinemaContentManager';
 import { AdsManager } from './AdsManager';
 import { Badge } from '../components/ui/badge';
-import { CheckCircle2, X, Copy, ChevronRight, Megaphone, FileAudio, FileVideo } from 'lucide-react';
+import { CheckCircle2, X, Copy, ChevronRight, Megaphone, FileAudio, FileVideo, ExternalLink, Maximize2, UserCheck, Share2, Mail, Calendar, Key, CreditCard } from 'lucide-react';
 import { auth } from '../lib/firebase';
 
 const PAGE_TITLE_MAP: Record<string, string> = {
@@ -177,6 +177,10 @@ const AdminDashboard: React.FC = () => {
   // Insight Accordion State
   const [expandedInsight, setExpandedInsight] = useState<string | null>('users');
   const [showAllItems, setShowAllItems] = useState<Record<string, boolean>>({});
+
+  // User Profile & Avatar Inspection Modal State
+  const [selectedUserProfile, setSelectedUserProfile] = useState<User | null>(null);
+  const [isAvatarLightboxOpen, setIsAvatarLightboxOpen] = useState(false);
 
   // Credit Wallet Modal State
   const [creditModal, setCreditModal] = useState<{
