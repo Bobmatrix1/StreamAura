@@ -245,22 +245,21 @@ async def process_referral_bonus(request: ProcessReferralRequest, user: dict = D
         @firestore.transactional
         def transactional_process(transaction):
             new_user_doc = new_user_ref.get(transaction=transaction)
-            if not new_user_doc.exists:
-                return {"success": False, "message": "User document not found"}
-                
-            new_user_data = new_user_doc.to_dict() or {}
-            if new_user_data.get("referredByProcessed"):
-                return {"success": True, "message": "Referral already processed"}
-
+            if new_user_doc.exists:
+                new_user_data = new_user_doc.to_dict() or {}
+                if new_user_data.get("referredByProcessed"):
+                    return {"success": True, "message": "Referral already processed"}
+            
             referrer_doc = referrer_ref.get(transaction=transaction)
             if not referrer_doc.exists:
                 return {"success": False, "message": "Referrer not found"}
 
-            transaction.update(referrer_ref, {
+            transaction.set(referrer_ref, {
                 "referredCount": firestore.Increment(1),
                 "bonusBalance": firestore.Increment(500),
-                "auraCoins": firestore.Increment(500)
-            })
+                "auraCoins": firestore.Increment(500),
+                "auraCoin": firestore.DELETE_FIELD
+            }, merge=True)
             
             ref_wallet_ref = db.collection("game_wallets").document(referrer_uid)
             ref_act_ref = ref_wallet_ref.collection("activity").document()

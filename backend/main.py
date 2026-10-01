@@ -1961,7 +1961,7 @@ async def admin_credit_wallet(user_uid: str, req: AdminCreditWalletRequest, admi
 
             user_ref.set({
                 "auraCoins": firestore.Increment(coins_to_add),
-                "auraCoin": firestore.Increment(coins_to_add)
+                "auraCoin": firestore.DELETE_FIELD
             }, merge=True)
 
             try:

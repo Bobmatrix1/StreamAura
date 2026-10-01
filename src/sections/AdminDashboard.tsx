@@ -316,6 +316,7 @@ const AdminDashboard: React.FC = () => {
 
       const augmentedUsers = data.map(u => ({
         ...u,
+        auraCoins: Number(u.auraCoins ?? (u as any).auraCoin ?? (u as any).bonusBalance ?? 1000),
         walletBalance: walletMap[u.uid] || 0
       }));
 
@@ -1694,7 +1695,7 @@ const AdminDashboard: React.FC = () => {
                         <TableCell className="text-center font-bold text-sm">
                           <div className="flex items-center justify-center gap-1 text-amber-400">
                             <AuraCoinIcon size="xs" className="w-3.5 h-3.5" />
-                            <span>{formatNumber((user as any).auraCoins || 0)}</span>
+                            <span>{formatNumber(Number((user as any).auraCoins ?? (user as any).auraCoin ?? 1000))}</span>
                           </div>
                         </TableCell>
                         <TableCell className="text-center font-bold text-sm text-orange-400">

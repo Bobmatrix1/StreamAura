@@ -10,7 +10,7 @@ import {
   db,
   type GoogleSignInResult
 } from '../lib/firebase';
-import { doc, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, onSnapshot, deleteField } from 'firebase/firestore';
 
 const Login = React.lazy(() => import('../sections/Login'));
 const Signup = React.lazy(() => import('../sections/Signup'));
@@ -79,14 +79,32 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         unsubSnapshot = onSnapshot(userRef, (snap) => {
           if (snap.exists()) {
             const data = snap.data();
+            const coins = Number(data.auraCoins ?? data.auraCoin ?? data.bonusBalance ?? 1000);
+            if (data.auraCoins === undefined || data.auraCoin !== undefined) {
+              setDoc(userRef, { auraCoins: coins, auraCoin: deleteField() }, { merge: true }).catch(() => {});
+            }
             setUser({
               ...firebaseUser,
               ...data,
+              auraCoins: coins,
               photoURL: data.photoURL ? `${data.photoURL}?t=${Date.now()}` : null,
               uid: firebaseUser.uid
             } as User);
           } else {
-            setUser(firebaseUser);
+            setDoc(userRef, {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              displayName: firebaseUser.displayName || 'Anonymous',
+              auraCoins: 1000,
+              bonusBalance: 0,
+              referralBalance: 0,
+              referredCount: 0,
+              createdAt: Date.now()
+            }, { merge: true }).catch(() => {});
+            setUser({
+              ...firebaseUser,
+              auraCoins: 1000
+            } as User);
           }
           setIsLoading(false);
         }, (err) => {

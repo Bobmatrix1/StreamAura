@@ -31,6 +31,7 @@ import {
   writeBatch,
   onSnapshot,
   increment,
+  deleteField,
   getFirestore
 } from 'firebase/firestore';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
@@ -442,23 +443,31 @@ export interface GoogleSignInResult {
 
 export const creditSignupBonus = async (uid: string): Promise<void> => {
   try {
-    // 1. Notification for 1,000 AuraCoins Signup Bonus
+    // 1. Explicitly persist 1,000 AuraCoins to Firestore users collection
+    const userRef = doc(db, 'users', uid);
+    await setDoc(userRef, {
+      auraCoins: 1000,
+      auraCoin: deleteField()
+    }, { merge: true });
+
+    // 2. Notification for 1,000 AuraCoins Signup Bonus
     const notifRef = doc(collection(db, 'users', uid, 'notifications'));
     await setDoc(notifRef, {
       title: 'Welcome to StreamAura! 🪙',
-      message: 'You have been awarded 1,000 AuraCoins as a Signup Bonus! Use your AuraCoins to enter Game Rooms, challenge players, or win prizes.',
+      message: 'You have been awarded 1,000 AuraCoins as a Signup Bonus! Use your AuraCoins to enter Game Rooms, challenge players, or create watch parties.',
       type: 'reward',
       badgeText: '1,000 🪙 Bonus',
       read: false,
       timestamp: Date.now()
     });
 
-    // 2. Activity ledger in game_wallets
+    // 3. Activity ledger in game_wallets
     const actRef = doc(collection(db, 'game_wallets', uid, 'activity'));
     await setDoc(actRef, {
       type: 'signup_bonus',
       currency: 'auracoin',
       amount: 1000,
+      title: 'Welcome Signup Bonus',
       desc: 'Welcome Signup Bonus (1,000 AuraCoins)',
       timestamp: Date.now()
     });
@@ -485,16 +494,22 @@ export const signInWithGoogle = async (): Promise<GoogleSignInResult | null> => 
         photoURL: user.photoURL, isAdmin: false, createdAt: Date.now(),
         referralBalance: 0, bonusBalance: 0, auraCoins: 1000, referredCount: 0, referredBy: cleanReferral
       };
-      await setDoc(userDocRef, userData);
+      await setDoc(userDocRef, { ...userData, auraCoin: deleteField() }, { merge: true });
       await creditSignupBonus(user.uid);
       
-      // Securely credit Referrer through backend atomic transaction
+      // Securely credit Referrer 500 AuraCoins
       if (cleanReferral) {
         await processReferralSignup(user.uid, cleanReferral);
         clearStoredReferralCode();
       }
     } else {
-      userData = { ...userDoc.data(), uid: user.uid } as User;
+      const existing = userDoc.data() || {};
+      const coins = Number(existing.auraCoins ?? existing.auraCoin ?? existing.bonusBalance ?? 1000);
+      if (existing.auraCoins === undefined || existing.auraCoin !== undefined) {
+        await setDoc(userDocRef, { auraCoins: coins, auraCoin: deleteField() }, { merge: true });
+        existing.auraCoins = coins;
+      }
+      userData = { ...existing, uid: user.uid, auraCoins: coins } as User;
     }
     return { user: userData, isNewUser };
   } catch (error) { throw error; }
@@ -513,10 +528,10 @@ export const signUpWithEmail = async (email: string, password: string, displayNa
       photoURL: null, isAdmin: false, createdAt: Date.now(),
       referralBalance: 0, bonusBalance: 0, auraCoins: 1000, referredCount: 0, referredBy: cleanReferral
     };
-    await setDoc(doc(db, 'users', user.uid), userData);
+    await setDoc(doc(db, 'users', user.uid), { ...userData, auraCoin: deleteField() }, { merge: true });
     await creditSignupBonus(user.uid);
 
-    // Securely credit Referrer through backend atomic transaction
+    // Securely credit Referrer 500 AuraCoins
     if (cleanReferral) {
       await processReferralSignup(user.uid, cleanReferral);
       clearStoredReferralCode();
@@ -529,14 +544,30 @@ export const signInWithEmail = async (email: string, password: string): Promise<
   try {
     const result = await signInWithEmailAndPassword(auth, email, password);
     const user = result.user;
-    const userDoc = await getDoc(doc(db, 'users', user.uid));
-    if (userDoc.exists()) return { ...userDoc.data(), uid: user.uid } as User;
+    const userDocRef = doc(db, 'users', user.uid);
+    const userDoc = await getDoc(userDocRef);
+    if (userDoc.exists()) {
+      const existing = userDoc.data() || {};
+      const coins = Number(existing.auraCoins ?? existing.auraCoin ?? existing.bonusBalance ?? 1000);
+      if (existing.auraCoins === undefined || existing.auraCoin !== undefined) {
+        await setDoc(userDocRef, { auraCoins: coins, auraCoin: deleteField() }, { merge: true });
+        existing.auraCoins = coins;
+      }
+      return { ...existing, uid: user.uid, auraCoins: coins } as User;
+    }
+    const referralCode = getStoredReferralCode();
+    const cleanReferral = (referralCode && referralCode !== user.uid) ? referralCode.trim() : null;
     const userData: User = {
       uid: user.uid, email: user.email, displayName: user.displayName,
       photoURL: user.photoURL, isAdmin: false, createdAt: Date.now(),
-      referralBalance: 0, referredCount: 0, referredBy: null
+      referralBalance: 0, bonusBalance: 0, auraCoins: 1000, referredCount: 0, referredBy: cleanReferral
     };
-    await setDoc(doc(db, 'users', user.uid), userData);
+    await setDoc(userDocRef, { ...userData, auraCoin: deleteField() }, { merge: true });
+    await creditSignupBonus(user.uid);
+    if (cleanReferral) {
+      await processReferralSignup(user.uid, cleanReferral);
+      clearStoredReferralCode();
+    }
     return userData;
   } catch (error: any) { throw error; }
 };
@@ -565,7 +596,16 @@ export const getUserData = async (uid: string, createIfMissing = false): Promise
   try {
     let userDoc = await getDoc(userDocRef);
     if (!userDoc.exists() && !createIfMissing) userDoc = await getDoc(userDocRef);
-    if (userDoc.exists()) return userDoc.data() as User;
+    if (userDoc.exists()) {
+      const data = userDoc.data() as any;
+      const coins = Number(data.auraCoins ?? data.auraCoin ?? data.bonusBalance ?? 1000);
+      if (data.auraCoins === undefined || data.auraCoin !== undefined) {
+        data.auraCoins = coins;
+        delete data.auraCoin;
+        setDoc(userDocRef, { auraCoins: coins, auraCoin: deleteField() }, { merge: true }).catch(() => {});
+      }
+      return data as User;
+    }
     return null;
   } catch (err) { return null; }
 };
@@ -624,7 +664,10 @@ export const getUserDetails = async (uid: string): Promise<{ financials: UserFin
       }
     } catch (e) {}
 
-    const auraCoins = Number(userData.auraCoins ?? userData.auraCoin ?? userData.bonusBalance ?? 0);
+    let auraCoins = Number(userData.auraCoins ?? userData.auraCoin ?? userData.bonusBalance ?? 1000);
+    if (userData.auraCoins === undefined || userData.auraCoin !== undefined) {
+      setDoc(userRef, { auraCoins, auraCoin: deleteField() }, { merge: true }).catch(() => {});
+    }
     const referralBalance = Number(userData.referralBalance || 0);
 
     const financials: UserFinancials = {
@@ -834,7 +877,7 @@ export const adminCreditUserWallet = async (
       const userRef = doc(db, 'users', userUid);
       await setDoc(userRef, {
         auraCoins: increment(coinsToAdd),
-        auraCoin: increment(coinsToAdd)
+        auraCoin: deleteField()
       }, { merge: true });
 
       const actId = `admin_credit_coins_${Math.floor(nowMs / 1000)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -879,7 +922,19 @@ export const getAllUsers = async (): Promise<User[]> => {
     const usersRef = collection(db, 'users');
     const q = query(usersRef, orderBy('createdAt', 'desc'), limit(500));
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ ...doc.data(), uid: doc.id } as any));
+    return snapshot.docs.map(userDoc => {
+      const data = userDoc.data() as any;
+      const coins = Number(data.auraCoins ?? data.auraCoin ?? data.bonusBalance ?? 1000);
+      if (data.auraCoins === undefined || data.auraCoin !== undefined) {
+        setDoc(userDoc.ref, { auraCoins: coins, auraCoin: deleteField() }, { merge: true }).catch(() => {});
+      }
+      delete data.auraCoin;
+      return {
+        ...data,
+        uid: userDoc.id,
+        auraCoins: coins
+      } as any;
+    });
   } catch (error) { return []; }
 };
 

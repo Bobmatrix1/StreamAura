@@ -1,4 +1,5 @@
-import { auth } from './firebase';
+import { auth, db } from './firebase';
+import { doc, setDoc, getDoc, increment, serverTimestamp, deleteField } from 'firebase/firestore';
 import { API_BASE_URL } from '../api/mediaApi';
 
 const REFERRAL_KEY = 'aura_referral_code';
@@ -119,11 +120,13 @@ export const clearStoredReferralCode = (): void => {
 };
 
 /**
- * Calls backend to securely process the referral bonus and notifications.
+ * Calls backend to securely process the referral bonus and notifications,
+ * with resilient direct Firestore atomic fallback.
  */
 export const processReferralSignup = async (newUserUid: string, referrerUid: string): Promise<boolean> => {
   if (!referrerUid || referrerUid === newUserUid) return false;
 
+  // 1. Try Backend API first
   try {
     const token = await auth.currentUser?.getIdToken();
     const apiUrl = API_BASE_URL || import.meta.env.VITE_API_URL || '';
@@ -139,10 +142,64 @@ export const processReferralSignup = async (newUserUid: string, referrerUid: str
 
     if (response.ok) {
       const result = await response.json();
-      return result.success ?? true;
+      if (result.success) return true;
     }
   } catch (err) {
-    console.warn('Backend referral processing error:', err);
+    console.warn('Backend referral processing error, falling back to direct Firestore:', err);
   }
+
+  // 2. Direct Firestore Client Fallback (Atomic Increment)
+  try {
+    const cleanReferrer = referrerUid.trim();
+    const referrerRef = doc(db, 'users', cleanReferrer);
+    const newUserRef = doc(db, 'users', newUserUid);
+
+    // Prevent duplicate processing
+    const userDoc = await getDoc(newUserRef);
+    if (userDoc.exists() && userDoc.data()?.referredByProcessed) {
+      return true;
+    }
+
+    const nowMs = Date.now();
+    await setDoc(referrerRef, {
+      referredCount: increment(1),
+      bonusBalance: increment(500),
+      auraCoins: increment(500),
+      auraCoin: deleteField()
+    }, { merge: true });
+
+    await setDoc(newUserRef, {
+      referredBy: cleanReferrer,
+      referredByProcessed: true
+    }, { merge: true });
+
+    // Activity ledger for referrer
+    const actId = `ref_bonus_${newUserUid.slice(0, 8)}_${Math.floor(nowMs / 1000)}`;
+    await setDoc(doc(db, 'game_wallets', cleanReferrer, 'activity', actId), {
+      type: 'referral_bonus',
+      currency: 'auracoin',
+      amount: 500,
+      title: 'Referral Reward (500 🪙)',
+      desc: 'Earned 500 AuraCoins from a new user referral signup!',
+      timestamp: serverTimestamp(),
+      created_at: nowMs
+    });
+
+    // Notification for referrer
+    const notifId = `ref_notif_${newUserUid.slice(0, 8)}_${Math.floor(nowMs / 1000)}`;
+    await setDoc(doc(db, 'users', cleanReferrer, 'notifications', notifId), {
+      title: 'New Referral Earned! 🎉',
+      message: 'A new user joined using your referral link! You earned 500 AuraCoins.',
+      type: 'referral_reward',
+      read: false,
+      timestamp: nowMs,
+      link: '/referral'
+    });
+
+    return true;
+  } catch (firestoreErr) {
+    console.warn('Direct Firestore referral fallback error:', firestoreErr);
+  }
+
   return false;
 };
