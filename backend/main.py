@@ -3756,21 +3756,26 @@ async def get_movie_trailer(title: str = Query(...), year: Optional[str] = Query
                     print(f"Direct trailer stream extract error: {ex}")
 
             stream_url = f"/api/movies/trailer/stream?key={target_cand}&title={urllib.parse.quote(clean_title)}"
+            embed_url = f"https://www.youtube-nocookie.com/embed/{target_cand}?autoplay=1&rel=0&modestbranding=1"
             res_data = {
                 "success": True,
                 "data": {
                     "key": target_cand,
+                    "youtubeKey": target_cand,
                     "candidates": candidates,
                     "title": primary_title,
                     "directUrl": direct_url,
                     "streamUrl": stream_url,
+                    "embedUrl": embed_url,
                     "source": source
                 },
                 "key": target_cand,
+                "youtubeKey": target_cand,
                 "candidates": candidates,
                 "title": primary_title,
                 "directUrl": direct_url,
                 "streamUrl": stream_url,
+                "embedUrl": embed_url,
                 "source": source
             }
             _trailer_cache[cache_key] = {"time": now, "data": res_data}

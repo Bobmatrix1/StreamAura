@@ -96,18 +96,48 @@ const CinemaRoom: React.FC = () => {
       handleVerifyPayment(roomId, verifyRef);
     }
 
+    const applyPrefillData = (data: {
+      title?: string;
+      thumbnail?: string;
+      movieUrl?: string;
+      season?: string;
+      episode?: string;
+      description?: string;
+      genre?: string;
+      roomName?: string;
+    }) => {
+      const { title: mTitle, thumbnail: mThumb, movieUrl: mUrl, season: mSeason, episode: mEpisode, description: mDesc, genre: mGenre, roomName: rName } = data;
+      if (mTitle) {
+        setMovieTitle(mSeason ? `${mTitle} (S${mSeason} E${mEpisode || '1'})` : mTitle);
+        setRoomName(rName || `${mTitle} Watch Party`);
+      }
+      if (mThumb) setPreFilledCoverUrl(mThumb);
+      if (mUrl) setPreFilledMovieUrl(mUrl);
+      if (mDesc) setMovieDescription(mDesc);
+      if (mGenre) setMovieGenre(mGenre);
+      setIsCreateModalOpen(true);
+    };
+
     if (triggerCreate === 'true') {
       const mTitle = params.get('title') || '';
       const mThumb = params.get('thumbnail') || '';
       const mUrl = params.get('movie_url') || '';
-      const mSeason = params.get('season');
-      const mEpisode = params.get('episode');
+      const mSeason = params.get('season') || undefined;
+      const mEpisode = params.get('episode') || undefined;
+      const mDesc = params.get('desc') || params.get('description') || undefined;
+      const mGenre = params.get('genre') || undefined;
+      const rName = params.get('room_name') || undefined;
 
-      if (mTitle) setMovieTitle(mSeason ? `${mTitle} (S${mSeason} E${mEpisode})` : mTitle);
-      if (mThumb) setPreFilledCoverUrl(mThumb);
-      if (mUrl) setPreFilledMovieUrl(mUrl);
-      
-      setIsCreateModalOpen(true);
+      applyPrefillData({
+        title: mTitle,
+        thumbnail: mThumb,
+        movieUrl: mUrl,
+        season: mSeason,
+        episode: mEpisode,
+        description: mDesc,
+        genre: mGenre,
+        roomName: rName
+      });
       
       // Clean URL params to prevent re-opening on reload
       const url = new URL(window.location.href);
@@ -118,8 +148,41 @@ const CinemaRoom: React.FC = () => {
       url.searchParams.delete('movie_url');
       url.searchParams.delete('season');
       url.searchParams.delete('episode');
+      url.searchParams.delete('desc');
+      url.searchParams.delete('description');
+      url.searchParams.delete('genre');
+      url.searchParams.delete('room_name');
       window.history.replaceState({}, '', url);
+    } else {
+      // Check session storage pre-fill
+      const storedPrefill = sessionStorage.getItem('aura_cinema_prefill_room');
+      if (storedPrefill) {
+        try {
+          const parsed = JSON.parse(storedPrefill);
+          applyPrefillData(parsed);
+        } catch (e) {}
+        sessionStorage.removeItem('aura_cinema_prefill_room');
+      }
     }
+  }, []);
+
+  // Listen for external open create room events
+  useEffect(() => {
+    const handleOpenCreateRoomEvent = (e: any) => {
+      const detail = e.detail || {};
+      if (detail.title) {
+        setMovieTitle(detail.season ? `${detail.title} (S${detail.season} E${detail.episode || '1'})` : detail.title);
+        setRoomName(detail.roomName || `${detail.title} Watch Party`);
+      }
+      if (detail.thumbnail) setPreFilledCoverUrl(detail.thumbnail);
+      if (detail.movieUrl) setPreFilledMovieUrl(detail.movieUrl);
+      if (detail.description) setMovieDescription(detail.description);
+      if (detail.genre) setMovieGenre(detail.genre);
+      setIsCreateModalOpen(true);
+    };
+
+    window.addEventListener('aura_open_create_room', handleOpenCreateRoomEvent);
+    return () => window.removeEventListener('aura_open_create_room', handleOpenCreateRoomEvent);
   }, []);
 
   // Listen for external leave cinema events

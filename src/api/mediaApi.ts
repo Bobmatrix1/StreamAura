@@ -237,10 +237,12 @@ export const getMovieTrailer = async (
   type: string = 'movie'
 ): Promise<ApiResponse<{ 
   key: string; 
+  youtubeKey?: string;
   title: string; 
   source: string; 
   streamUrl?: string; 
   directUrl?: string; 
+  embedUrl?: string;
   candidates?: string[] 
 }>> => {
   try {

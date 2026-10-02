@@ -523,6 +523,39 @@ const Notifications: React.FC = () => {
               </div>
 
               <div className="flex flex-col gap-3 pt-2">
+                {/* 1. Watch in Cinema Room (Create Room pre-filled) */}
+                <button 
+                  onClick={async () => {
+                    if (!selectedNotifForOptions.movieUrl) return;
+                    const prefillData = {
+                      title: selectedNotifForOptions.movieTitle,
+                      thumbnail: selectedNotifForOptions.thumbnailUrl,
+                      movieUrl: selectedNotifForOptions.movieUrl,
+                      season: selectedNotifForOptions.season,
+                      episode: selectedNotifForOptions.episode,
+                      description: (selectedNotifForOptions as any).description || (selectedNotifForOptions as any).adminNotes || '',
+                      genre: (selectedNotifForOptions as any).genre || 'Cinema',
+                      roomName: `${selectedNotifForOptions.movieTitle} Watch Party`
+                    };
+
+                    sessionStorage.setItem('aura_cinema_prefill_room', JSON.stringify(prefillData));
+                    
+                    await handleMarkRead(selectedNotifForOptions.id);
+                    if (selectedNotifForOptions.preorderId) {
+                      await updatePreOrderStatus(selectedNotifForOptions.preorderId, 'watched');
+                    }
+                    setSelectedNotifForOptions(null);
+
+                    // Smooth SPA navigation and instant trigger
+                    window.dispatchEvent(new CustomEvent('navigate', { detail: { view: 'cinema' } }));
+                    window.dispatchEvent(new CustomEvent('aura_open_create_room', { detail: prefillData }));
+                  }}
+                  className="w-full py-3.5 rounded-xl gradient-bg text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-primary/20 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
+                >
+                  <Users className="w-4 h-4" /> Watch in Cinema (Create Room)
+                </button>
+
+                {/* 2. Solo 4K Player */}
                 <button 
                   onClick={async () => {
                     if (!selectedNotifForOptions.movieUrl) return;
@@ -543,11 +576,12 @@ const Notifications: React.FC = () => {
                     setSelectedNotifForOptions(null);
                     window.dispatchEvent(new CustomEvent('navigate', { detail: { view: 'movie' } }));
                   }}
-                  className="w-full py-3.5 rounded-xl gradient-bg text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-primary/20 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
+                  className="w-full py-3.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 text-xs font-black uppercase tracking-wider hover:bg-cyan-500/20 active:scale-95 transition-all flex items-center justify-center gap-2"
                 >
-                  <Play className="w-4 h-4 fill-current" /> Watch Now
+                  <Play className="w-4 h-4 fill-current" /> Watch Solo (4K Player)
                 </button>
 
+                {/* 3. Direct Download */}
                 <button 
                   onClick={async () => {
                     if (!selectedNotifForOptions.movieUrl) return;
@@ -561,29 +595,7 @@ const Notifications: React.FC = () => {
                   }}
                   className="w-full py-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs font-black uppercase tracking-wider hover:bg-white/10 active:scale-95 transition-all flex items-center justify-center gap-2"
                 >
-                  <Download className="w-4 h-4" /> Download Movie
-                </button>
-
-                <button 
-                  onClick={async () => {
-                    if (!selectedNotifForOptions.movieUrl) return;
-                    const url = new URL(window.location.origin);
-                    url.searchParams.set('tab', 'cinema');
-                    url.searchParams.set('create', 'true');
-                    url.searchParams.set('movie_id', selectedNotifForOptions.movieId || selectedNotifForOptions.preorderId || '');
-                    url.searchParams.set('title', selectedNotifForOptions.movieTitle || '');
-                    url.searchParams.set('thumbnail', selectedNotifForOptions.thumbnailUrl || '');
-                    url.searchParams.set('movie_url', selectedNotifForOptions.movieUrl || '');
-                    if (selectedNotifForOptions.season) url.searchParams.set('season', selectedNotifForOptions.season.toString());
-                    if (selectedNotifForOptions.episode) url.searchParams.set('episode', selectedNotifForOptions.episode.toString());
-                    
-                    await handleMarkRead(selectedNotifForOptions.id);
-                    setSelectedNotifForOptions(null);
-                    window.location.href = url.toString();
-                  }}
-                  className="w-full py-3.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-black uppercase tracking-wider hover:bg-cyan-500/20 active:scale-95 transition-all flex items-center justify-center gap-2"
-                >
-                  <Users className="w-4 h-4" /> Watch with Friends
+                  <Download className="w-4 h-4" /> Direct Cloud Download
                 </button>
 
                 <button 

@@ -23,6 +23,7 @@ import CookiePolicy from '@/sections/CookiePolicy';
 import ContactUs from '@/sections/ContactUs';
 import InstallPWA from '@/components/InstallPWA';
 import CookieBanner from '@/components/CookieBanner';
+import { AppUpdateModal } from '@/components/AppUpdateModal';
 import { GlobalAdLayer } from '@/components/ads/GlobalAdLayer';
 import { 
   logVisit, 
@@ -399,6 +400,7 @@ export const AppContent: React.FC = () => {
       </Layout>
       <InstallPWA />
       <CookieBanner onNavigate={handleTabChange} />
+      <AppUpdateModal />
     </>
   );
 };

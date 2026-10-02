@@ -12,6 +12,7 @@ import {
   Globe,
   Zap,
   ChevronDown,
+  ChevronUp,
   AlertTriangle,
   Smartphone,
   Laptop,
@@ -142,6 +143,8 @@ const AdminDashboard: React.FC = () => {
   const [history, setHistory] = useState<GlobalHistoryItem[]>([]);
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [isUsersCollapsed, setIsUsersCollapsed] = useState(true);
+  const [isExpandingUsers, setIsExpandingUsers] = useState(false);
   const [expandedWithdrawalId, setExpandedWithdrawalId] = useState<string | null>(null);
   const [modalInputValue, setModalInputValue] = useState('');
 
@@ -338,6 +341,26 @@ const AdminDashboard: React.FC = () => {
       showError(error.message || 'Failed to load users');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleExpandUsers = async (filter?: 'all' | 'online' | 'daily' | 'away' | 'admin' | 'vendor') => {
+    if (filter) {
+      setUserFilter(filter);
+    }
+    setIsExpandingUsers(true);
+    try {
+      if (users.length === 0) {
+        await loadUsers();
+      } else {
+        await new Promise(resolve => setTimeout(resolve, 350));
+      }
+      setIsUsersCollapsed(false);
+    } catch (err) {
+      console.error('Error expanding users:', err);
+      setIsUsersCollapsed(false);
+    } finally {
+      setIsExpandingUsers(false);
     }
   };
 
@@ -761,23 +784,26 @@ const AdminDashboard: React.FC = () => {
     return <HelpCircle className="w-3.5 h-3.5 text-muted-foreground" />;
   };
 
-  const onlineUsers = users.filter(u => getUserPresence(u, currentTime).isOnline);
-  const dailyUsers = users.filter(u => getUserPresence(u, currentTime).isActiveToday);
-  const awayUsers = users.filter(u => getUserPresence(u, currentTime).isAway);
-  const adminUsers = users.filter(u => u.isAdmin);
-  const vendorUsers = users.filter(u => !!(u as any).isVendor);
-
-  const filteredUsers = users.filter(u => {
+  // Realtime search matching logic across users
+  const searchMatchedUsers = users.filter(u => {
     const q = searchQuery.toLowerCase().trim();
-    const matchesSearch = !q || (
+    if (!q) return true;
+    return (
       u.email?.toLowerCase().includes(q) || 
       u.displayName?.toLowerCase().includes(q) ||
       (u as any).uid?.toLowerCase().includes(q) ||
       (u as any).lastDevice?.toLowerCase().includes(q)
     );
-    
-    if (!matchesSearch) return false;
+  });
 
+  const poolUsers = searchQuery.trim() ? searchMatchedUsers : users;
+  const onlineUsers = poolUsers.filter(u => getUserPresence(u, currentTime).isOnline);
+  const dailyUsers = poolUsers.filter(u => getUserPresence(u, currentTime).isActiveToday);
+  const awayUsers = poolUsers.filter(u => getUserPresence(u, currentTime).isAway);
+  const adminUsers = poolUsers.filter(u => u.isAdmin);
+  const vendorUsers = poolUsers.filter(u => !!(u as any).isVendor);
+
+  const filteredUsers = searchMatchedUsers.filter(u => {
     const presence = getUserPresence(u, currentTime);
     if (userFilter === 'online') return presence.isOnline;
     if (userFilter === 'daily') return presence.isActiveToday;
@@ -1756,7 +1782,7 @@ const AdminDashboard: React.FC = () => {
         <div 
           onClick={() => {
             setActiveTab('users');
-            setUserFilter('all');
+            handleExpandUsers('all');
           }}
           className="glass-card p-4 flex items-center gap-4 cursor-pointer hover:border-purple-500/50 hover:bg-purple-950/20 transition-all group"
           title="Click to view all registered users"
@@ -1765,8 +1791,19 @@ const AdminDashboard: React.FC = () => {
             <Users className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">Total Users</p>
-            <p className="text-2xl font-bold text-white">{formatNumber(users.length || stats?.totalUsers || 0)}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">
+                {searchQuery.trim() ? "Matched Users" : "Total Users"}
+              </p>
+              {searchQuery.trim() && (
+                <span className="px-1.5 py-0.2 text-[8px] rounded bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30">
+                  SEARCH
+                </span>
+              )}
+            </div>
+            <p className="text-2xl font-bold text-white">
+              {formatNumber(searchQuery.trim() ? searchMatchedUsers.length : (users.length || stats?.totalUsers || 0))}
+            </p>
           </div>
         </div>
 
@@ -1774,7 +1811,7 @@ const AdminDashboard: React.FC = () => {
         <div 
           onClick={() => {
             setActiveTab('users');
-            setUserFilter('daily');
+            handleExpandUsers('daily');
           }}
           className="glass-card p-4 flex items-center gap-4 cursor-pointer hover:border-indigo-500/50 hover:bg-indigo-950/20 transition-all group"
           title="Click to view users active in the last 24 hours"
@@ -1783,8 +1820,14 @@ const AdminDashboard: React.FC = () => {
             <Clock className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">Daily Users</p>
-            <p className="text-2xl font-bold text-indigo-400">{formatNumber(dailyUsers.length || stats?.dailyActiveUsers || 0)}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">
+                {searchQuery.trim() ? "Matched Today" : "Daily Users"}
+              </p>
+            </div>
+            <p className="text-2xl font-bold text-indigo-400">
+              {formatNumber(dailyUsers.length || (searchQuery.trim() ? 0 : (stats?.dailyActiveUsers || 0)))}
+            </p>
           </div>
         </div>
         
@@ -1792,7 +1835,7 @@ const AdminDashboard: React.FC = () => {
         <div 
           onClick={() => {
             setActiveTab('users');
-            setUserFilter('online');
+            handleExpandUsers('online');
           }}
           className="glass-card p-4 flex items-center gap-4 relative overflow-hidden cursor-pointer hover:border-emerald-500/50 hover:bg-emerald-950/25 transition-all group"
           title="Click to view all currently online users"
@@ -1802,13 +1845,17 @@ const AdminDashboard: React.FC = () => {
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">Online</p>
+              <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">
+                {searchQuery.trim() ? "Matched Online" : "Online"}
+              </p>
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
             </div>
-            <p className="text-2xl font-bold text-green-400">{formatNumber(onlineUsers.length || stats?.onlineNow || 0)}</p>
+            <p className="text-2xl font-bold text-green-400">
+              {formatNumber(onlineUsers.length || (searchQuery.trim() ? 0 : (stats?.onlineNow || 0)))}
+            </p>
           </div>
         </div>
 
@@ -1820,15 +1867,37 @@ const AdminDashboard: React.FC = () => {
         {activeTab !== 'messages' && activeTab !== 'insights' && activeTab !== 'preorders' && activeTab !== 'ads' && activeTab !== 'financials' && (
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
-              <div className="relative w-full sm:w-72">
+              <div className="relative w-full sm:w-80">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input 
                   type="text" 
                   placeholder={activeTab === 'users' ? "Search name, email, device, UID..." : "Filter data..."} 
                   value={searchQuery} 
-                  onChange={(e) => setSearchQuery(e.target.value)} 
-                  className="w-full glass-input pl-10 pr-4 py-2 text-sm focus:outline-none transition-all rounded-lg border-white/10" 
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSearchQuery(val);
+                    if (val.trim() && isUsersCollapsed && activeTab === 'users') {
+                      setIsUsersCollapsed(false);
+                    }
+                  }} 
+                  className={`w-full glass-input pl-10 text-sm focus:outline-none transition-all rounded-lg border-white/10 ${
+                    searchQuery ? 'pr-20' : 'pr-4'
+                  } py-2`} 
                 />
+                {searchQuery && (
+                  <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                    <span className="px-1.5 py-0.5 rounded-md bg-primary/20 text-primary border border-primary/30 text-[9px] font-mono font-bold">
+                      {activeTab === 'users' ? filteredUsers.length : (activeTab === 'history' ? filteredHistory.length : '')} found
+                    </span>
+                    <button 
+                      onClick={() => setSearchQuery('')}
+                      className="text-white/40 hover:text-white p-0.5 text-xs font-bold leading-none"
+                      title="Clear search"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Users Filter Segmented Pills */}
@@ -1843,7 +1912,7 @@ const AdminDashboard: React.FC = () => {
                     }`}
                   >
                     <span>All Users</span>
-                    <span className="px-1.5 py-0.2 text-[10px] rounded bg-black/40 text-white/80 font-mono">{users.length}</span>
+                    <span className="px-1.5 py-0.2 text-[10px] rounded bg-black/40 text-white/80 font-mono">{searchMatchedUsers.length}</span>
                   </button>
 
                   <button
@@ -1917,16 +1986,51 @@ const AdminDashboard: React.FC = () => {
               )}
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               {activeTab === 'users' && (
-                <button 
-                  onClick={() => loadUsers()} 
-                  className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 text-white/80 border border-white/10 hover:bg-white/10 hover:text-white transition-all text-xs font-bold"
-                  title="Resync User List"
-                >
-                  <RefreshCcw className="w-3.5 h-3.5 text-primary" />
-                  <span>Sync Users</span>
-                </button>
+                <>
+                  <button 
+                    onClick={() => {
+                      if (isUsersCollapsed) {
+                        handleExpandUsers();
+                      } else {
+                        setIsUsersCollapsed(true);
+                      }
+                    }} 
+                    disabled={isExpandingUsers}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 text-white/80 border border-white/10 hover:bg-white/10 hover:text-white transition-all text-xs font-bold disabled:opacity-50"
+                    title={isUsersCollapsed ? "Expand User Directory" : "Collapse User Directory"}
+                  >
+                    {isExpandingUsers ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />
+                        <span className="hidden sm:inline">Expanding...</span>
+                        <span className="sm:hidden">Loading...</span>
+                      </>
+                    ) : isUsersCollapsed ? (
+                      <>
+                        <ChevronDown className="w-3.5 h-3.5 text-primary" />
+                        <span className="hidden sm:inline">Expand List</span>
+                        <span className="sm:hidden">Expand</span>
+                      </>
+                    ) : (
+                      <>
+                        <ChevronUp className="w-3.5 h-3.5 text-primary" />
+                        <span className="hidden sm:inline">Collapse List</span>
+                        <span className="sm:hidden">Collapse</span>
+                      </>
+                    )}
+                  </button>
+                  <button 
+                    onClick={() => loadUsers()} 
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 text-white/80 border border-white/10 hover:bg-white/10 hover:text-white transition-all text-xs font-bold"
+                    title="Resync User List"
+                  >
+                    <RefreshCcw className="w-3.5 h-3.5 text-primary" />
+                    <span className="hidden sm:inline">Sync Users</span>
+                    <span className="sm:hidden">Sync</span>
+                  </button>
+                </>
               )}
               {activeTab === 'history' && (
                 <button onClick={() => handleClearHistoryAction()} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all text-xs font-bold"><Trash2 className="w-3.5 h-3.5" />Wipe Records</button>
@@ -2425,7 +2529,63 @@ const AdminDashboard: React.FC = () => {
           ) : activeTab === 'ads' ? (
             <AdsManager />
           ) : activeTab === 'users' ? (
-            <Table>
+            isExpandingUsers ? (
+              <div className="py-24 flex flex-col items-center justify-center gap-4 bg-white/[0.01]">
+                <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center shadow-lg shadow-primary/10">
+                  <Loader2 className="w-7 h-7 text-primary animate-spin" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-bold text-white uppercase tracking-widest">Opening User Directory</p>
+                  <p className="text-xs text-white/40 mt-1 font-medium">Preparing ledger & live status presence...</p>
+                </div>
+              </div>
+            ) : isUsersCollapsed ? (
+              <div className="p-8 sm:p-12 text-center flex flex-col items-center justify-center gap-4 bg-white/[0.01]">
+                <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/40 shadow-inner">
+                  <Users className="w-7 h-7" />
+                </div>
+                <div className="max-w-md text-center">
+                  <h3 className="text-base font-bold text-white">
+                    {searchQuery.trim() ? "Search Results (Directory Collapsed)" : "User Directory Collapsed"}
+                  </h3>
+                  <p className="text-xs text-white/40 mt-1">
+                    {searchQuery.trim()
+                      ? `Found ${filteredUsers.length} user${filteredUsers.length === 1 ? '' : 's'} matching "${searchQuery}" (${users.length} total registered).`
+                      : `Directory is currently hidden. ${filteredUsers.length} users match current filters (${users.length} total registered).`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 mt-2">
+                  <button
+                    onClick={() => handleExpandUsers()}
+                    disabled={isExpandingUsers}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-lg shadow-primary/20 cursor-pointer disabled:opacity-60"
+                  >
+                    {isExpandingUsers ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Loading Directory...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="w-4 h-4" />
+                        <span>Expand User Directory ({filteredUsers.length})</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => loadUsers()}
+                    className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 border border-white/10 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <RefreshCcw className="w-3.5 h-3.5 text-primary" />
+                    <span>Sync</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                {/* Desktop View: Full 9-Column Data Ledger (lg and above) */}
+                <div className="hidden lg:block overflow-x-auto">
+                  <Table>
               <TableHeader>
                 <TableRow className="border-white/5 bg-white/[0.02] hover:bg-transparent text-center">
                   <TableHead className="text-muted-foreground font-bold text-left">USER IDENTITY & PRESENCE</TableHead>
@@ -2848,6 +3008,300 @@ const AdminDashboard: React.FC = () => {
                 }))}
               </TableBody>
             </Table>
+          </div>
+
+          {/* Mobile & Tablet View: Rich Responsive Cards (< lg) */}
+          <div className="block lg:hidden p-3 sm:p-4 space-y-3">
+            {filteredUsers.length === 0 ? (
+              <div className="py-16 text-center flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                <Users className="w-10 h-10 text-white/20 mb-1" />
+                <p className="text-sm font-bold text-white/80">No users match your criteria</p>
+                <p className="text-xs text-white/40">
+                  {userFilter === 'online' ? 'No users are online right now.' : userFilter === 'away' ? 'No users are currently away.' : 'Try clearing your search query or switching filters.'}
+                </p>
+                {userFilter !== 'all' && (
+                  <button 
+                    onClick={() => setUserFilter('all')}
+                    className="mt-3 px-4 py-2 rounded-xl bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 border border-blue-500/30 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    View All Users ({users.length})
+                  </button>
+                )}
+              </div>
+            ) : (
+              filteredUsers.map(user => {
+                const isExpanded = expandedUserId === user.uid;
+                const details = userDetails[user.uid];
+                const presence = getUserPresence(user, currentTime);
+
+                return (
+                  <div
+                    key={user.uid}
+                    className={`p-3.5 sm:p-4 rounded-2xl border transition-all ${
+                      isExpanded 
+                        ? 'bg-white/[0.05] border-white/20 shadow-xl shadow-black/50' 
+                        : 'bg-white/[0.02] border-white/5 hover:bg-white/[0.04]'
+                    }`}
+                  >
+                    {/* User Header */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div 
+                        className="flex items-center gap-3 cursor-pointer group min-w-0 flex-1"
+                        onClick={() => setSelectedUserProfile(user)}
+                        title="Tap to view full profile & bio"
+                      >
+                        <div className={`w-11 h-11 rounded-full border overflow-hidden bg-white/5 flex items-center justify-center flex-shrink-0 relative ${
+                          presence.isOnline 
+                            ? 'border-emerald-500 ring-2 ring-emerald-500/30' 
+                            : presence.isAway 
+                            ? 'border-amber-500/60' 
+                            : 'border-white/10'
+                        }`}>
+                          {user.photoURL ? (
+                            <img src={user.photoURL} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            <Users className="w-5 h-5 text-primary" />
+                          )}
+                          {/* Presence Dot */}
+                          <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#0B0F19] flex items-center justify-center">
+                            {presence.isOnline ? (
+                              <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-sm shadow-emerald-500"></span>
+                              </span>
+                            ) : presence.isAway ? (
+                              <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                            ) : (
+                              <span className="w-2 h-2 rounded-full bg-zinc-600"></span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-sm text-white truncate">{user.displayName || 'Anonymous'}</span>
+                            {user.isAdmin && <Shield className="w-3.5 h-3.5 text-orange-400 flex-shrink-0" />}
+                            {(user as any).isVendor && <Store className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />}
+                          </div>
+                          <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            {presence.isOnline ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-black tracking-wider border border-emerald-500/40">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                ONLINE · {presence.lastSeenFormatted}
+                              </span>
+                            ) : presence.isAway ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] font-bold tracking-wider border border-amber-500/30">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                                AWAY · {presence.lastSeenFormatted}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[9px] text-zinc-400 font-medium">
+                                <span className="w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
+                                Last seen {presence.lastSeenFormatted}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Device & Status */}
+                      <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-bold flex-shrink-0 ${
+                        presence.isOnline 
+                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+                          : 'bg-white/5 border-white/10 text-white/60'
+                      }`}>
+                        {getDeviceIcon((user as any).lastDevice)}
+                        <span className="uppercase">{(user as any).lastDevice || 'Desktop'}</span>
+                      </div>
+                    </div>
+
+                    {/* Wallet & Balance Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-3 border-t border-white/5">
+                      <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/5 flex flex-col">
+                        <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-wider">Main Wallet</span>
+                        <span className="text-xs font-black text-emerald-400 mt-0.5">₦{formatNumber((user as any).walletBalance || 0)}</span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/5 flex flex-col">
+                        <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-wider">Game Wallet</span>
+                        <span className="text-xs font-black text-blue-400 mt-0.5">₦{formatNumber((user as any).gameWalletBalance || 0)}</span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/5 flex flex-col">
+                        <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-wider">AuraCoins</span>
+                        <div className="flex items-center gap-1 text-amber-400 text-xs font-black mt-0.5">
+                          <AuraCoinIcon size="xs" className="w-3 h-3" />
+                          <span>{formatNumber(Number((user as any).auraCoins ?? (user as any).auraCoin ?? 1000))}</span>
+                        </div>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/5 flex flex-col">
+                        <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-wider">Referral</span>
+                        <span className="text-xs font-black text-orange-400 mt-0.5">₦{formatNumber(user.referralBalance || 0)}</span>
+                      </div>
+                      {(user as any).isVendor && (
+                        <div className="col-span-2 sm:col-span-4 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-between">
+                          <span className="text-[9px] uppercase font-bold text-amber-300 tracking-wider">Vendor Wallet</span>
+                          <span className="text-xs font-black text-amber-400">₦{formatNumber((user as any).vendorWalletBalance || 0)}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Action Controls Bar */}
+                    <div className="flex items-center justify-between gap-1.5 mt-3 pt-3 border-t border-white/5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setSelectedUserProfile(user); }}
+                          className="p-2 rounded-xl bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 border border-cyan-500/30 active:scale-95 transition-all text-xs font-bold flex items-center gap-1"
+                          title="Inspect Full Profile, Bio & Referrals"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span className="text-[10px]">Profile</span>
+                        </button>
+
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openCreditModal(user, 'main'); }}
+                          className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30 active:scale-95 transition-all text-xs font-bold flex items-center gap-1"
+                          title="Credit Wallet"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span className="text-[10px]">Credit</span>
+                        </button>
+
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleToggleAdminAction(user.uid, user.displayName || 'User', user.isAdmin); }}
+                          disabled={user.uid === currentUser?.uid}
+                          className={`p-2 rounded-xl border transition-all active:scale-95 disabled:opacity-20 flex items-center gap-1 ${
+                            user.isAdmin 
+                              ? 'bg-orange-500/20 text-orange-400 border-orange-500/30 hover:bg-orange-500/40' 
+                              : 'bg-green-500/20 text-green-400 border-green-500/30 hover:bg-green-500/40'
+                          }`}
+                          title={user.isAdmin ? "Revoke Admin" : "Make Admin"}
+                        >
+                          {user.isAdmin ? <ShieldOff className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5" />}
+                        </button>
+
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleToggleVendorAction(user.uid, user.displayName || 'User', !!(user as any).isVendor); }}
+                          disabled={user.uid === currentUser?.uid}
+                          className={`p-2 rounded-xl border transition-all active:scale-95 disabled:opacity-20 flex items-center gap-1 ${
+                            (user as any).isVendor 
+                              ? 'bg-amber-500/20 text-amber-400 border-amber-500/30 hover:bg-amber-500/40' 
+                              : 'bg-blue-500/20 text-blue-400 border-blue-500/30 hover:bg-blue-500/40'
+                          }`}
+                          title={(user as any).isVendor ? "Revoke Vendor Status" : "Grant Vendor Status"}
+                        >
+                          <Store className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteUserAction(user.uid, user.displayName || 'User'); }}
+                          disabled={user.uid === currentUser?.uid}
+                          className="p-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/40 border border-red-500/30 active:scale-95 transition-all disabled:opacity-20"
+                          title="Delete User"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={() => toggleUserExpansion(user.uid)}
+                        className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 border border-white/10 flex items-center gap-1 text-[10px] font-bold transition-all ml-auto"
+                      >
+                        <span>{isExpanded ? 'Hide' : 'Details'}</span>
+                        <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+                      </button>
+                    </div>
+
+                    {/* Expanded Intelligence Drawer */}
+                    <AnimatePresence>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden mt-3 pt-3 border-t border-white/10"
+                        >
+                          {isDetailLoading === user.uid ? (
+                            <div className="py-6 flex flex-col items-center gap-2 text-primary">
+                              <Loader2 className="w-6 h-6 animate-spin" />
+                              <p className="text-[10px] font-black uppercase tracking-widest">Fetching user intelligence...</p>
+                            </div>
+                          ) : details ? (
+                            <div className="space-y-4">
+                              {/* Financial Details */}
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <h5 className="text-[10px] font-black uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                                    <Banknote className="w-3.5 h-3.5 text-emerald-500" /> Financial Breakdown
+                                  </h5>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); openCreditModal(user, 'main'); }}
+                                    className="text-[9px] font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30"
+                                  >
+                                    + Credit
+                                  </button>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                  <div className="p-2 rounded-lg bg-white/[0.02] border border-white/5">
+                                    <span className="text-[9px] text-muted-foreground uppercase block">Ticket Earnings</span>
+                                    <span className="font-bold text-primary">₦{details.financials.totalEarned.toLocaleString()}</span>
+                                  </div>
+                                  <div className="p-2 rounded-lg bg-white/[0.02] border border-white/5">
+                                    <span className="text-[9px] text-muted-foreground uppercase block">Tickets Sold</span>
+                                    <span className="font-bold text-white">{details.financials.ticketsSold}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Cinema Details */}
+                              <div className="space-y-2">
+                                <h5 className="text-[10px] font-black uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                                  <Film className="w-3.5 h-3.5 text-rose-500" /> Cinema Activity
+                                </h5>
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                  <div className="p-2 rounded-lg bg-white/[0.02] border border-white/5">
+                                    <span className="text-[9px] text-muted-foreground uppercase block">Rooms Created</span>
+                                    <span className="font-bold text-white">{details.activity.roomsCreated}</span>
+                                  </div>
+                                  <div className="p-2 rounded-lg bg-white/[0.02] border border-white/5">
+                                    <span className="text-[9px] text-muted-foreground uppercase block">Snack Orders</span>
+                                    <span className="font-bold text-purple-400">{details.activity.snacksCount}</span>
+                                  </div>
+                                </div>
+                                {details.activity.moviesHosted.length > 0 && (
+                                  <div className="p-2 rounded-lg bg-white/[0.02] border border-white/5">
+                                    <span className="text-[9px] text-muted-foreground uppercase block mb-1">Hosted Movies</span>
+                                    <div className="flex flex-wrap gap-1">
+                                      {details.activity.moviesHosted.map((movie, idx) => (
+                                        <Badge key={idx} variant="outline" className="bg-primary/10 border-primary/20 text-[8px] uppercase">{movie}</Badge>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Social / Referral Details */}
+                              <div className="space-y-2">
+                                <h5 className="text-[10px] font-black uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                                  <Users className="w-3.5 h-3.5 text-blue-500" /> Social & Referrals
+                                </h5>
+                                <div className="p-2 rounded-lg bg-white/[0.02] border border-white/5 flex items-center justify-between text-xs">
+                                  <span className="text-[10px] text-muted-foreground uppercase">Referred Users</span>
+                                  <span className="font-bold text-blue-400">{user.referredCount || 0} Users</span>
+                                </div>
+                                <p className="text-[9px] text-muted-foreground">Joined: {new Date(user.createdAt).toLocaleDateString()}</p>
+                              </div>
+                            </div>
+                          ) : null}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )
           ) : activeTab === 'history' ? (
             <div className="divide-y divide-white/5">
               {sortedUserIds.map(userId => {

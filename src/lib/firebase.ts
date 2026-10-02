@@ -1973,18 +1973,106 @@ export interface PreOrder {
   episode?: string;
   requestedAt: number;
   availableAt?: number;
+  description?: string;
+  adminNotes?: string;
+  year?: string;
+  rating?: string;
+  genre?: string;
 }
 
-export const checkCloudMovie = async (movieId: string, season?: string | number, episode?: string | number): Promise<CloudMovie | null> => {
+export const checkCloudMovie = async (
+  movieId: string, 
+  season?: string | number, 
+  episode?: string | number,
+  title?: string
+): Promise<CloudMovie | null> => {
   try {
-    let q = query(collection(db, 'movies'), where('id', '==', movieId));
-    if (season !== undefined) q = query(q, where('season', '==', season.toString()));
-    if (episode !== undefined) q = query(q, where('episode', '==', episode.toString()));
-    
-    const snap = await getDocs(q);
-    if (snap.empty) return null;
-    return { ...snap.docs[0].data(), id: snap.docs[0].id } as CloudMovie;
-  } catch (error) { return null; }
+    if (!movieId && !title) return null;
+
+    // 1. Direct doc lookup by ID or composite key
+    if (movieId) {
+      const cloudId = season !== undefined && episode !== undefined
+        ? `${movieId}_s${season}_e${episode}`
+        : movieId;
+      const directSnap = await getDoc(doc(db, 'movies', cloudId)).catch(() => null);
+      if (directSnap && directSnap.exists()) {
+        return { ...directSnap.data(), id: directSnap.id } as CloudMovie;
+      }
+
+      // Also check by raw movieId
+      const rawSnap = await getDoc(doc(db, 'movies', movieId)).catch(() => null);
+      if (rawSnap && rawSnap.exists()) {
+        const data = rawSnap.data() as any;
+        if (season === undefined || data.season === undefined || String(data.season) === String(season)) {
+          return { ...data, id: rawSnap.id } as CloudMovie;
+        }
+      }
+    }
+
+    // 2. Query in 'movies' collection by movieId / id
+    if (movieId) {
+      let q = query(collection(db, 'movies'), where('movieId', '==', movieId));
+      if (season !== undefined) q = query(q, where('season', '==', season.toString()));
+      if (episode !== undefined) q = query(q, where('episode', '==', episode.toString()));
+      const snap = await getDocs(q).catch(() => null);
+      if (snap && !snap.empty) {
+        return { ...snap.docs[0].data(), id: snap.docs[0].id } as CloudMovie;
+      }
+    }
+
+    // 3. Query in 'movies' collection by titleLower
+    if (title && title.trim()) {
+      const tLower = title.toLowerCase().trim();
+      let q = query(collection(db, 'movies'), where('titleLower', '==', tLower));
+      if (season !== undefined) q = query(q, where('season', '==', season.toString()));
+      if (episode !== undefined) q = query(q, where('episode', '==', episode.toString()));
+      const snap = await getDocs(q).catch(() => null);
+      if (snap && !snap.empty) {
+        return { ...snap.docs[0].data(), id: snap.docs[0].id } as CloudMovie;
+      }
+    }
+
+    // 4. Check fulfilled preorders collection
+    if (movieId || title) {
+      let q = query(
+        collection(db, 'preorders'), 
+        where('status', '==', 'available')
+      );
+      if (movieId) {
+        q = query(q, where('movieId', '==', movieId));
+      }
+      const snap = await getDocs(q).catch(() => null);
+      if (snap && !snap.empty) {
+        const found = snap.docs.find(d => {
+          const data = d.data();
+          if (season !== undefined && data.season && String(data.season) !== String(season)) return false;
+          if (episode !== undefined && data.episode && String(data.episode) !== String(episode)) return false;
+          return true;
+        });
+        if (found) {
+          const data = found.data();
+          return {
+            id: data.movieId || found.id,
+            title: data.title,
+            thumbnail: data.thumbnail,
+            description: data.description || 'Pre-ordered content now available.',
+            streamUrl: data.movieUrl,
+            downloadUrl: data.movieUrl,
+            mediaType: data.mediaType || 'movie',
+            season: data.season,
+            episode: data.episode,
+            year: data.year || new Date().getFullYear().toString(),
+            rating: data.rating || '8.5',
+            addedAt: data.availableAt || Date.now()
+          } as CloudMovie;
+        }
+      }
+    }
+
+    return null;
+  } catch (error) { 
+    return null; 
+  }
 };
 
 export const getCloudMovie = async (movieId: string): Promise<CloudMovie | null> => {
@@ -2029,14 +2117,24 @@ export const createPreOrder = async (
       mediaType: movie.mediaType || 'movie',
       season: season || null,
       episode: episode || null,
-      status: 'pending', userStatus: 'none', requestedAt: Date.now()
+      status: 'pending', 
+      userStatus: 'none', 
+      requestedAt: Date.now()
     });
   } catch (error: any) { throw new Error(error.message || 'Failed to create pre-order'); }
 };
 
 export const uploadToCloud = async (movieData: CloudMovie): Promise<void> => {
   try {
-    await setDoc(doc(db, 'movies', movieData.id), { ...movieData, addedAt: Date.now() });
+    const dataToSave = {
+      ...movieData,
+      movieId: movieData.id || (movieData as any).movieId,
+      titleLower: (movieData.title || '').toLowerCase().trim(),
+      season: movieData.season ? movieData.season.toString() : null,
+      episode: movieData.episode ? movieData.episode.toString() : null,
+      addedAt: movieData.addedAt || Date.now()
+    };
+    await setDoc(doc(db, 'movies', movieData.id), dataToSave, { merge: true });
   } catch (error) { throw new Error('Failed to upload movie'); }
 };
 
@@ -2077,35 +2175,93 @@ export const fulfillPreOrder = async (
   movieId?: string,
   mediaType?: 'movie' | 'series',
   season?: string,
-  episode?: string
+  episode?: string,
+  extraMetadata?: {
+    description?: string;
+    year?: string;
+    rating?: string;
+    adminNotes?: string;
+    genre?: string;
+  }
 ): Promise<void> => {
   try {
+    const availableAt = Date.now();
     await updateDoc(doc(db, 'preorders', preorderId), { 
       status: 'available', 
       movieUrl, 
       thumbnail: thumbnailUrl, 
-      availableAt: Date.now() 
+      availableAt,
+      description: extraMetadata?.description || 'Pre-ordered content is now available.',
+      adminNotes: extraMetadata?.adminNotes || '',
+      year: extraMetadata?.year || new Date().getFullYear().toString(),
+      rating: extraMetadata?.rating || '8.5',
+      genre: extraMetadata?.genre || 'Cinema'
     });
     
+    // Save or update globally in 'movies' collection
+    const cloudId = mediaType === 'series' && season && episode
+      ? `${movieId || preorderId}_s${season}_e${episode}`
+      : (movieId || preorderId);
+
+    const movieDocData: CloudMovie = {
+      id: cloudId,
+      title: movieTitle,
+      thumbnail: thumbnailUrl,
+      description: extraMetadata?.description || 'Pre-ordered content is now available.',
+      year: extraMetadata?.year || new Date().getFullYear().toString(),
+      rating: extraMetadata?.rating || '8.5',
+      streamUrl: movieUrl,
+      downloadUrl: movieUrl,
+      mediaType: mediaType || 'movie',
+      season: season || undefined,
+      episode: episode || undefined,
+      addedAt: availableAt
+    };
+    
+    await setDoc(doc(db, 'movies', cloudId), {
+      ...movieDocData,
+      movieId: movieId || preorderId,
+      titleLower: movieTitle.toLowerCase().trim(),
+      adminNotes: extraMetadata?.adminNotes || '',
+      genre: extraMetadata?.genre || 'Cinema'
+    }, { merge: true });
+
+    // Send Real-time In-App Notification to Requester
     const notifRef = collection(db, 'users', userId, 'notifications');
     await addDoc(notifRef, {
-      title: '🎥 Movie Ready!',
-      message: `The movie "${movieTitle}" you pre-ordered is now live! You can watch or download it now.`,
-      timestamp: Date.now(),
+      title: `🎥 Movie Ready: ${movieTitle}`,
+      message: `Your pre-ordered title "${movieTitle}" is now live! Tap to watch now or launch a cinema room with friends.`,
+      timestamp: availableAt,
       read: false,
       type: 'preorder_delivered',
-      link: `/?tab=movie&preorder=${preorderId}`,
+      link: `/?tab=cinema&create=true&title=${encodeURIComponent(movieTitle)}&thumbnail=${encodeURIComponent(thumbnailUrl)}&movie_url=${encodeURIComponent(movieUrl)}${season ? `&season=${season}` : ''}${episode ? `&episode=${episode}` : ''}&desc=${encodeURIComponent(extraMetadata?.description || '')}`,
       preorderId,
-      movieId: movieId || '',
+      movieId: movieId || preorderId,
       movieTitle,
       movieUrl,
       thumbnailUrl,
       mediaType: mediaType || 'movie',
       season: season || '',
-      episode: episode || ''
+      episode: episode || '',
+      description: extraMetadata?.description || '',
+      adminNotes: extraMetadata?.adminNotes || '',
+      genre: extraMetadata?.genre || 'Cinema'
     });
-    await updateDoc(doc(db, 'users', userId), { unreadCount: increment(1) });
-  } catch (error) { throw new Error('Failed to fulfill pre-order'); }
+    
+    await updateDoc(doc(db, 'users', userId), { unreadCount: increment(1) }).catch(() => {});
+  } catch (error: any) { 
+    console.error('Failed to fulfill pre-order:', error);
+    throw new Error(error.message || 'Failed to fulfill pre-order'); 
+  }
+};
+
+export const deletePreOrder = async (preorderId: string): Promise<void> => {
+  try {
+    await deleteDoc(doc(db, 'preorders', preorderId));
+  } catch (error: any) {
+    console.error('Failed to delete pre-order:', error);
+    throw new Error(error.message || 'Failed to delete pre-order');
+  }
 };
 
 // --- Store, Vendors, Partners ---

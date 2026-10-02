@@ -30,7 +30,9 @@ import {
   ArrowLeft,
   SlidersHorizontal,
   Loader2,
-  ArrowUpRight
+  ArrowUpRight,
+  ExternalLink,
+  Users
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -306,8 +308,12 @@ const MovieDownloader: React.FC = () => {
   const [showPlayer, setShowPlayer] = useState(false);
   const [activeTrailer, setActiveTrailer] = useState<{
     title: string;
-    streamUrl: string;
+    movie?: MovieInfo;
+    youtubeKey?: string;
+    embedUrl?: string;
+    streamUrl?: string;
     fallbackUrl?: string;
+    playerMode: 'embed' | 'video';
   } | null>(null);
   const [isLoadingTrailer, setIsLoadingTrailer] = useState(false);
   const [isTrailerBuffering, setIsTrailerBuffering] = useState(true);
@@ -1089,7 +1095,7 @@ const MovieDownloader: React.FC = () => {
               setIsManualMode(true);
            }
         } else if (merged.mediaType === 'movie') {
-          const cloud = await checkCloudMovie(merged.id);
+          const cloud = await checkCloudMovie(merged.id, undefined, undefined, merged.title);
           if (activeSelectionRef.current !== requestId) return;
           if (cloud) setCloudData(cloud);
         }
@@ -1118,7 +1124,7 @@ const MovieDownloader: React.FC = () => {
     setCloudData(null);
     
     try {
-      const cloud = await checkCloudMovie(movieId, season, episode);
+      const cloud = await checkCloudMovie(movieId, season, episode, movieTitle);
       if (activeSelectionRef.current !== currentReq) return;
       if (cloud) {
         setCloudData(cloud);
@@ -1145,9 +1151,10 @@ const MovieDownloader: React.FC = () => {
     }
   };
 
-  const handlePreOrder = () => {
+  const handlePreOrder = (movieOverride?: MovieInfo | React.SyntheticEvent) => {
     requireAuth(() => {
-      setMovieToPreOrder(selectedMovie);
+      const isMovie = movieOverride && typeof movieOverride === 'object' && 'id' in movieOverride && 'mediaType' in movieOverride;
+      setMovieToPreOrder((isMovie ? (movieOverride as MovieInfo) : selectedMovie) || null);
       setShowPreOrderModal(true);
     });
   };
@@ -1193,23 +1200,43 @@ const MovieDownloader: React.FC = () => {
         movie.mediaType || searchType || 'movie'
       );
 
+      const yKey = res.data?.youtubeKey || res.data?.key || (res as any).key;
+      const isDirectMp4 = (movie as any).trailerUrl?.endsWith('.mp4') || (movie as any).stream_url?.endsWith('.mp4');
+
+      let embedUrl = res.data?.embedUrl;
+      if (!embedUrl && yKey) {
+        embedUrl = `https://www.youtube-nocookie.com/embed/${yKey}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1`;
+      }
+
+      const rawStream = res.data?.streamUrl;
+      const streamUrl = rawStream 
+        ? (rawStream.startsWith('http') ? rawStream : `${mediaApi.API_BASE_URL}${rawStream}`)
+        : mediaApi.getMovieTrailerStreamUrl(yKey || movieTitle, movieTitle);
+
       const directUrl = res.data?.directUrl;
-      const streamUrl = res.data?.streamUrl 
-        ? `${mediaApi.API_BASE_URL}${res.data.streamUrl}` 
-        : mediaApi.getMovieTrailerStreamUrl(res.data?.key || movieTitle, movieTitle);
+
+      // Default to YouTube embed for YouTube trailers (100% rock-solid, zero buffer, studio/music licensed trailers)
+      const playerMode: 'embed' | 'video' = isDirectMp4 ? 'video' : 'embed';
 
       setActiveTrailer({
         title: res.data?.title || `${movieTitle} — Official Trailer`,
-        streamUrl: directUrl || streamUrl,
-        fallbackUrl: streamUrl
+        movie,
+        youtubeKey: yKey,
+        embedUrl,
+        streamUrl: isDirectMp4 ? (movie as any).trailerUrl : (directUrl || streamUrl),
+        fallbackUrl: streamUrl,
+        playerMode
       });
     } catch (err) {
       console.error('Trailer lookup error:', err);
       const fallbackUrl = mediaApi.getMovieTrailerStreamUrl(movieTitle, movieTitle);
       setActiveTrailer({
         title: `${movieTitle} — Official Trailer`,
+        movie,
         streamUrl: fallbackUrl,
-        fallbackUrl: fallbackUrl
+        fallbackUrl: fallbackUrl,
+        playerMode: 'embed',
+        embedUrl: `https://www.youtube-nocookie.com/embed?search=${encodeURIComponent(movieTitle + ' official trailer')}&autoplay=1`
       });
     } finally {
       setIsLoadingTrailer(false);
@@ -1230,6 +1257,29 @@ const MovieDownloader: React.FC = () => {
     });
   };
 
+  const handleWatchInCinema = () => {
+    requireAuth(() => {
+      if (!cloudData && !selectedMovie) return;
+      const movieTitle = selectedMovie?.title || cloudData?.title || 'Movie';
+      const thumbnail = cloudData?.thumbnail || selectedMovie?.thumbnail || (selectedMovie as any)?.poster || '';
+      const movieUrl = cloudData?.streamUrl || cloudData?.downloadUrl || '';
+      const prefillData = {
+        title: movieTitle,
+        thumbnail,
+        movieUrl,
+        season: selectedSeason || cloudData?.season || undefined,
+        episode: selectedEpisode || cloudData?.episode || undefined,
+        description: cloudData?.description || selectedMovie?.description || '',
+        genre: (cloudData as any)?.genre || (selectedMovie as any)?.genre || 'Cinema',
+        roomName: `${movieTitle} Cinema Room`
+      };
+
+      sessionStorage.setItem('aura_cinema_prefill_room', JSON.stringify(prefillData));
+      window.dispatchEvent(new CustomEvent('navigate', { detail: { view: 'cinema' } }));
+      window.dispatchEvent(new CustomEvent('aura_open_create_room', { detail: prefillData }));
+    });
+  };
+
   const handleUpdateStatus = async (preOrderId: string, status: 'watched' | 'downloaded') => {
     try {
       await updatePreOrderStatus(preOrderId, status);
@@ -1241,16 +1291,22 @@ const MovieDownloader: React.FC = () => {
   };
 
   const handleCreateRoomFromPreOrder = (preOrder: PreOrder) => {
-    const url = new URL(window.location.origin);
-    url.searchParams.set('tab', 'cinema');
-    url.searchParams.set('create', 'true');
-    url.searchParams.set('movie_id', preOrder.movieId);
-    url.searchParams.set('title', preOrder.title);
-    url.searchParams.set('thumbnail', preOrder.thumbnail);
-    url.searchParams.set('movie_url', preOrder.movieUrl || '');
-    if (preOrder.season) url.searchParams.set('season', preOrder.season.toString());
-    if (preOrder.episode) url.searchParams.set('episode', preOrder.episode.toString());
-    window.location.href = url.toString();
+    requireAuth(() => {
+      const prefillData = {
+        title: preOrder.title,
+        thumbnail: preOrder.thumbnail,
+        movieUrl: preOrder.movieUrl || '',
+        season: preOrder.season?.toString(),
+        episode: preOrder.episode?.toString(),
+        description: preOrder.description || '',
+        genre: preOrder.genre || 'Cinema',
+        roomName: `${preOrder.title} Watch Party`
+      };
+
+      sessionStorage.setItem('aura_cinema_prefill_room', JSON.stringify(prefillData));
+      window.dispatchEvent(new CustomEvent('navigate', { detail: { view: 'cinema' } }));
+      window.dispatchEvent(new CustomEvent('aura_open_create_room', { detail: prefillData }));
+    });
   };
 
   // Section filtered and sorted items calculation
@@ -1932,19 +1988,30 @@ const MovieDownloader: React.FC = () => {
                                 </p>
                               </div>
                             )}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-3">
+                              {/* 1. Primary: Watch in Cinema (Create Room) */}
                               <button 
-                                onClick={handleWatchNow} 
-                                className="py-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-2xl font-black uppercase tracking-wider text-xs flex items-center justify-center gap-2 shadow-xl shadow-cyan-600/30 transition-all cursor-pointer active:scale-95"
+                                onClick={handleWatchInCinema} 
+                                className="w-full py-4 bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-600 hover:brightness-110 text-white rounded-2xl font-black uppercase tracking-wider text-xs flex items-center justify-center gap-2.5 shadow-xl shadow-purple-600/30 transition-all cursor-pointer active:scale-95"
                               >
-                                <Play fill="currentColor" className="w-4 h-4" /> Watch Now (4K Player)
+                                <Users className="w-4 h-4" /> Watch in Cinema (Create Live Room)
                               </button>
-                              <button 
-                                onClick={handleDownload} 
-                                className="py-4 bg-white/10 hover:bg-white/15 text-white rounded-2xl font-black uppercase tracking-wider text-xs flex items-center justify-center gap-2 border border-white/15 transition-all cursor-pointer active:scale-95"
-                              >
-                                <Download className="w-4 h-4" /> Download 4K Video
-                              </button>
+
+                              {/* 2. Secondary: Solo Player & Direct Download */}
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <button 
+                                  onClick={handleWatchNow} 
+                                  className="py-3.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl font-black uppercase tracking-wider text-xs flex items-center justify-center gap-2 shadow-lg shadow-cyan-600/20 transition-all cursor-pointer active:scale-95"
+                                >
+                                  <Play fill="currentColor" className="w-4 h-4" /> Solo 4K Player
+                                </button>
+                                <button 
+                                  onClick={handleDownload} 
+                                  className="py-3.5 bg-white/10 hover:bg-white/15 text-white rounded-xl font-black uppercase tracking-wider text-xs flex items-center justify-center gap-2 border border-white/15 transition-all cursor-pointer active:scale-95"
+                                >
+                                  <Download className="w-4 h-4" /> Download 4K Video
+                                </button>
+                              </div>
                             </div>
                           </div>
                         ) : (
@@ -2540,36 +2607,92 @@ const MovieDownloader: React.FC = () => {
         <AnimatePresence>
           {activeTrailer && (
             <div 
-              className="fixed inset-0 w-screen h-screen bg-black/90 backdrop-blur-md flex items-center justify-center z-[99999] p-3 sm:p-4"
+              className="fixed inset-0 w-screen h-screen bg-black/90 backdrop-blur-md flex items-center justify-center z-[99999] p-3 sm:p-4 md:p-6 font-sans"
               onClick={() => setActiveTrailer(null)}
             >
               <motion.div 
-                initial={{ scale: 0.9, opacity: 0 }} 
-                animate={{ scale: 1, opacity: 1 }} 
-                exit={{ scale: 0.9, opacity: 0 }}
+                initial={{ scale: 0.92, opacity: 0, y: 20 }} 
+                animate={{ scale: 1, opacity: 1, y: 0 }} 
+                exit={{ scale: 0.92, opacity: 0, y: 20 }}
                 onClick={(e) => e.stopPropagation()}
-                className="relative w-full max-w-4xl rounded-3xl overflow-hidden border border-white/15 shadow-2xl bg-black flex flex-col"
+                className="relative w-full max-w-4xl rounded-3xl overflow-hidden border border-cyan-500/30 shadow-[0_0_50px_rgba(6,182,212,0.2)] bg-[#0a0e1c] flex flex-col max-h-[92vh]"
               >
                 {/* Modal Header */}
                 <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-[#0a0e1c] border-b border-white/10 z-[3010]">
                   <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                    <div className="w-7 h-7 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center flex-shrink-0">
-                      <Play className="w-3.5 h-3.5 fill-current" />
+                    <div className="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 flex items-center justify-center flex-shrink-0">
+                      <Play className="w-4 h-4 fill-current" />
                     </div>
                     <div className="min-w-0">
-                      <h4 className="text-xs sm:text-sm font-black uppercase text-white tracking-wider truncate">
-                        {activeTrailer.title} — Official Trailer
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-cyan-400">Official Preview</span>
+                        {activeTrailer.movie?.year && activeTrailer.movie.year !== 'N/A' && (
+                          <span className="px-1.5 py-0.2 rounded bg-white/10 text-white/70 text-[9px] font-bold">
+                            {activeTrailer.movie.year}
+                          </span>
+                        )}
+                        {activeTrailer.movie?.genres && activeTrailer.movie.genres.length > 0 && (
+                          <span className="px-1.5 py-0.2 rounded bg-primary/20 text-primary text-[9px] font-bold truncate max-w-[120px]">
+                            {activeTrailer.movie.genres[0]}
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="text-xs sm:text-sm font-black uppercase text-white tracking-wider truncate mt-0.5">
+                        {activeTrailer.title}
                       </h4>
-                      <p className="text-[10px] text-cyan-300/80 font-medium">
-                        StreamAura Cinema Player
-                      </p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2 flex-shrink-0">
+                    {/* Player Mode Switcher (if both available) */}
+                    {activeTrailer.embedUrl && activeTrailer.streamUrl && (
+                      <div className="hidden sm:flex items-center gap-1 p-0.5 rounded-lg bg-white/5 border border-white/10 text-[10px] font-bold">
+                        <button
+                          onClick={() => {
+                            setIsTrailerBuffering(true);
+                            setActiveTrailer(prev => prev ? ({ ...prev, playerMode: 'embed' }) : null);
+                          }}
+                          className={`px-2 py-1 rounded transition-all ${
+                            activeTrailer.playerMode === 'embed'
+                              ? 'bg-cyan-500 text-black font-black shadow-sm'
+                              : 'text-white/60 hover:text-white'
+                          }`}
+                        >
+                          YouTube HD
+                        </button>
+                        <button
+                          onClick={() => {
+                            setIsTrailerBuffering(true);
+                            setActiveTrailer(prev => prev ? ({ ...prev, playerMode: 'video' }) : null);
+                          }}
+                          className={`px-2 py-1 rounded transition-all ${
+                            activeTrailer.playerMode === 'video'
+                              ? 'bg-cyan-500 text-black font-black shadow-sm'
+                              : 'text-white/60 hover:text-white'
+                          }`}
+                        >
+                          Direct Stream
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Open External on YouTube */}
+                    {activeTrailer.youtubeKey && (
+                      <a
+                        href={`https://www.youtube.com/watch?v=${activeTrailer.youtubeKey}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-2 rounded-xl bg-white/5 text-white/70 hover:text-white hover:bg-white/10 border border-white/10 transition-all text-xs font-bold flex items-center gap-1"
+                        title="Open on YouTube"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span className="hidden md:inline text-[10px]">YouTube</span>
+                      </a>
+                    )}
+
                     <button 
                       onClick={() => setActiveTrailer(null)}
-                      className="p-1.5 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all cursor-pointer"
+                      className="p-2 rounded-xl bg-white/10 text-white hover:bg-white/20 transition-all cursor-pointer"
                       title="Close"
                     >
                       <X className="w-4 h-4" />
@@ -2577,36 +2700,95 @@ const MovieDownloader: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Video Area */}
+                {/* Video / Embed Area */}
                 <div className="relative w-full aspect-video bg-black flex items-center justify-center overflow-hidden">
-                  <video
-                    key={activeTrailer.streamUrl}
-                    src={activeTrailer.streamUrl}
-                    controls
-                    autoPlay
-                    playsInline
-                    className="w-full h-full object-contain bg-black"
-                    onLoadStart={() => setIsTrailerBuffering(true)}
-                    onCanPlay={() => setIsTrailerBuffering(false)}
-                    onPlaying={() => setIsTrailerBuffering(false)}
-                    onWaiting={() => setIsTrailerBuffering(true)}
-                    onError={() => {
-                      if (activeTrailer.fallbackUrl && activeTrailer.streamUrl !== activeTrailer.fallbackUrl) {
-                        setActiveTrailer(prev => prev ? ({ ...prev, streamUrl: prev.fallbackUrl! }) : null);
-                      } else {
-                        setIsTrailerBuffering(false);
-                      }
-                    }}
-                  >
-                    Your browser does not support HTML5 video streaming.
-                  </video>
+                  {activeTrailer.playerMode === 'embed' && activeTrailer.embedUrl ? (
+                    <iframe
+                      key={activeTrailer.embedUrl}
+                      src={activeTrailer.embedUrl}
+                      title={activeTrailer.title}
+                      className="w-full h-full border-0 bg-black"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      allowFullScreen
+                      onLoad={() => setIsTrailerBuffering(false)}
+                    />
+                  ) : activeTrailer.streamUrl ? (
+                    <video
+                      key={activeTrailer.streamUrl}
+                      src={activeTrailer.streamUrl}
+                      controls
+                      autoPlay
+                      playsInline
+                      className="w-full h-full object-contain bg-black"
+                      onLoadStart={() => setIsTrailerBuffering(true)}
+                      onCanPlay={() => setIsTrailerBuffering(false)}
+                      onPlaying={() => setIsTrailerBuffering(false)}
+                      onWaiting={() => setIsTrailerBuffering(true)}
+                      onError={() => {
+                        // If direct streaming fails, seamlessly fallback to embed
+                        if (activeTrailer.embedUrl) {
+                          setActiveTrailer(prev => prev ? ({ ...prev, playerMode: 'embed' }) : null);
+                        } else {
+                          setIsTrailerBuffering(false);
+                        }
+                      }}
+                    >
+                      Your browser does not support HTML5 video streaming.
+                    </video>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center gap-3 p-8 text-center">
+                      <Video className="w-12 h-12 text-white/20" />
+                      <p className="text-sm font-bold text-white/80">Trailer unavailable for this title</p>
+                    </div>
+                  )}
+
                   {isTrailerBuffering && (
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex flex-col items-center justify-center gap-2 pointer-events-none z-10 transition-opacity">
+                    <div className="absolute inset-0 bg-black/70 backdrop-blur-[2px] flex flex-col items-center justify-center gap-2 pointer-events-none z-10 transition-opacity">
                       <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
                       <p className="text-xs font-bold text-white/80 tracking-wide">Loading StreamAura Cinema Stream...</p>
                     </div>
                   )}
                 </div>
+
+                {/* Trailer Details & Quick Actions Footer */}
+                {activeTrailer.movie && (
+                  <div className="p-4 sm:p-5 bg-[#090c17] border-t border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <h5 className="text-xs font-black uppercase tracking-wider text-white truncate">
+                        {activeTrailer.movie.title}
+                      </h5>
+                      <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5">
+                        {activeTrailer.movie.description || `Official preview and trailer for ${activeTrailer.movie.title}.`}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto justify-end">
+                      <button
+                        onClick={() => {
+                          const m = activeTrailer.movie!;
+                          setActiveTrailer(null);
+                          setSelectedMovie(m);
+                        }}
+                        className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white border border-white/10 text-xs font-bold transition-all flex items-center gap-1.5"
+                      >
+                        <Info className="w-3.5 h-3.5" />
+                        <span>Movie Details</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const m = activeTrailer.movie!;
+                          setActiveTrailer(null);
+                          handlePreOrder(m);
+                        }}
+                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-primary text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-cyan-500/20 hover:scale-105 transition-all flex items-center gap-1.5"
+                      >
+                        <Tv className="w-3.5 h-3.5" />
+                        <span>Pre-Order / Watch</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </motion.div>
             </div>
           )}
