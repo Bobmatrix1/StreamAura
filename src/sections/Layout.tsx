@@ -118,11 +118,21 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
   }, [activeTab, isBackAction]);
 
   const handleBack = () => {
-    if (historyStack.length === 0) return;
-    const previous = historyStack[historyStack.length - 1];
-    setHistoryStack(prev => prev.slice(0, -1));
-    setIsBackAction(true);
-    onTabChange(previous);
+    if (historyStack.length > 0) {
+      const previous = historyStack[historyStack.length - 1];
+      setHistoryStack(prev => prev.slice(0, -1));
+      setIsBackAction(true);
+      onTabChange(previous);
+      return;
+    }
+    if (typeof window !== 'undefined') {
+      const prev = sessionStorage.getItem('aura_prev_view') as ViewType;
+      if (prev && prev !== activeTab) {
+        onTabChange(prev);
+        return;
+      }
+    }
+    onTabChange('home');
   };
 
   useEffect(() => {
@@ -203,23 +213,26 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
       {/* Mobile Header */}
       <div className="md:hidden glass-card mx-4 mt-4 p-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center p-1 bg-white/5">
+          <div className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center p-1 bg-white/5 shrink-0">
             <img src="/logo.png" alt="StreamAura" className="w-full h-full object-contain" />
           </div>
           <span className="font-bold gradient-text">StreamAura</span>
         </div>
         <div className="flex items-center gap-2">
-          <button 
-            onClick={() => onTabChange('notifications')}
-            className="p-2 rounded-lg hover:bg-white/5 transition-colors relative"
-          >
-            <Bell className={`w-6 h-6 ${unreadCount > 0 ? 'text-rose-500 animate-pulse' : ''}`} />
-            {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 w-4 h-4 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-slate-900">
-                {unreadCount}
-              </span>
-            )}
-          </button>
+          {activeTab !== 'notifications' && (
+            <button 
+              onClick={() => onTabChange('notifications')}
+              className="p-2 rounded-lg hover:bg-white/5 transition-colors relative"
+              title="Notifications"
+            >
+              <Bell className={`w-6 h-6 ${unreadCount > 0 ? 'text-rose-500 animate-pulse' : ''}`} />
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 w-4 h-4 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-slate-900">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+          )}
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             className="p-2 rounded-lg hover:bg-white/5 transition-colors"
@@ -468,20 +481,25 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
       >
         <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
           <AnimatePresence>
-            {historyStack.length > 0 && (
+            {(activeTab !== 'home' || historyStack.length > 0) && (
               <motion.div 
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="flex items-center gap-3 pb-2 border-b border-slate-200 dark:border-white/5"
+                className="flex items-center justify-between gap-3 pb-2 border-b border-slate-200 dark:border-white/5"
               >
                 <button
                   onClick={handleBack}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.06] dark:hover:bg-white/[0.12] backdrop-blur-md border border-slate-200 dark:border-white/10 active:scale-95 shadow-sm text-slate-800 dark:text-white text-xs font-black uppercase tracking-widest transition-all duration-200 group"
+                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.08] dark:hover:bg-white/[0.15] backdrop-blur-md border border-slate-200 dark:border-white/10 active:scale-95 shadow-sm text-slate-800 dark:text-white text-xs font-black uppercase tracking-widest transition-all duration-200 group cursor-pointer"
                 >
                   <ArrowLeft className="w-3.5 h-3.5 text-slate-800 dark:text-white group-hover:-translate-x-0.5 transition-transform" />
                   <span>Back</span>
                 </button>
+                {activeTab !== 'home' && (
+                  <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                    {tabs.find(t => t.id === activeTab)?.label || activeTab}
+                  </span>
+                )}
               </motion.div>
             )}
           </AnimatePresence>

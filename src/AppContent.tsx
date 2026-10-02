@@ -248,6 +248,7 @@ export const AppContent: React.FC = () => {
     logPageLeave(activeView, timeSpent, auth.currentUser?.uid);
 
     // 2. Switch View & Log entry to new page
+    sessionStorage.setItem('aura_prev_view', activeView);
     setActiveView(tab);
     sessionStorage.setItem('aura_active_view', tab);
     setViewStartTime(Date.now());

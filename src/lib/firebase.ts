@@ -2109,17 +2109,37 @@ export const createPreOrder = async (
       throw new Error('You already have a pending request for this specific content.');
     }
 
-    await addDoc(preorderRef, {
+    const movieTitle = movie.title || movie.name || 'Movie';
+    const thumbnail = movie.thumbnail || movie.poster || '';
+    const mediaType = movie.mediaType || 'movie';
+
+    const docRef = await addDoc(preorderRef, {
       userId, userEmail, userName,
       movieId: movie.id || movie.subjectId,
-      title: movie.title || movie.name,
-      thumbnail: movie.thumbnail || movie.poster,
-      mediaType: movie.mediaType || 'movie',
+      title: movieTitle,
+      thumbnail,
+      mediaType,
       season: season || null,
       episode: episode || null,
       status: 'pending', 
       userStatus: 'none', 
       requestedAt: Date.now()
+    });
+
+    // Send Real-time In-App Notification to User
+    const itemLabel = season && episode ? `${movieTitle} (S${season} E${episode})` : movieTitle;
+    await addUserNotification(userId, {
+      title: '🎬 Pre-Order Placed Successfully',
+      message: `Your request for "${itemLabel}" is being fulfilled and will be live soon! We'll notify you the moment it's available to stream.`,
+      type: 'preorder_placed',
+      preorderId: docRef.id,
+      movieId: movie.id || movie.subjectId,
+      movieTitle: movieTitle,
+      thumbnailUrl: thumbnail,
+      mediaType,
+      season: season || undefined,
+      episode: episode || undefined,
+      badgeText: 'Queued for Upload'
     });
   } catch (error: any) { throw new Error(error.message || 'Failed to create pre-order'); }
 };
@@ -2159,6 +2179,23 @@ export const getMyPreOrders = async (userId: string): Promise<PreOrder[]> => {
       return results.sort((a, b) => b.requestedAt - a.requestedAt);
     }
     return [];
+  }
+};
+
+export const listenToMyPreOrders = (userId: string, callback: (orders: PreOrder[]) => void) => {
+  if (!userId) return () => {};
+  try {
+    const q = query(collection(db, 'preorders'), where('userId', '==', userId));
+    return onSnapshot(q, (snap) => {
+      const results = snap.docs.map(doc => ({ ...doc.data(), id: doc.id } as PreOrder));
+      results.sort((a, b) => (b.requestedAt || 0) - (a.requestedAt || 0));
+      callback(results);
+    }, (err) => {
+      console.warn('listenToMyPreOrders listener warning:', err);
+    });
+  } catch (error) {
+    console.warn('Failed to listen to preorders:', error);
+    return () => {};
   }
 };
 
@@ -2226,11 +2263,14 @@ export const fulfillPreOrder = async (
       genre: extraMetadata?.genre || 'Cinema'
     }, { merge: true });
 
-    // Send Real-time In-App Notification to Requester
-    const notifRef = collection(db, 'users', userId, 'notifications');
-    await addDoc(notifRef, {
-      title: `🎥 Movie Ready: ${movieTitle}`,
-      message: `Your pre-ordered title "${movieTitle}" is now live! Tap to watch now or launch a cinema room with friends.`,
+    // Transition existing notification to 'Order Fulfilled' or create delivered notification
+    const userNotifsRef = collection(db, 'users', userId, 'notifications');
+    const existingQ = query(userNotifsRef, where('preorderId', '==', preorderId));
+    const existingSnap = await getDocs(existingQ);
+
+    const deliveredPayload = {
+      title: `🎬 Order Fulfilled: ${movieTitle}`,
+      message: `Your movie is ready to watch! Tap to stream or launch a cinema room with friends.`,
       timestamp: availableAt,
       read: false,
       type: 'preorder_delivered',
@@ -2239,14 +2279,23 @@ export const fulfillPreOrder = async (
       movieId: movieId || preorderId,
       movieTitle,
       movieUrl,
-      thumbnailUrl,
+      thumbnailUrl: thumbnailUrl || '',
       mediaType: mediaType || 'movie',
-      season: season || '',
-      episode: episode || '',
+      season: season || null,
+      episode: episode || null,
       description: extraMetadata?.description || '',
       adminNotes: extraMetadata?.adminNotes || '',
-      genre: extraMetadata?.genre || 'Cinema'
-    });
+      genre: extraMetadata?.genre || 'Cinema',
+      badgeText: 'Order Fulfilled'
+    };
+
+    if (!existingSnap.empty) {
+      for (const notifDoc of existingSnap.docs) {
+        await updateDoc(doc(db, 'users', userId, 'notifications', notifDoc.id), deliveredPayload);
+      }
+    } else {
+      await addDoc(userNotifsRef, deliveredPayload);
+    }
     
     await updateDoc(doc(db, 'users', userId), { unreadCount: increment(1) }).catch(() => {});
   } catch (error: any) { 
@@ -2672,13 +2721,25 @@ export const addUserNotification = async (
   notification: Omit<AppNotification, 'id' | 'timestamp' | 'read'>
 ): Promise<void> => {
   try {
-    const notifRef = collection(db, 'users', userId, 'notifications');
-    await addDoc(notifRef, {
-      ...notification,
+    // Strip undefined values so Firestore never throws unsupported field value error
+    const cleanData: Record<string, any> = {
       timestamp: Date.now(),
       read: false
-    });
-    await updateDoc(doc(db, 'users', userId), { unreadCount: increment(1) });
+    };
+    for (const [key, value] of Object.entries(notification)) {
+      if (value !== undefined) {
+        cleanData[key] = value;
+      }
+    }
+
+    const notifRef = collection(db, 'users', userId, 'notifications');
+    await addDoc(notifRef, cleanData);
+
+    try {
+      await updateDoc(doc(db, 'users', userId), { unreadCount: increment(1) });
+    } catch {
+      // Non-blocking if unreadCount field update fails
+    }
   } catch (error) {
     console.warn('Failed to add user notification:', error);
   }

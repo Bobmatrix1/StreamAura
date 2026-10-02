@@ -31,8 +31,8 @@ import {
   SlidersHorizontal,
   Loader2,
   ArrowUpRight,
-  ExternalLink,
-  Users
+  Users,
+  Clock
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -42,6 +42,7 @@ import {
   checkCloudMovie, 
   createPreOrder, 
   getMyPreOrders, 
+  listenToMyPreOrders,
   updatePreOrderStatus,
   type CloudMovie,
   type PreOrder
@@ -331,6 +332,7 @@ const MovieDownloader: React.FC = () => {
   const [isPreOrdering, setIsPreOrdering] = useState(false);
   const [preOrderSuccess, setPreOrderSuccess] = useState(false);
   const [movieToPreOrder, setMovieToPreOrder] = useState<MovieInfo | null>(null);
+  const [preorderedMovieIds, setPreorderedMovieIds] = useState<Set<string>>(new Set());
 
   // Search suggestions auto-complete state
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -462,12 +464,29 @@ const MovieDownloader: React.FC = () => {
     try {
       const data = await getMyPreOrders(user.uid);
       setMyPreOrders(data);
+      const preIds = new Set(data.map(p => String(p.movieId)));
+      setPreorderedMovieIds(preIds);
     } catch (err) {
       console.error('Failed to load library:', err);
     } finally {
       setIsLoadingLibrary(false);
     }
   };
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setMyPreOrders([]);
+      setPreorderedMovieIds(new Set());
+      return;
+    }
+    const unsubscribe = listenToMyPreOrders(user.uid, (data) => {
+      setMyPreOrders(data);
+      const preIds = new Set(data.map(p => String(p.movieId)));
+      setPreorderedMovieIds(preIds);
+      setIsLoadingLibrary(false);
+    });
+    return () => unsubscribe();
+  }, [user?.uid]);
 
   useEffect(() => {
     if (activeTab === 'library') {
@@ -1075,7 +1094,7 @@ const MovieDownloader: React.FC = () => {
           title: (fetchedData.title && fetchedData.title !== 'Unknown Title' && fetchedData.title.trim()) || movie.title || '',
           year: (fetchedData.year && fetchedData.year !== 'N/A' && fetchedData.year !== '0' && fetchedData.year.trim()) || movie.year || '',
           rating: (fetchedData.rating && fetchedData.rating !== '0.0' && fetchedData.rating.trim()) || movie.rating || '7.5',
-          description: (fetchedData.description && fetchedData.description !== 'No description available.' && fetchedData.description !== '4K streaming & high-speed cloud download available for pre-order.' && fetchedData.description.trim()) || movie.description || fetchedData.description || '4K streaming & high-speed cloud download available for pre-order.',
+          description: (fetchedData.description && fetchedData.description !== 'No description available.' && fetchedData.description !== '4K streaming & high-speed cloud download available.' && fetchedData.description !== '4K streaming & high-speed cloud download available for pre-order.' && fetchedData.description !== '4K streaming available for pre-order.' && fetchedData.description !== '4K streaming available.' && fetchedData.description.trim()) || movie.description || fetchedData.description || '4K streaming available.',
           tmdb: fetchedData.tmdb || movie.tmdb,
           qualities: fetchedData.qualities && fetchedData.qualities.length > 0 ? fetchedData.qualities : (movie.qualities || []),
           seasons: fetchedData.seasons && fetchedData.seasons.length > 0 ? fetchedData.seasons : (movie.seasons || [])
@@ -1171,9 +1190,14 @@ const MovieDownloader: React.FC = () => {
         selectedSeason || undefined,
         selectedEpisode || undefined
       );
+
+      const targetId = movieToPreOrder.id || (movieToPreOrder as any).subjectId;
+      if (targetId) {
+        setPreorderedMovieIds(prev => new Set(prev).add(String(targetId)));
+      }
+
       setPreOrderSuccess(true);
-      showSuccess('Pre-order placed successfully!');
-      handleClosePreOrderModal();
+      showSuccess('Pre-order placed successfully! Check your notifications.');
     } catch (err: any) {
       showError(err.message || 'Failed to place pre-order');
     } finally {
@@ -1205,7 +1229,7 @@ const MovieDownloader: React.FC = () => {
 
       let embedUrl = res.data?.embedUrl;
       if (!embedUrl && yKey) {
-        embedUrl = `https://www.youtube-nocookie.com/embed/${yKey}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1`;
+        embedUrl = `https://www.youtube-nocookie.com/embed/${yKey}?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&playsinline=1`;
       }
 
       const rawStream = res.data?.streamUrl;
@@ -1215,11 +1239,11 @@ const MovieDownloader: React.FC = () => {
 
       const directUrl = res.data?.directUrl;
 
-      // Default to YouTube embed for YouTube trailers (100% rock-solid, zero buffer, studio/music licensed trailers)
+      // Primary embed player with streamlined StreamAura Cinema delivery
       const playerMode: 'embed' | 'video' = isDirectMp4 ? 'video' : 'embed';
 
       setActiveTrailer({
-        title: res.data?.title || `${movieTitle} — Official Trailer`,
+        title: `${movieTitle} — Official Preview`,
         movie,
         youtubeKey: yKey,
         embedUrl,
@@ -1231,12 +1255,12 @@ const MovieDownloader: React.FC = () => {
       console.error('Trailer lookup error:', err);
       const fallbackUrl = mediaApi.getMovieTrailerStreamUrl(movieTitle, movieTitle);
       setActiveTrailer({
-        title: `${movieTitle} — Official Trailer`,
+        title: `${movieTitle} — Official Preview`,
         movie,
         streamUrl: fallbackUrl,
         fallbackUrl: fallbackUrl,
         playerMode: 'embed',
-        embedUrl: `https://www.youtube-nocookie.com/embed?search=${encodeURIComponent(movieTitle + ' official trailer')}&autoplay=1`
+        embedUrl: `https://www.youtube-nocookie.com/embed?search=${encodeURIComponent(movieTitle + ' official trailer')}&autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&playsinline=1`
       });
     } finally {
       setIsLoadingTrailer(false);
@@ -2027,13 +2051,20 @@ const MovieDownloader: React.FC = () => {
                                     Pre-order now for high-speed cloud provisioning.
                                   </p>
                                 </div>
-                                <button 
-                                  onClick={handlePreOrder} 
-                                  className="w-full py-4 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-black font-black uppercase tracking-wider text-xs rounded-2xl shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-95"
-                                >
-                                  {preOrderSuccess ? <Check className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                                  <span>{preOrderSuccess ? 'Pre-Order Requested!' : (selectedMovie.mediaType === 'series' ? 'Pre-Order Episode' : 'Pre-Order Movie')}</span>
-                                </button>
+                                {preorderedMovieIds.has(String(selectedMovie.id)) || preOrderSuccess ? (
+                                  <div className="w-full py-4 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-black uppercase tracking-wider text-xs rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/10 select-none">
+                                    <Check className="w-4 h-4 text-emerald-400" />
+                                    <span>Pre-Ordered ✓ (Queued for Upload)</span>
+                                  </div>
+                                ) : (
+                                  <button 
+                                    onClick={handlePreOrder} 
+                                    className="w-full py-4 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-black font-black uppercase tracking-wider text-xs rounded-2xl shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-95"
+                                  >
+                                    <Play className="w-4 h-4" />
+                                    <span>{selectedMovie.mediaType === 'series' ? 'Pre-Order Episode' : 'Pre-Order Movie'}</span>
+                                  </button>
+                                )}
                               </>
                             )}
                             {selectedMovie.mediaType === 'series' && !selectedSeason && (
@@ -2391,61 +2422,121 @@ const MovieDownloader: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {myPreOrders.map(order => {
                 const orderImg = order.thumbnail && order.thumbnail.trim() ? order.thumbnail : null;
+                const isAvailable = order.status === 'available';
                 return (
-                  <Card key={order.id} className="p-4 bg-[#090e1c] border border-white/10 rounded-2xl flex gap-4 group hover:border-purple-500/40 transition-all overflow-hidden relative shadow-lg">
-                    {order.status === 'available' && (
-                      <div className="absolute top-2 right-2">
-                        <Badge className="bg-emerald-500 text-black font-black text-[9px] uppercase tracking-wider shadow-md shadow-emerald-500/30">
-                          READY IN 4K
-                        </Badge>
-                      </div>
-                    )}
+                  <Card 
+                    key={order.id} 
+                    className={`p-4 rounded-3xl flex flex-col sm:flex-row gap-4 transition-all duration-300 overflow-hidden relative shadow-xl ${
+                      isAvailable 
+                        ? 'bg-gradient-to-br from-[#0a1222] to-[#070b16] border border-emerald-500/30 hover:border-emerald-500/60 shadow-[0_0_25px_rgba(16,185,129,0.08)]' 
+                        : 'bg-[#090e1c] border border-white/10 hover:border-purple-500/30'
+                    }`}
+                  >
+                    {/* Top Right Status Badge */}
+                    <div className="absolute top-3 right-3 z-10">
+                      {isAvailable ? (
+                        <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-black text-[9px] uppercase tracking-wider shadow-sm flex items-center gap-1">
+                          <Check className="w-3 h-3 text-emerald-400" />
+                          Order Fulfilled • Ready
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 font-black text-[9px] uppercase tracking-wider shadow-sm flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-amber-400" />
+                          Queued for Upload
+                        </span>
+                      )}
+                    </div>
 
-                    <div className="w-24 h-32 rounded-xl overflow-hidden border border-white/15 flex-shrink-0 relative bg-black/60 shadow-md">
+                    {/* Movie Artwork / Poster */}
+                    <div className="w-24 sm:w-28 h-36 sm:h-40 rounded-2xl overflow-hidden border border-white/15 flex-shrink-0 relative bg-black/60 shadow-lg group/poster">
                       {orderImg ? (
                         <img 
                           src={orderImg} 
                           referrerPolicy="no-referrer"
-                          className="w-full h-full object-cover" 
+                          className="w-full h-full object-cover group-hover/poster:scale-105 transition-transform duration-300" 
                           alt={order.title} 
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center bg-black/60 text-white/40">
-                          <Film className="w-6 h-6" />
+                          <Film className="w-8 h-8 text-white/20" />
                         </div>
                       )}
-                      {order.status === 'available' && (
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                          <Play fill="currentColor" className="text-white w-6 h-6" />
+                      {isAvailable && (
+                        <div 
+                          onClick={() => {
+                            setCloudData({ streamUrl: order.movieUrl!, title: order.title, thumbnail: order.thumbnail, season: order.season, episode: order.episode } as any); 
+                            setShowPlayer(true);
+                          }}
+                          className="absolute inset-0 bg-black/40 hover:bg-black/20 flex items-center justify-center cursor-pointer transition-colors"
+                          title="Play 4K Stream"
+                        >
+                          <div className="w-10 h-10 rounded-full bg-cyan-500/90 text-white flex items-center justify-center shadow-lg shadow-cyan-500/40 hover:scale-110 active:scale-95 transition-transform">
+                            <Play fill="currentColor" className="text-white w-4 h-4 ml-0.5" />
+                          </div>
                         </div>
                       )}
                     </div>
 
-                    <div className="flex-1 flex flex-col justify-between py-1 min-w-0">
-                      <div>
-                        <h4 className="font-black text-sm text-white uppercase truncate">{order.title}</h4>
-                        <div className="flex items-center gap-2 mt-1">
-                          <p className="text-[10px] text-white/50 font-medium">Requested {new Date(order.requestedAt).toLocaleDateString()}</p>
+                    {/* Card Content & Action Area */}
+                    <div className="flex-1 flex flex-col justify-between py-0.5 min-w-0 pr-1 sm:pr-2">
+                      <div className="space-y-1.5 pt-1 sm:pt-0">
+                        <div className="pr-28 sm:pr-32">
+                          <h4 className="font-black text-sm sm:text-base text-white uppercase truncate tracking-wide">
+                            {order.title}
+                          </h4>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] text-white/50 font-medium">
+                            Requested {new Date(order.requestedAt).toLocaleDateString()}
+                          </span>
                           {order.season && (
                             <Badge variant="outline" className="text-[10px] font-black border-purple-500/40 bg-purple-500/15 text-purple-300">
                               S{order.season} E{order.episode}
                             </Badge>
                           )}
+                          {isAvailable && (
+                            <span className="px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-mono text-[9px] font-bold border border-cyan-500/30">
+                              4K Ultra HD
+                            </span>
+                          )}
                         </div>
                       </div>
                       
-                      <div className="space-y-2 pt-2">
-                        {order.status === 'available' ? (
+                      <div className="space-y-2.5 pt-3">
+                        {isAvailable ? (
                           <>
+                            <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                                <p className="text-[11px] font-bold text-emerald-300 leading-tight truncate">
+                                  Your movie is ready to watch!
+                                </p>
+                              </div>
+                              <span className="text-[9px] font-black text-emerald-400/80 uppercase tracking-widest shrink-0">
+                                Available Now
+                              </span>
+                            </div>
+
+                            {/* 1. Primary Action: Watch in Cinema (Create Watch Room) */}
+                            <Button 
+                              onClick={() => handleCreateRoomFromPreOrder(order)} 
+                              className="w-full h-9 bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-purple-500/20 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                            >
+                              <Users className="w-4 h-4" />
+                              <span>Create Cinema Room</span>
+                            </Button>
+
+                            {/* 2. Secondary Actions: Watch Solo & Direct Cloud Download */}
                             <div className="flex flex-wrap gap-2">
                               <Button 
                                 onClick={() => { 
-                                  setCloudData({ streamUrl: order.movieUrl!, title: order.title } as any); 
+                                  setCloudData({ streamUrl: order.movieUrl!, title: order.title, thumbnail: order.thumbnail, season: order.season, episode: order.episode } as any); 
                                   setShowPlayer(true); 
                                 }} 
-                                className="h-8 flex-1 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-xl text-[10px] font-black uppercase tracking-wider"
+                                className="h-8 flex-1 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 hover:text-cyan-200 rounded-xl text-[10px] font-black uppercase tracking-wider active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                               >
-                                Watch Now
+                                <Play className="w-3.5 h-3.5 fill-current" />
+                                <span>Watch Solo (4K)</span>
                               </Button>
                               <Button 
                                 onClick={() => { 
@@ -2453,35 +2544,31 @@ const MovieDownloader: React.FC = () => {
                                   handleUpdateStatus(order.id, 'downloaded'); 
                                 }} 
                                 variant="outline" 
-                                className="h-8 flex-1 border-white/15 text-white rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-white/10"
+                                className="h-8 flex-1 border-white/15 text-white hover:bg-white/10 rounded-xl text-[10px] font-black uppercase tracking-wider active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                               >
-                                Download
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Download</span>
                               </Button>
                             </div>
-                            <div className="flex gap-2">
-                              <Button 
-                                onClick={() => handleCreateRoomFromPreOrder(order)} 
-                                variant="ghost" 
-                                className="h-7 flex-1 border border-white/10 hover:bg-purple-500/10 text-purple-300 rounded-xl text-[9px] font-black uppercase tracking-wider"
+
+                            <div className="flex justify-end pt-0.5">
+                              <button 
+                                onClick={() => handleUpdateStatus(order.id, order.userStatus === 'watched' ? 'none' as any : 'watched')} 
+                                className="text-[9px] font-black uppercase tracking-wider text-white/50 hover:text-emerald-400 transition-colors cursor-pointer flex items-center gap-1"
                               >
-                                Create Watch Room
-                              </Button>
-                              <Button 
-                                onClick={() => handleUpdateStatus(order.id, 'watched')} 
-                                variant="ghost" 
-                                className="h-7 flex-1 border border-white/10 hover:bg-emerald-500/10 text-emerald-300 rounded-xl text-[9px] font-black uppercase tracking-wider"
-                              >
-                                {order.userStatus === 'watched' ? '✓ Watched' : 'Mark Watched'}
-                              </Button>
+                                {order.userStatus === 'watched' ? '✓ Marked as Watched' : 'Mark as Watched'}
+                              </button>
                             </div>
                           </>
                         ) : (
-                          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2.5">
-                            <ShieldAlert className="w-5 h-5 text-amber-400 flex-shrink-0" />
-                            <div>
-                              <p className="text-[10px] font-bold text-amber-300 uppercase">Request Queued</p>
-                              <p className="text-[9px] text-white/50 leading-tight">We'll notify you as soon as it's ready.</p>
+                          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <Clock className="w-4 h-4 text-amber-400 flex-shrink-0 animate-pulse" />
+                              <p className="text-[10px] font-black text-amber-300 uppercase tracking-wider">Processing Request</p>
                             </div>
+                            <p className="text-[10px] text-white/60 leading-relaxed pl-6">
+                              Our cloud delivery pipeline is fulfilling your upload. We'll send a notification to your inbox the moment it's live!
+                            </p>
                           </div>
                         )}
                       </div>
@@ -2513,7 +2600,7 @@ const MovieDownloader: React.FC = () => {
         <AnimatePresence>
           {showPreOrderModal && (
             <div 
-              className="fixed inset-0 w-screen h-screen z-[99999] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
+              className="fixed inset-0 w-screen h-screen z-[100000] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
               onClick={handleClosePreOrderModal}
             >
               <motion.div 
@@ -2523,35 +2610,61 @@ const MovieDownloader: React.FC = () => {
                 onClick={(e) => e.stopPropagation()}
                 className="w-full max-w-md p-7 text-center space-y-5 rounded-3xl border border-white/15 shadow-2xl bg-[#0b0f1d]"
               >
-                <div className="w-16 h-16 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400 shadow-lg">
-                  <Info className="w-8 h-8" />
-                </div>
-                <div className="space-y-2">
-                  <h3 className="text-xl font-black uppercase tracking-tight text-white">
-                    Pre-Order {selectedEpisode ? 'Episode' : 'Title'}
-                  </h3>
-                  <p className="text-xs text-white/70 leading-relaxed">
-                    You are placing a cloud request for <strong className="text-white">"{movieToPreOrder?.title}"</strong>
-                    {selectedEpisode && ` (Season ${selectedSeason}, Episode ${selectedEpisode})`}. 
-                    Our system will prioritize this upload and alert you when it is live.
-                  </p>
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <Button 
-                    onClick={handleClosePreOrderModal} 
-                    variant="ghost" 
-                    className="flex-1 h-12 rounded-xl font-bold uppercase tracking-wider text-xs border border-white/10 hover:bg-white/5 text-white/80"
-                  >
-                    Cancel
-                  </Button>
-                  <Button 
-                    onClick={confirmPreOrder} 
-                    disabled={isPreOrdering} 
-                    className="flex-[2] h-12 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-black font-black uppercase tracking-wider text-xs shadow-lg shadow-amber-500/20"
-                  >
-                    {isPreOrdering ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : 'Confirm Pre-Order'}
-                  </Button>
-                </div>
+                {preOrderSuccess ? (
+                  <div className="space-y-4 py-2">
+                    <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center mx-auto text-emerald-400 shadow-xl shadow-emerald-500/20 animate-bounce">
+                      <Check className="w-8 h-8" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <h3 className="text-xl font-black uppercase tracking-tight text-white">
+                        Pre-Order Confirmed!
+                      </h3>
+                      <p className="text-xs text-emerald-300 font-medium leading-relaxed">
+                        Your request for <strong className="text-white">"{movieToPreOrder?.title}"</strong> has been queued. An in-app notification has been delivered to your inbox!
+                      </p>
+                    </div>
+                    <div className="pt-2">
+                      <Button
+                        onClick={handleClosePreOrderModal}
+                        className="w-full h-12 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase tracking-wider text-xs shadow-lg shadow-emerald-500/20 cursor-pointer active:scale-95 transition-all"
+                      >
+                        Done (Continue Preview)
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="w-16 h-16 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400 shadow-lg">
+                      <Info className="w-8 h-8" />
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="text-xl font-black uppercase tracking-tight text-white">
+                        Pre-Order {selectedEpisode ? 'Episode' : 'Title'}
+                      </h3>
+                      <p className="text-xs text-white/70 leading-relaxed">
+                        You are placing a request for <strong className="text-white">"{movieToPreOrder?.title}"</strong>
+                        {selectedEpisode && ` (Season ${selectedSeason}, Episode ${selectedEpisode})`}. 
+                        Our system will prioritize this upload and alert you when it is live.
+                      </p>
+                    </div>
+                    <div className="flex gap-3 pt-2">
+                      <Button 
+                        onClick={handleClosePreOrderModal} 
+                        variant="ghost" 
+                        className="flex-1 h-12 rounded-xl font-bold uppercase tracking-wider text-xs border border-white/10 hover:bg-white/5 text-white/80"
+                      >
+                        Cancel
+                      </Button>
+                      <Button 
+                        onClick={confirmPreOrder} 
+                        disabled={isPreOrdering} 
+                        className="flex-[2] h-12 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-black font-black uppercase tracking-wider text-xs shadow-lg shadow-amber-500/20"
+                      >
+                        {isPreOrdering ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : 'Confirm Pre-Order'}
+                      </Button>
+                    </div>
+                  </>
+                )}
               </motion.div>
             </div>
           )}
@@ -2625,7 +2738,7 @@ const MovieDownloader: React.FC = () => {
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-cyan-400">Official Preview</span>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-cyan-400">StreamAura Cinema Preview</span>
                         {activeTrailer.movie?.year && activeTrailer.movie.year !== 'N/A' && (
                           <span className="px-1.5 py-0.2 rounded bg-white/10 text-white/70 text-[9px] font-bold">
                             {activeTrailer.movie.year}
@@ -2644,56 +2757,10 @@ const MovieDownloader: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {/* Player Mode Switcher (if both available) */}
-                    {activeTrailer.embedUrl && activeTrailer.streamUrl && (
-                      <div className="hidden sm:flex items-center gap-1 p-0.5 rounded-lg bg-white/5 border border-white/10 text-[10px] font-bold">
-                        <button
-                          onClick={() => {
-                            setIsTrailerBuffering(true);
-                            setActiveTrailer(prev => prev ? ({ ...prev, playerMode: 'embed' }) : null);
-                          }}
-                          className={`px-2 py-1 rounded transition-all ${
-                            activeTrailer.playerMode === 'embed'
-                              ? 'bg-cyan-500 text-black font-black shadow-sm'
-                              : 'text-white/60 hover:text-white'
-                          }`}
-                        >
-                          YouTube HD
-                        </button>
-                        <button
-                          onClick={() => {
-                            setIsTrailerBuffering(true);
-                            setActiveTrailer(prev => prev ? ({ ...prev, playerMode: 'video' }) : null);
-                          }}
-                          className={`px-2 py-1 rounded transition-all ${
-                            activeTrailer.playerMode === 'video'
-                              ? 'bg-cyan-500 text-black font-black shadow-sm'
-                              : 'text-white/60 hover:text-white'
-                          }`}
-                        >
-                          Direct Stream
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Open External on YouTube */}
-                    {activeTrailer.youtubeKey && (
-                      <a
-                        href={`https://www.youtube.com/watch?v=${activeTrailer.youtubeKey}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-2 rounded-xl bg-white/5 text-white/70 hover:text-white hover:bg-white/10 border border-white/10 transition-all text-xs font-bold flex items-center gap-1"
-                        title="Open on YouTube"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        <span className="hidden md:inline text-[10px]">YouTube</span>
-                      </a>
-                    )}
-
                     <button 
                       onClick={() => setActiveTrailer(null)}
-                      className="p-2 rounded-xl bg-white/10 text-white hover:bg-white/20 transition-all cursor-pointer"
-                      title="Close"
+                      className="p-2 rounded-xl bg-white/10 text-white hover:bg-white/20 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                      title="Close Preview"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -2701,17 +2768,33 @@ const MovieDownloader: React.FC = () => {
                 </div>
 
                 {/* Video / Embed Area */}
-                <div className="relative w-full aspect-video bg-black flex items-center justify-center overflow-hidden">
+                <div className="relative w-full aspect-video bg-black flex items-center justify-center overflow-hidden select-none">
                   {activeTrailer.playerMode === 'embed' && activeTrailer.embedUrl ? (
-                    <iframe
-                      key={activeTrailer.embedUrl}
-                      src={activeTrailer.embedUrl}
-                      title={activeTrailer.title}
-                      className="w-full h-full border-0 bg-black"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                      allowFullScreen
-                      onLoad={() => setIsTrailerBuffering(false)}
-                    />
+                    <div className="relative w-full h-full overflow-hidden flex items-center justify-center select-none">
+                      <iframe
+                        key={activeTrailer.embedUrl}
+                        src={activeTrailer.embedUrl}
+                        title={activeTrailer.title}
+                        className="w-[110%] h-[116%] -mt-[4%] -mb-[4%] -ml-[5%] -mr-[5%] border-0 bg-black pointer-events-auto"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowFullScreen
+                        onLoad={() => setIsTrailerBuffering(false)}
+                      />
+                      {/* Click Interceptor Shield over bottom-right to fully block clicks to YouTube watermark */}
+                      <div 
+                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                        onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                        onDoubleClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                        className="absolute bottom-0 right-0 w-52 h-20 pointer-events-auto z-20 flex items-end justify-end p-3 select-none cursor-default bg-transparent"
+                      >
+                        <div 
+                          onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-black/90 backdrop-blur-md border border-cyan-500/40 text-[10px] font-black text-cyan-400 tracking-wider shadow-2xl pointer-events-auto select-none cursor-default"
+                        >
+                          <Play className="w-2.5 h-2.5 fill-current" /> StreamAura Cinema
+                        </div>
+                      </div>
+                    </div>
                   ) : activeTrailer.streamUrl ? (
                     <video
                       key={activeTrailer.streamUrl}
@@ -2769,23 +2852,29 @@ const MovieDownloader: React.FC = () => {
                           setActiveTrailer(null);
                           setSelectedMovie(m);
                         }}
-                        className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white border border-white/10 text-xs font-bold transition-all flex items-center gap-1.5"
+                        className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white border border-white/10 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
                       >
                         <Info className="w-3.5 h-3.5" />
                         <span>Movie Details</span>
                       </button>
 
-                      <button
-                        onClick={() => {
-                          const m = activeTrailer.movie!;
-                          setActiveTrailer(null);
-                          handlePreOrder(m);
-                        }}
-                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-primary text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-cyan-500/20 hover:scale-105 transition-all flex items-center gap-1.5"
-                      >
-                        <Tv className="w-3.5 h-3.5" />
-                        <span>Pre-Order / Watch</span>
-                      </button>
+                      {activeTrailer.movie && (preorderedMovieIds.has(String(activeTrailer.movie.id)) || ((activeTrailer.movie as any).subjectId && preorderedMovieIds.has(String((activeTrailer.movie as any).subjectId)))) ? (
+                        <div className="px-4 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg shadow-emerald-500/10 select-none">
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Pre-Ordered ✓</span>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            const m = activeTrailer.movie!;
+                            handlePreOrder(m);
+                          }}
+                          className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-primary text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-cyan-500/20 hover:scale-105 transition-all flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Tv className="w-3.5 h-3.5" />
+                          <span>Pre-Order / Watch</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}

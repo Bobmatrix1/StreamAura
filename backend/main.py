@@ -3362,7 +3362,7 @@ async def get_movie_details(
             "id": subject_id,
             "detailPath": detail_path or f"/detail/{make_slug(title or 'detail')}?id={subject_id}",
             "title": title or "Unknown Title",
-            "description": description or "4K streaming & high-speed cloud download available.",
+            "description": description or "4K streaming available.",
             "thumbnail": thumbnail or "",
             "year": year or "",
             "rating": rating or "7.5",
@@ -3756,7 +3756,7 @@ async def get_movie_trailer(title: str = Query(...), year: Optional[str] = Query
                     print(f"Direct trailer stream extract error: {ex}")
 
             stream_url = f"/api/movies/trailer/stream?key={target_cand}&title={urllib.parse.quote(clean_title)}"
-            embed_url = f"https://www.youtube-nocookie.com/embed/{target_cand}?autoplay=1&rel=0&modestbranding=1"
+            embed_url = f"https://www.youtube-nocookie.com/embed/{target_cand}?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&playsinline=1"
             res_data = {
                 "success": True,
                 "data": {

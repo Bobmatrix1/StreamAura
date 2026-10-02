@@ -25,7 +25,8 @@ import {
   Loader2,
   ChefHat,
   ExternalLink,
-  Megaphone
+  Megaphone,
+  Check
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { 
@@ -478,6 +479,11 @@ const Notifications: React.FC = () => {
         return <PackageCheck className="w-5 h-5 text-emerald-400" />;
       case 'order_cancelled':
         return <XCircle className="w-5 h-5 text-rose-500" />;
+      case 'preorder_placed':
+      case 'preorder_pending':
+        return notif.mediaType === 'series'
+          ? <Tv className="w-5 h-5 text-amber-400" />
+          : <Film className="w-5 h-5 text-amber-400" />;
       case 'preorder_delivered': 
         return notif.mediaType === 'series' 
           ? <Tv className="w-5 h-5 text-cyan-400" /> 
@@ -782,10 +788,20 @@ const Notifications: React.FC = () => {
                         <h3 className={`font-bold text-sm truncate ${notif.read ? 'text-muted-foreground' : 'text-foreground'}`}>
                           {notif.title}
                         </h3>
-                        {(notif.type === 'ad' || notif.type === 'promo' || notif.adId || notif.badgeText) && (
+                        {(notif.type === 'ad' || notif.type === 'promo' || notif.adId) && (
                           <span className="px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-400 border border-amber-500/30 font-black text-[9px] uppercase tracking-wider shrink-0 shadow-sm flex items-center gap-1">
                             <Megaphone className="w-2.5 h-2.5" />
                             {notif.badgeText || 'Special Offer'}
+                          </span>
+                        )}
+                        {notif.badgeText && notif.type !== 'ad' && notif.type !== 'promo' && !notif.adId && (
+                          <span className={`px-2 py-0.5 rounded-full font-black text-[9px] uppercase tracking-wider shrink-0 shadow-sm flex items-center gap-1 border ${
+                            notif.type === 'preorder_delivered' || notif.badgeText.toLowerCase().includes('fulfilled') || notif.badgeText.toLowerCase().includes('ready')
+                              ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                              : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                          }`}>
+                            {notif.type === 'preorder_delivered' || notif.badgeText.toLowerCase().includes('fulfilled') ? <Check className="w-2.5 h-2.5" /> : <Clock className="w-2.5 h-2.5" />}
+                            {notif.badgeText}
                           </span>
                         )}
                         {notif.orderNumber && (
@@ -811,6 +827,30 @@ const Notifications: React.FC = () => {
                         adCampaign={notif.adId ? adsMap.get(notif.adId) : undefined}
                         onNotificationClick={handleNotificationClick} 
                       />
+                    ) : notif.thumbnailUrl ? (
+                      <div className="mt-2.5 flex items-center gap-3 p-2.5 rounded-2xl bg-white/[0.04] border border-white/10 max-w-sm">
+                        <img 
+                          src={notif.thumbnailUrl} 
+                          alt={notif.movieTitle || notif.title} 
+                          className="w-10 h-14 object-cover rounded-xl flex-shrink-0 shadow-md border border-white/10" 
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold text-white truncate">{notif.movieTitle || notif.title}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {notif.season && notif.episode && (
+                              <span className="text-[10px] text-white/50 font-bold">S{notif.season} E{notif.episode}</span>
+                            )}
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1 border ${
+                              notif.type === 'preorder_delivered' || notif.badgeText?.toLowerCase().includes('fulfilled') || notif.badgeText?.toLowerCase().includes('ready')
+                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 shadow-sm shadow-emerald-500/10'
+                                : 'bg-amber-500/15 text-amber-400 border-amber-500/30 shadow-sm shadow-amber-500/10'
+                            }`}>
+                              {notif.type === 'preorder_delivered' || notif.badgeText?.toLowerCase().includes('fulfilled') ? <Check className="w-2.5 h-2.5" /> : null}
+                              {notif.badgeText || (notif.type === 'preorder_delivered' ? 'Order Fulfilled' : 'Queued for Upload')}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                     ) : notif.link ? (
                       /* Clickable CTA Action Button for text-only link notifications */
                       <div className="mt-3 flex items-center gap-2">
@@ -827,6 +867,23 @@ const Notifications: React.FC = () => {
                         </button>
                       </div>
                     ) : null}
+
+                    {/* Quick Action Button for Fulfilled Preorders */}
+                    {notif.type === 'preorder_delivered' && notif.movieUrl && (
+                      <div className="mt-3 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedNotifForOptions(notif);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-primary hover:from-cyan-400 hover:to-primary/90 text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-cyan-500/25 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                        >
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                          <span>Watch Now / Cinema Room</span>
+                        </button>
+                      </div>
+                    )}
 
                     {/* Shipped ETA Badge */}
                     {notif.estimatedDeliveryTime && notif.type === 'order_shipped' && (
