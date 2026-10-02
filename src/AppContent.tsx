@@ -61,6 +61,24 @@ export const AppContent: React.FC = () => {
     }
     return 'home';
   });
+
+  const [navStack, setNavStack] = useState<ViewType[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = sessionStorage.getItem('aura_nav_stack');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {}
+      const savedActive = sessionStorage.getItem('aura_active_view') as ViewType;
+      if (savedActive && savedActive !== 'home') {
+        return ['home', savedActive];
+      }
+    }
+    return ['home'];
+  });
+
   const [viewStartTime, setViewStartTime] = useState(Date.now());
 
   // URL Parameter Sync & View Persistence
@@ -240,7 +258,7 @@ export const AppContent: React.FC = () => {
     }
   }, [isAuthenticated, user?.uid, activeView]);
 
-  const handleTabChange = (tab: ViewType) => {
+  const handleTabChange = (tab: ViewType, isBack: boolean = false) => {
     if (tab === activeView) return;
 
     // 1. Log time spent on previous page
@@ -248,13 +266,30 @@ export const AppContent: React.FC = () => {
     logPageLeave(activeView, timeSpent, auth.currentUser?.uid);
 
     // 2. Switch View & Log entry to new page
-    sessionStorage.setItem('aura_prev_view', activeView);
     setActiveView(tab);
     sessionStorage.setItem('aura_active_view', tab);
     setViewStartTime(Date.now());
     logPageEnter(tab, auth.currentUser?.uid);
-    
-    // 3. Scroll the main content area to top (since main has overflow-auto)
+
+    // 3. Update persistent Navigation Stack
+    if (!isBack) {
+      setNavStack(prev => {
+        if (tab === 'home') {
+          const reset: ViewType[] = ['home'];
+          sessionStorage.setItem('aura_nav_stack', JSON.stringify(reset));
+          return reset;
+        }
+        // Avoid duplicate consecutive entry
+        if (prev.length > 0 && prev[prev.length - 1] === tab) {
+          return prev;
+        }
+        const next: ViewType[] = [...prev, tab];
+        sessionStorage.setItem('aura_nav_stack', JSON.stringify(next));
+        return next;
+      });
+    }
+
+    // 4. Scroll the main content area to top (since main has overflow-auto)
     setTimeout(() => {
       const mainEl = document.querySelector('main');
       if (mainEl) {
@@ -268,6 +303,37 @@ export const AppContent: React.FC = () => {
       logFeatureUsage(tab, user.uid);
     }
   };
+
+  const handleBack = () => {
+    setNavStack(prev => {
+      const stack = [...prev];
+      // Pop the current activeView from the top of the stack if present
+      while (stack.length > 1 && stack[stack.length - 1] === activeView) {
+        stack.pop();
+      }
+
+      let targetView: ViewType = 'home';
+      if (stack.length > 0) {
+        targetView = stack[stack.length - 1];
+      } else {
+        stack.push('home');
+        targetView = 'home';
+      }
+
+      sessionStorage.setItem('aura_nav_stack', JSON.stringify(stack));
+      handleTabChange(targetView, true);
+      return stack;
+    });
+  };
+
+  // Synchronize browser history / mobile back button with our navigation stack
+  useEffect(() => {
+    const handlePopState = () => {
+      handleBack();
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [activeView, navStack]);
 
   // Global Interaction Tracking (Accurate Clicks and Touch Taps)
   useEffect(() => {
@@ -373,7 +439,12 @@ export const AppContent: React.FC = () => {
 
   return (
     <>
-      <Layout activeTab={activeView} onTabChange={handleTabChange}>
+      <Layout 
+        activeTab={activeView} 
+        onTabChange={handleTabChange}
+        onBack={handleBack}
+        canGoBack={activeView !== 'home' || navStack.length > 1}
+      >
         <GlobalAdLayer currentView={activeView} onNavigate={handleTabChange} />
         <div key={activeView} className="animate-in fade-in duration-150">
           {activeView === 'home' && <Home onNavigate={handleTabChange} />}

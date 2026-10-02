@@ -46,6 +46,8 @@ interface LayoutProps {
   children: React.ReactNode;
   activeTab: ViewType;
   onTabChange: (tab: ViewType) => void;
+  onBack?: () => void;
+  canGoBack?: boolean;
 }
 
 interface Tab {
@@ -76,7 +78,13 @@ const tabs: Tab[] = [
   { id: 'admin', label: 'Admin Dashboard', icon: Shield, color: 'red', adminOnly: true }
 ];
 
-const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => {
+const Layout: React.FC<LayoutProps> = ({ 
+  children, 
+  activeTab, 
+  onTabChange,
+  onBack,
+  canGoBack
+}) => {
   const { user, logout, isAdmin, requireAuth, isAuthenticated } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { queue, activeDownloads } = useDownload();
@@ -98,42 +106,16 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
   };
 
   const mainRef = React.useRef<HTMLElement>(null);
-  const prevTabRef = React.useRef<ViewType>(activeTab);
-  const [historyStack, setHistoryStack] = useState<ViewType[]>([]);
-  const [isBackAction, setIsBackAction] = useState(false);
-
-  useEffect(() => {
-    const prevTab = prevTabRef.current;
-    if (activeTab !== prevTab) {
-      if (isBackAction) {
-        setIsBackAction(false);
-      } else {
-        setHistoryStack(prev => {
-          if (prev.length > 0 && prev[prev.length - 1] === prevTab) return prev;
-          return [...prev, prevTab];
-        });
-      }
-      prevTabRef.current = activeTab;
-    }
-  }, [activeTab, isBackAction]);
 
   const handleBack = () => {
-    if (historyStack.length > 0) {
-      const previous = historyStack[historyStack.length - 1];
-      setHistoryStack(prev => prev.slice(0, -1));
-      setIsBackAction(true);
-      onTabChange(previous);
-      return;
+    if (onBack) {
+      onBack();
+    } else {
+      onTabChange('home');
     }
-    if (typeof window !== 'undefined') {
-      const prev = sessionStorage.getItem('aura_prev_view') as ViewType;
-      if (prev && prev !== activeTab) {
-        onTabChange(prev);
-        return;
-      }
-    }
-    onTabChange('home');
   };
+
+  const showBackButton = canGoBack !== undefined ? canGoBack : (activeTab !== 'home');
 
   useEffect(() => {
     const handleScroll = () => {
@@ -481,7 +463,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
       >
         <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
           <AnimatePresence>
-            {(activeTab !== 'home' || historyStack.length > 0) && (
+            {showBackButton && (
               <motion.div 
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
