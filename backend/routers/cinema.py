@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request, Query
 from pydantic import BaseModel
-from core.security import get_current_user, get_current_admin
+from core.security import get_current_user, get_current_admin, get_optional_user
 from core.config import settings
 from models.cinema import RoomCreateRequest, PresignedUrlRequest, PaystackInitRequest, AgoraTokenRequest, WithdrawalRequest, MultipartInitiateRequest, MultipartPartRequest, MultipartCompleteRequest
 from services.r2_service import (
@@ -375,11 +375,130 @@ async def get_presigned_url(request: PresignedUrlRequest, user: dict = Depends(g
         
     return urls
 
+@router.get("/trailer-stream-url")
+async def get_cinema_trailer_stream_url(
+    url: Optional[str] = None,
+    room_id: Optional[str] = None,
+    trailer_id: Optional[str] = None,
+    title: Optional[str] = None,
+    user: Optional[dict] = Depends(get_optional_user)
+):
+    """
+    Publicly resolves a playable stream URL or embed URL for cinema trailers.
+    Supports R2 presigned streaming, direct MP4, YouTube URLs, and movie titles.
+    """
+    db = get_db()
+    target_url = url
+    
+    # 1. If room_id or trailer_id provided, look up trailer in Firestore
+    if not target_url and trailer_id:
+        try:
+            t_doc = db.collection("cinema_trailers").document(trailer_id).get()
+            if t_doc.exists:
+                t_data = t_doc.to_dict() or {}
+                target_url = t_data.get("videoUrl") or t_data.get("trailer_url") or t_data.get("url")
+                if not title:
+                    title = t_data.get("title") or t_data.get("movie_title")
+        except Exception as e:
+            print(f"Trailer doc lookup error: {e}")
+
+    if not target_url and room_id:
+        try:
+            r_doc = db.collection("cinema_rooms").document(room_id).get()
+            if r_doc.exists:
+                r_data = r_doc.to_dict() or {}
+                target_url = r_data.get("trailer_url")
+                if not title:
+                    title = r_data.get("movie_title") or r_data.get("room_name")
+        except Exception as e:
+            print(f"Room trailer lookup error: {e}")
+
+    if target_url:
+        target_url = target_url.strip()
+
+        # YouTube URL handling
+        yt_id = None
+        if "youtube.com" in target_url or "youtu.be" in target_url:
+            if "youtu.be/" in target_url:
+                yt_id = target_url.split("youtu.be/")[-1].split("?")[0].split("&")[0]
+            elif "v=" in target_url:
+                yt_id = target_url.split("v=")[-1].split("&")[0]
+            elif "/embed/" in target_url:
+                yt_id = target_url.split("/embed/")[-1].split("?")[0]
+                
+        if yt_id:
+            embed_url = f"https://www.youtube-nocookie.com/embed/{yt_id}?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&playsinline=1"
+            return {
+                "success": True,
+                "player_mode": "embed",
+                "embed_url": embed_url,
+                "youtube_key": yt_id,
+                "stream_url": target_url,
+                "title": title or "Official Trailer"
+            }
+
+        # R2 Cloud Storage URL handling
+        if is_r2_url(target_url):
+            key = extract_r2_key(target_url)
+            if key:
+                signed_url = get_presigned_stream_url(key, settings.R2_BUCKET_MOVIES)
+                if not signed_url:
+                    signed_url = get_presigned_stream_url(key, settings.R2_BUCKET_ASSETS)
+                if signed_url:
+                    return {
+                        "success": True,
+                        "player_mode": "video",
+                        "stream_url": signed_url,
+                        "key": key,
+                        "original_url": target_url,
+                        "title": title or "Official Trailer"
+                    }
+
+        # Direct HTTP/HTTPS Video URL
+        return {
+            "success": True,
+            "player_mode": "video",
+            "stream_url": target_url,
+            "original_url": target_url,
+            "title": title or "Official Trailer"
+        }
+
+    # If no valid URL, but movie title is available, lookup via official movie trailer system
+    if title:
+        try:
+            from main import get_movie_trailer as find_movie_trailer
+            res = await find_movie_trailer(title=title)
+            if res and res.get("success"):
+                data = res.get("data", {})
+                return {
+                    "success": True,
+                    "player_mode": "embed" if (data.get("embedUrl") or data.get("key") or data.get("youtubeKey")) else "video",
+                    "embed_url": data.get("embedUrl"),
+                    "stream_url": data.get("streamUrl") or data.get("directUrl"),
+                    "youtube_key": data.get("youtubeKey") or data.get("key"),
+                    "title": title
+                }
+        except Exception as te:
+            print(f"Trailer title fallback error: {te}")
+
+        # Clean fallback embed if specific key was not found
+        encoded_title = urllib.parse.quote(f"{title} official trailer")
+        return {
+            "success": True,
+            "player_mode": "embed",
+            "embed_url": f"https://www.youtube-nocookie.com/embed?search={encoded_title}&autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&playsinline=1",
+            "stream_url": None,
+            "title": title
+        }
+
+    raise HTTPException(status_code=400, detail="No trailer URL or title provided")
+
 @router.get("/stream-url")
 async def get_cinema_stream_url(
     url: Optional[str] = None, 
     room_id: Optional[str] = None, 
     episode_index: int = 0,
+    trailer: bool = False,
     user: dict = Depends(get_current_user)
 ):
     """
@@ -397,51 +516,66 @@ async def get_cinema_stream_url(
             raise HTTPException(status_code=404, detail="Cinema room not found")
         room_data = room_doc.to_dict()
         
-        # 1. Check if user is banned
-        if room_data.get("bannedUsers", {}).get(uid):
-            raise HTTPException(status_code=403, detail="You are banned from this cinema room.")
+        # If requesting the trailer for this room, allow directly without ticket check
+        if trailer and room_data.get("trailer_url"):
+            target_url = room_data.get("trailer_url")
+        else:
+            # 1. Check if user is banned
+            if room_data.get("bannedUsers", {}).get(uid):
+                raise HTTPException(status_code=403, detail="You are banned from this cinema room.")
 
-        # 2. Access Verification for Paid Rooms
-        if room_data.get("room_type") == "paid":
-            if room_data.get("host_uid") != uid and not is_admin:
-                passes = db.collection("room_access_passes") \
-                           .where("room_id", "==", room_id) \
-                           .where("user_uid", "==", uid) \
-                           .limit(1).get()
-                if not passes:
-                    raise HTTPException(status_code=403, detail="Ticket required to access room stream")
-
-        # 3. Access Verification for Private Rooms
-        elif room_data.get("room_type") == "private":
-            if room_data.get("host_uid") != uid and not is_admin:
-                allowed_guests = (room_data.get("private_guests") or []) + (room_data.get("allowed_uids") or [])
-                # Check user profile for Aura ID match
-                user_aura_id = user.get("aura_id") or user.get("auraId") or ""
-                is_whitelisted = (uid in allowed_guests) or (user_aura_id and user_aura_id in allowed_guests)
-                
-                if not is_whitelisted:
+            # 2. Access Verification for Paid Rooms
+            if room_data.get("room_type") == "paid":
+                if room_data.get("host_uid") != uid and not is_admin:
                     passes = db.collection("room_access_passes") \
                                .where("room_id", "==", room_id) \
                                .where("user_uid", "==", uid) \
                                .limit(1).get()
                     if not passes:
-                        raise HTTPException(status_code=403, detail="Access denied. Private screening invitation required.")
+                        raise HTTPException(status_code=403, detail="Ticket required to access room stream")
 
-        if room_data.get("content_type") == "series":
-            episodes = room_data.get("episodes", [])
-            if 0 <= episode_index < len(episodes):
-                target_url = episodes[episode_index].get("url")
-            elif episodes:
-                target_url = episodes[0].get("url")
-        else:
-            target_url = room_data.get("movie_file") or room_data.get("trailer_url")
+            # 3. Access Verification for Private Rooms
+            elif room_data.get("room_type") == "private":
+                if room_data.get("host_uid") != uid and not is_admin:
+                    allowed_guests = (room_data.get("private_guests") or []) + (room_data.get("allowed_uids") or [])
+                    # Check user profile for Aura ID match
+                    user_aura_id = user.get("aura_id") or user.get("auraId") or ""
+                    is_whitelisted = (uid in allowed_guests) or (user_aura_id and user_aura_id in allowed_guests)
+                    
+                    if not is_whitelisted:
+                        passes = db.collection("room_access_passes") \
+                                   .where("room_id", "==", room_id) \
+                                   .where("user_uid", "==", uid) \
+                                   .limit(1).get()
+                        if not passes:
+                            raise HTTPException(status_code=403, detail="Access denied. Private screening invitation required.")
+
+            if room_data.get("content_type") == "series":
+                episodes = room_data.get("episodes", [])
+                if 0 <= episode_index < len(episodes):
+                    target_url = episodes[episode_index].get("url")
+                elif episodes:
+                    target_url = episodes[0].get("url")
+            else:
+                target_url = room_data.get("movie_file") or room_data.get("trailer_url")
 
     elif target_url:
         # Direct URL was passed without room_id - verify ownership or public trailer status
         key = extract_r2_key(target_url)
-        is_trailer = key and ("trailer" in key.lower() or "trailers" in key.lower())
-        is_owner = key and key.startswith(f"{uid}/")
+        is_trailer = trailer or (key and ("trailer" in key.lower() or "trailers" in key.lower()))
+        is_owner = (uid and key and key.startswith(f"{uid}/"))
         
+        if not (is_admin or is_owner or is_trailer):
+            # Check if URL belongs to any registered trailer in cinema_trailers or cinema_rooms
+            try:
+                t_matches = db.collection("cinema_trailers").where("videoUrl", "==", target_url).limit(1).get()
+                if not t_matches:
+                    t_matches = db.collection("cinema_trailers").where("trailer_url", "==", target_url).limit(1).get()
+                if t_matches:
+                    is_trailer = True
+            except Exception:
+                pass
+
         if not (is_admin or is_owner or is_trailer):
             raise HTTPException(
                 status_code=403, 

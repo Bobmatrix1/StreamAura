@@ -1218,6 +1218,38 @@ const MovieDownloader: React.FC = () => {
       setIsLoadingTrailer(true);
       setIsTrailerBuffering(true);
 
+      let customTrailerUrl = (movie as any).trailerUrl || (movie as any).trailer_url || (movie as any).stream_url || (movie as any).videoUrl;
+      
+      // If movie has a custom uploaded trailer
+      if (customTrailerUrl && !customTrailerUrl.includes('youtube.com') && !customTrailerUrl.includes('youtu.be')) {
+        let streamUrl = customTrailerUrl;
+        if (customTrailerUrl.includes('cdn.streamaura.site') || customTrailerUrl.includes('r2.cloudflarestorage.com') || customTrailerUrl.includes('r2.dev')) {
+          try {
+            const r2Res = await fetch(`${mediaApi.API_BASE_URL}/api/cinema/trailer-stream-url?url=${encodeURIComponent(customTrailerUrl)}&title=${encodeURIComponent(movieTitle)}`);
+            if (r2Res.ok) {
+              const r2Data = await r2Res.json();
+              if (r2Data.stream_url) {
+                streamUrl = r2Data.stream_url;
+              }
+            }
+          } catch (r2Err) {
+            console.warn('R2 custom trailer resolution warning:', r2Err);
+          }
+        }
+
+        setActiveTrailer({
+          title: `${movieTitle} — Official Preview`,
+          movie,
+          streamUrl,
+          fallbackUrl: streamUrl,
+          playerMode: 'video'
+        });
+        setIsLoadingTrailer(false);
+        setIsTrailerBuffering(false);
+        return;
+      }
+
+      // If no custom trailer uploaded, fetch official YouTube trailer
       const res = await mediaApi.getMovieTrailer(
         movieTitle,
         movie.year && movie.year !== 'N/A' && movie.year !== '0' ? movie.year : undefined,
@@ -1225,7 +1257,6 @@ const MovieDownloader: React.FC = () => {
       );
 
       const yKey = res.data?.youtubeKey || res.data?.key || (res as any).key;
-      const isDirectMp4 = (movie as any).trailerUrl?.endsWith('.mp4') || (movie as any).stream_url?.endsWith('.mp4');
 
       let embedUrl = res.data?.embedUrl;
       if (!embedUrl && yKey) {
@@ -1240,14 +1271,14 @@ const MovieDownloader: React.FC = () => {
       const directUrl = res.data?.directUrl;
 
       // Primary embed player with streamlined StreamAura Cinema delivery
-      const playerMode: 'embed' | 'video' = isDirectMp4 ? 'video' : 'embed';
+      const playerMode: 'embed' | 'video' = 'embed';
 
       setActiveTrailer({
         title: `${movieTitle} — Official Preview`,
         movie,
         youtubeKey: yKey,
         embedUrl,
-        streamUrl: isDirectMp4 ? (movie as any).trailerUrl : (directUrl || streamUrl),
+        streamUrl: directUrl || streamUrl,
         fallbackUrl: streamUrl,
         playerMode
       });
@@ -2826,8 +2857,8 @@ const MovieDownloader: React.FC = () => {
                   )}
 
                   {isTrailerBuffering && (
-                    <div className="absolute inset-0 bg-black/70 backdrop-blur-[2px] flex flex-col items-center justify-center gap-2 pointer-events-none z-10 transition-opacity">
-                      <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+                    <div className="absolute inset-0 bg-black flex flex-col items-center justify-center gap-3 pointer-events-none z-20 transition-opacity">
+                      <div className="w-10 h-10 border-2 border-cyan-500/20 border-t-cyan-400 rounded-full animate-spin" />
                       <p className="text-xs font-bold text-white/80 tracking-wide">Loading StreamAura Cinema Stream...</p>
                     </div>
                   )}

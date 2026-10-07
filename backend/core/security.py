@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 from fastapi import Request, HTTPException, Security, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import firebase_admin
@@ -10,6 +11,21 @@ import json
 from firebase_admin import auth
 
 security = HTTPBearer()
+security_optional = HTTPBearer(auto_error=False)
+
+async def get_optional_user(credentials: Optional[HTTPAuthorizationCredentials] = Security(security_optional)):
+    """
+    Optional dependency to verify Firebase ID token if present. Returns None if unauthenticated.
+    """
+    if not credentials or not credentials.credentials:
+        return None
+    try:
+        decoded_token = auth.verify_id_token(credentials.credentials)
+        if "uid" not in decoded_token:
+            decoded_token["uid"] = decoded_token.get("user_id") or decoded_token.get("sub", "")
+        return decoded_token
+    except Exception:
+        return None
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)):
     """

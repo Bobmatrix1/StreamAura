@@ -30,7 +30,7 @@ import { Badge } from '../components/ui/badge';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { CinemaStoreModal } from './CinemaStoreModal';
-import { API_BASE_URL } from '../api/mediaApi';
+import mediaApi, { API_BASE_URL } from '../api/mediaApi';
 import { auth, db, uploadFile, logUserAction, logPaymentEvent, logInviteEvent } from '@/lib/firebase';
 import { doc, getDoc, deleteDoc, collection, query, where, getDocs, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { initializePaystackPayment, verifyPaymentOnBackend } from '../api/paymentApi';
@@ -64,12 +64,149 @@ const CinemaRoom: React.FC = () => {
   const [trailers, setTrailers] = useState<any[]>([]);
   const [upcoming, setUpcoming] = useState<any[]>([]);
   const [selectedTrailer, setSelectedTrailer] = useState<any | null>(null);
+  const [resolvedTrailerUrl, setResolvedTrailerUrl] = useState<string | null>(null);
+  const [trailerEmbedUrl, setTrailerEmbedUrl] = useState<string | null>(null);
+  const [trailerPlayerMode, setTrailerPlayerMode] = useState<'video' | 'embed'>('video');
+  const [isLoadingTrailerVideo, setIsLoadingTrailerVideo] = useState(false);
+  const [isTrailerBuffering, setIsTrailerBuffering] = useState(false);
+  const [trailerPlayError, setTrailerPlayError] = useState<string | null>(null);
   
   // Live Room State
   const [activeRoom, setActiveRoom] = useState<any | null>(null);
   const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
   const [roomToDelete, setRoomToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Dynamic Trailer Stream Resolution Effect
+  useEffect(() => {
+    if (!selectedTrailer) {
+      setResolvedTrailerUrl(null);
+      setTrailerEmbedUrl(null);
+      setTrailerPlayerMode('video');
+      setTrailerPlayError(null);
+      setIsLoadingTrailerVideo(false);
+      setIsTrailerBuffering(false);
+      return;
+    }
+
+    let active = true;
+    const resolveTrailer = async () => {
+      setIsLoadingTrailerVideo(true);
+      setIsTrailerBuffering(true);
+      setTrailerPlayError(null);
+
+      const rawUrl = (
+        selectedTrailer.videoUrl || 
+        selectedTrailer.trailer_url || 
+        selectedTrailer.trailerUrl || 
+        selectedTrailer.streamUrl || 
+        selectedTrailer.stream_url || 
+        selectedTrailer.url || 
+        ''
+      ).trim();
+
+      const movieTitle = selectedTrailer.title || selectedTrailer.movie_title || selectedTrailer.roomName || '';
+      const roomId = selectedTrailer.roomId || selectedTrailer.id;
+
+      // 1. Direct YouTube link handling
+      if (rawUrl && (rawUrl.includes('youtube.com') || rawUrl.includes('youtu.be'))) {
+        let ytId = '';
+        if (rawUrl.includes('youtu.be/')) {
+          ytId = rawUrl.split('youtu.be/')[1]?.split('?')[0]?.split('&')[0] || '';
+        } else if (rawUrl.includes('v=')) {
+          ytId = rawUrl.split('v=')[1]?.split('&')[0] || '';
+        } else if (rawUrl.includes('/embed/')) {
+          ytId = rawUrl.split('/embed/')[1]?.split('?')[0] || '';
+        }
+        if (ytId) {
+          if (active) {
+            setTrailerEmbedUrl(`https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&playsinline=1`);
+            setTrailerPlayerMode('embed');
+            setIsLoadingTrailerVideo(false);
+            setIsTrailerBuffering(false);
+          }
+          return;
+        }
+      }
+
+      // 2. Resolve via backend trailer streaming endpoint (handles R2 presigned streaming, Cloudflare URLs, etc.)
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        const headers: Record<string, string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const queryParams = new URLSearchParams();
+        if (rawUrl) queryParams.set('url', rawUrl);
+        if (roomId) queryParams.set('room_id', roomId);
+        if (selectedTrailer.id) queryParams.set('trailer_id', selectedTrailer.id);
+        if (movieTitle) queryParams.set('title', movieTitle);
+
+        const res = await fetch(`${API_BASE_URL}/api/cinema/trailer-stream-url?${queryParams.toString()}`, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          if (active && data.success) {
+            if (data.player_mode === 'embed' && data.embed_url) {
+              setTrailerEmbedUrl(data.embed_url);
+              setTrailerPlayerMode('embed');
+            } else if (data.stream_url) {
+              setResolvedTrailerUrl(data.stream_url);
+              setTrailerPlayerMode('video');
+            }
+            setIsLoadingTrailerVideo(false);
+            return;
+          }
+        }
+      } catch (backendErr) {
+        console.warn('Trailer backend stream resolution notice:', backendErr);
+      }
+
+      // 3. If a direct/uploaded URL was provided, use it directly (do NOT fall back to YouTube for uploaded trailers)
+      if (rawUrl) {
+        if (active) {
+          setResolvedTrailerUrl(rawUrl);
+          setTrailerPlayerMode('video');
+          setIsLoadingTrailerVideo(false);
+        }
+        return;
+      }
+
+      // 4. Fallback search via mediaApi movie trailer service ONLY when no trailer was uploaded
+      if (movieTitle) {
+        try {
+          const trailerData = await mediaApi.getMovieTrailer(movieTitle);
+          if (active && trailerData.success && trailerData.data) {
+            const yKey = trailerData.data.youtubeKey || trailerData.data.key;
+            if (trailerData.data.embedUrl || yKey) {
+              setTrailerEmbedUrl(trailerData.data.embedUrl || `https://www.youtube-nocookie.com/embed/${yKey}?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&playsinline=1`);
+              setTrailerPlayerMode('embed');
+              setIsLoadingTrailerVideo(false);
+              setIsTrailerBuffering(false);
+              return;
+            } else if (trailerData.data.streamUrl || trailerData.data.directUrl) {
+              setResolvedTrailerUrl(trailerData.data.streamUrl || trailerData.data.directUrl || null);
+              setTrailerPlayerMode('video');
+              setIsLoadingTrailerVideo(false);
+              return;
+            }
+          }
+        } catch (mErr) {
+          console.warn('Trailer search fallback notice:', mErr);
+        }
+      }
+
+      if (active) {
+        setTrailerPlayError('Trailer stream is currently unavailable. Please try again.');
+        setIsLoadingTrailerVideo(false);
+        setIsTrailerBuffering(false);
+      }
+    };
+
+    resolveTrailer();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedTrailer]);
 
   const dateInputRef = React.useRef<HTMLInputElement>(null);
   const timeInputRef = React.useRef<HTMLInputElement>(null);
@@ -1121,14 +1258,94 @@ const CinemaRoom: React.FC = () => {
                 </div>
               </div>
               
-              <div className="p-5 flex-1 flex flex-col">
-                <div className="flex justify-between items-start mb-2">
-                  <h3 className="font-black text-lg leading-tight line-clamp-1">{room.room_name}</h3>
+              <div className="p-5 flex-1 flex flex-col gap-3">
+                {/* Header: Room Name & Room Type Tag */}
+                <div>
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <h3 className="font-black text-lg leading-tight line-clamp-1 text-white">{room.room_name}</h3>
+                    {room.room_type === 'paid' && room.ticket_price && (
+                      <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-black shrink-0">
+                        ₦{room.ticket_price}
+                      </Badge>
+                    )}
+                    {room.room_type === 'private' && (
+                      <Badge className="bg-purple-500/20 text-purple-400 border border-purple-500/30 text-[10px] font-black shrink-0">
+                        Private
+                      </Badge>
+                    )}
+                  </div>
+
+                  {room.movie_title && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium line-clamp-1">
+                      <Film className="w-3.5 h-3.5 text-primary shrink-0" />
+                      Showing: <span className="text-foreground font-bold">{room.movie_title}</span>
+                    </p>
+                  )}
                 </div>
-                <p className="text-sm text-muted-foreground mb-4 flex items-center gap-1.5 font-medium">
-                  <Film className="w-3.5 h-3.5 text-primary" />
-                  Showing: <span className="text-foreground font-bold">{room.movie_title}</span>
-                </p>
+
+                {/* Smart Metadata Badges Row (Only render if present) */}
+                {(room.release_year || room.year || room.age_rating || room.duration || room.category || room.content_type === 'series') && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {(room.release_year || room.year) && (
+                      <span className="px-2 py-0.5 rounded-md bg-white/10 text-white/90 text-[10px] font-bold">
+                        {room.release_year || room.year}
+                      </span>
+                    )}
+                    {room.age_rating && (
+                      <span className="px-1.5 py-0.5 rounded border border-white/20 text-white/80 text-[10px] font-black uppercase">
+                        {room.age_rating}
+                      </span>
+                    )}
+                    {room.duration && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold">
+                        <Clock className="w-2.5 h-2.5" />
+                        {room.duration}
+                      </span>
+                    )}
+                    {room.category && (
+                      <span className="px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20 text-[10px] font-bold">
+                        {room.category}
+                      </span>
+                    )}
+                    {room.content_type === 'series' && (
+                      <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-bold">
+                        Series {room.episodes?.length ? `(${room.episodes.length} Eps)` : ''}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Smart Tagline (Only if present) */}
+                {room.tagline && (
+                  <p className="text-xs italic text-white/75 line-clamp-1 border-l-2 border-primary/60 pl-2">
+                    "{room.tagline}"
+                  </p>
+                )}
+
+                {/* Smart Description / Synopsis (Only if present) */}
+                {room.description && (
+                  <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                    {room.description}
+                  </p>
+                )}
+
+                {/* Smart Director & Cast (Only if present) */}
+                {(room.director || room.cast) && (
+                  <div className="space-y-1 pt-1.5 border-t border-white/5 text-[11px]">
+                    {room.director && (
+                      <div className="flex items-center gap-1 text-white/60 truncate">
+                        <span className="text-[9px] font-black uppercase tracking-wider text-white/40">Director:</span>
+                        <span className="text-white/80 font-medium truncate">{room.director}</span>
+                      </div>
+                    )}
+                    {room.cast && (
+                      <div className="flex items-center gap-1 text-white/60 truncate">
+                        <span className="text-[9px] font-black uppercase tracking-wider text-white/40">Cast:</span>
+                        <span className="text-white/80 font-medium truncate">{room.cast}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
                 
                 <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between">
                   <div className="flex flex-col">
@@ -1231,19 +1448,72 @@ const CinemaRoom: React.FC = () => {
               </div>
 
               {/* Movie Details Section */}
-              <div className="p-5 flex-1 flex flex-col">
-                <div className="flex justify-between items-start mb-2">
-                  <h3 className="font-black text-lg leading-tight line-clamp-1">{trailer.title || trailer.movie_title}</h3>
+              <div className="p-5 flex-1 flex flex-col gap-3">
+                <div>
+                  <h3 className="font-black text-lg leading-tight line-clamp-1 text-white">{trailer.title || trailer.movie_title}</h3>
                 </div>
 
+                {/* Smart Metadata Badges (Only render if present) */}
+                {(trailer.release_year || trailer.year || trailer.age_rating || trailer.duration || trailer.category) && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {(trailer.release_year || trailer.year) && (
+                      <span className="px-2 py-0.5 rounded-md bg-white/10 text-white/90 text-[10px] font-bold">
+                        {trailer.release_year || trailer.year}
+                      </span>
+                    )}
+                    {trailer.age_rating && (
+                      <span className="px-1.5 py-0.5 rounded border border-white/20 text-white/80 text-[10px] font-black uppercase">
+                        {trailer.age_rating}
+                      </span>
+                    )}
+                    {trailer.duration && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold">
+                        <Clock className="w-2.5 h-2.5" />
+                        {trailer.duration}
+                      </span>
+                    )}
+                    {trailer.category && (
+                      <span className="px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20 text-[10px] font-bold">
+                        {trailer.category}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Smart Tagline (Only if present) */}
+                {trailer.tagline && (
+                  <p className="text-xs italic text-white/75 line-clamp-1 border-l-2 border-primary/60 pl-2">
+                    "{trailer.tagline}"
+                  </p>
+                )}
+
+                {/* Smart Description / Synopsis (Only if present) */}
                 {trailer.description ? (
-                  <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed mb-4">
+                  <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
                     {trailer.description}
                   </p>
                 ) : (
-                  <p className="text-xs text-muted-foreground/60 italic mb-4">
+                  <p className="text-xs text-muted-foreground/60 italic">
                     Official movie trailer and preview for {trailer.title || trailer.movie_title}.
                   </p>
+                )}
+
+                {/* Smart Director & Cast (Only if present) */}
+                {(trailer.director || trailer.cast) && (
+                  <div className="space-y-1 pt-1.5 border-t border-white/5 text-[11px]">
+                    {trailer.director && (
+                      <div className="flex items-center gap-1 text-white/60 truncate">
+                        <span className="text-[9px] font-black uppercase tracking-wider text-white/40">Director:</span>
+                        <span className="text-white/80 font-medium truncate">{trailer.director}</span>
+                      </div>
+                    )}
+                    {trailer.cast && (
+                      <div className="flex items-center gap-1 text-white/60 truncate">
+                        <span className="text-[9px] font-black uppercase tracking-wider text-white/40">Cast:</span>
+                        <span className="text-white/80 font-medium truncate">{trailer.cast}</span>
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {/* Footer Controls: Watch Preview & Join Room (if active) */}
@@ -1299,7 +1569,22 @@ const CinemaRoom: React.FC = () => {
                 </div>
                 {item.trailerUrl && (
                   <button 
-                    onClick={() => window.open(item.trailerUrl, '_blank')}
+                    onClick={() => setSelectedTrailer({
+                      id: item.id,
+                      title: item.title,
+                      movie_title: item.title,
+                      description: item.description,
+                      thumbnail: item.poster,
+                      videoUrl: item.trailerUrl,
+                      trailer_url: item.trailerUrl,
+                      release_year: item.release_year || item.year,
+                      age_rating: item.age_rating,
+                      duration: item.duration,
+                      director: item.director,
+                      cast: item.cast,
+                      tagline: item.tagline,
+                      category: item.category || 'Coming Soon'
+                    })}
                     className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                   >
                     <div className="w-12 h-12 rounded-full bg-emerald-600/80 backdrop-blur-md flex items-center justify-center border border-white/20 hover:scale-110 transition-transform">
@@ -1309,15 +1594,75 @@ const CinemaRoom: React.FC = () => {
                 )}
               </div>
               
-              <div className="p-5 flex-1 flex flex-col">
-                <h3 className="font-black text-lg leading-tight mb-2 uppercase tracking-tighter">{item.title}</h3>
-                <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed mb-4">{item.description}</p>
+              <div className="p-5 flex-1 flex flex-col gap-3">
+                <div>
+                  <h3 className="font-black text-lg leading-tight mb-1 uppercase tracking-tighter text-white">{item.title}</h3>
+                </div>
+
+                {/* Smart Metadata Badges (Only render if present) */}
+                {(item.release_year || item.year || item.age_rating || item.duration || item.category) && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {(item.release_year || item.year) && (
+                      <span className="px-2 py-0.5 rounded-md bg-white/10 text-white/90 text-[10px] font-bold">
+                        {item.release_year || item.year}
+                      </span>
+                    )}
+                    {item.age_rating && (
+                      <span className="px-1.5 py-0.5 rounded border border-white/20 text-white/80 text-[10px] font-black uppercase">
+                        {item.age_rating}
+                      </span>
+                    )}
+                    {item.duration && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold">
+                        <Clock className="w-2.5 h-2.5" />
+                        {item.duration}
+                      </span>
+                    )}
+                    {item.category && (
+                      <span className="px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20 text-[10px] font-bold">
+                        {item.category}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Smart Tagline (Only if present) */}
+                {item.tagline && (
+                  <p className="text-xs italic text-white/75 line-clamp-1 border-l-2 border-emerald-500/60 pl-2">
+                    "{item.tagline}"
+                  </p>
+                )}
+
+                {/* Smart Description / Synopsis (Only if present) */}
+                {item.description && (
+                  <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                    {item.description}
+                  </p>
+                )}
+
+                {/* Smart Director & Cast (Only if present) */}
+                {(item.director || item.cast) && (
+                  <div className="space-y-1 pt-1.5 border-t border-white/5 text-[11px]">
+                    {item.director && (
+                      <div className="flex items-center gap-1 text-white/60 truncate">
+                        <span className="text-[9px] font-black uppercase tracking-wider text-white/40">Director:</span>
+                        <span className="text-white/80 font-medium truncate">{item.director}</span>
+                      </div>
+                    )}
+                    {item.cast && (
+                      <div className="flex items-center gap-1 text-white/60 truncate">
+                        <span className="text-[9px] font-black uppercase tracking-wider text-white/40">Cast:</span>
+                        <span className="text-white/80 font-medium truncate">{item.cast}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
                 
                 <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between">
                   <div className="flex flex-col">
                     <span className="text-[9px] text-muted-foreground uppercase font-black tracking-widest">Expected Release</span>
                     <span className="text-xs font-bold text-emerald-400 mt-0.5 uppercase">
-                      {item.releaseDate}
+                      {item.releaseDate || item.release_year || 'Coming Soon'}
                     </span>
                   </div>
                   <Button variant="outline" className="rounded-xl border-white/10 hover:bg-white/5 h-9 text-[10px] font-black uppercase">
@@ -2312,24 +2657,183 @@ const CinemaRoom: React.FC = () => {
 
             {/* Video Player Container */}
             <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden">
-              <video 
-                key={selectedTrailer.videoUrl}
-                src={selectedTrailer.videoUrl} 
-                controls 
-                autoPlay 
-                playsInline
-                className="w-full h-full object-contain"
-              />
+              {isLoadingTrailerVideo ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20 gap-3">
+                  <div className="w-10 h-10 border-2 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
+                  <span className="text-xs font-black uppercase tracking-widest text-white/70">Connecting Cinema Stream...</span>
+                </div>
+              ) : trailerPlayerMode === 'embed' && trailerEmbedUrl ? (
+                <div className="relative w-full h-full">
+                  <iframe 
+                    key={trailerEmbedUrl}
+                    src={trailerEmbedUrl} 
+                    title={selectedTrailer.title || selectedTrailer.movie_title || 'Official Trailer'}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    className="w-full h-full border-0"
+                    onLoad={() => setIsTrailerBuffering(false)}
+                  />
+                  {isTrailerBuffering && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20 gap-3">
+                      <div className="w-10 h-10 border-2 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
+                      <span className="text-xs font-black uppercase tracking-widest text-white/70">Loading Trailer...</span>
+                    </div>
+                  )}
+                  {/* StreamAura Cinema Overlay Badge */}
+                  <div className="absolute bottom-3 right-3 z-30 pointer-events-none flex items-center gap-2 bg-black/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 shadow-lg">
+                    <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                    <span className="text-[10px] font-black tracking-widest uppercase text-white/90">StreamAura Cinema</span>
+                  </div>
+                </div>
+              ) : resolvedTrailerUrl ? (
+                <div className="relative w-full h-full flex items-center justify-center">
+                  <video 
+                    key={resolvedTrailerUrl}
+                    src={resolvedTrailerUrl} 
+                    controls 
+                    autoPlay 
+                    playsInline
+                    className="w-full h-full object-contain"
+                    onWaiting={() => setIsTrailerBuffering(true)}
+                    onPlaying={() => setIsTrailerBuffering(false)}
+                    onCanPlay={() => setIsTrailerBuffering(false)}
+                    onError={(e) => {
+                      console.error("Trailer video playback error:", e);
+                      const rawUrl = (
+                        selectedTrailer.videoUrl || 
+                        selectedTrailer.trailer_url || 
+                        selectedTrailer.trailerUrl || 
+                        selectedTrailer.streamUrl || 
+                        selectedTrailer.stream_url || 
+                        selectedTrailer.url || 
+                        ''
+                      ).trim();
+
+                      // If this is an uploaded trailer / custom file, do NOT switch to YouTube on error
+                      if (rawUrl && !rawUrl.includes('youtube.com') && !rawUrl.includes('youtu.be')) {
+                        setTrailerPlayError('Unable to load uploaded trailer stream. Please try again.');
+                        return;
+                      }
+
+                      const movieTitle = selectedTrailer.title || selectedTrailer.movie_title;
+                      if (movieTitle && !trailerEmbedUrl) {
+                        mediaApi.getMovieTrailer(movieTitle).then(res => {
+                          if (res.success && res.data) {
+                            const yKey = res.data.youtubeKey || res.data.key;
+                            if (res.data.embedUrl || yKey) {
+                              setTrailerEmbedUrl(res.data.embedUrl || `https://www.youtube-nocookie.com/embed/${yKey}?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&playsinline=1`);
+                              setTrailerPlayerMode('embed');
+                              return;
+                            }
+                          }
+                          setTrailerPlayError('Unable to load video format. Please try again.');
+                        }).catch(() => {
+                          setTrailerPlayError('Unable to load video format. Please try again.');
+                        });
+                      } else {
+                        setTrailerPlayError('Unable to load video format. Please try again.');
+                      }
+                    }}
+                  />
+                  {isTrailerBuffering && (
+                    <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center bg-black z-10 gap-3">
+                      <div className="w-10 h-10 border-2 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
+                      <span className="text-xs font-black uppercase tracking-widest text-white/70">Connecting Cinema Stream...</span>
+                    </div>
+                  )}
+                  {/* StreamAura Cinema Watermark Overlay */}
+                  <div className="absolute top-3 left-3 z-30 pointer-events-none flex items-center gap-1.5 bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10">
+                    <Film className="w-3 h-3 text-blue-400" />
+                    <span className="text-[9px] font-black tracking-widest uppercase text-white/90">Cinema Trailer</span>
+                  </div>
+                </div>
+              ) : trailerPlayError ? (
+                <div className="p-8 text-center space-y-3 z-10">
+                  <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mx-auto text-rose-400">
+                    <Video className="w-6 h-6" />
+                  </div>
+                  <p className="text-sm font-bold text-white/80">{trailerPlayError}</p>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="rounded-xl border-white/10 text-xs font-bold"
+                    onClick={() => {
+                      const t = selectedTrailer;
+                      setSelectedTrailer(null);
+                      setTimeout(() => setSelectedTrailer(t), 100);
+                    }}
+                  >
+                    Retry Preview
+                  </Button>
+                </div>
+              ) : (
+                <div className="p-8 text-center space-y-2">
+                  <p className="text-sm font-bold text-white/60">No trailer stream available</p>
+                </div>
+              )}
             </div>
 
             {/* Trailer Details & Actions Footer */}
             <div className="p-5 md:p-6 bg-zinc-900/80 border-t border-white/5 space-y-4 overflow-y-auto">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="space-y-1 flex-1">
-                  <h4 className="text-sm font-black uppercase tracking-tight text-white">Movie Overview</h4>
+              {/* Smart Metadata Badges */}
+              {(selectedTrailer.release_year || selectedTrailer.year || selectedTrailer.age_rating || selectedTrailer.duration || selectedTrailer.category) && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {(selectedTrailer.release_year || selectedTrailer.year) && (
+                    <span className="px-2.5 py-0.5 rounded-md bg-white/10 text-white/90 text-[11px] font-bold">
+                      {selectedTrailer.release_year || selectedTrailer.year}
+                    </span>
+                  )}
+                  {selectedTrailer.age_rating && (
+                    <span className="px-2 py-0.5 rounded border border-white/20 text-white/80 text-[11px] font-black uppercase">
+                      {selectedTrailer.age_rating}
+                    </span>
+                  )}
+                  {selectedTrailer.duration && (
+                    <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[11px] font-bold">
+                      <Clock className="w-3 h-3" />
+                      {selectedTrailer.duration}
+                    </span>
+                  )}
+                  {selectedTrailer.category && (
+                    <span className="px-2.5 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20 text-[11px] font-bold">
+                      {selectedTrailer.category}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Smart Tagline */}
+              {selectedTrailer.tagline && (
+                <p className="text-xs md:text-sm italic text-white/80 border-l-2 border-primary/60 pl-3">
+                  "{selectedTrailer.tagline}"
+                </p>
+              )}
+
+              <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                <div className="space-y-2 flex-1">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-white/50">Movie Overview</h4>
                   <p className="text-xs md:text-sm text-muted-foreground leading-relaxed">
                     {selectedTrailer.description || `Official preview for ${selectedTrailer.title || selectedTrailer.movie_title}. Join the live theater room to watch together.`}
                   </p>
+
+                  {/* Smart Director & Cast */}
+                  {(selectedTrailer.director || selectedTrailer.cast) && (
+                    <div className="space-y-1 pt-2 border-t border-white/5 text-xs">
+                      {selectedTrailer.director && (
+                        <div className="flex items-center gap-1.5 text-white/60">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-white/40">Director:</span>
+                          <span className="text-white/90 font-medium">{selectedTrailer.director}</span>
+                        </div>
+                      )}
+                      {selectedTrailer.cast && (
+                        <div className="flex items-center gap-1.5 text-white/60">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-white/40">Cast:</span>
+                          <span className="text-white/90 font-medium">{selectedTrailer.cast}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {selectedTrailer.host_name && (
                     <p className="text-[11px] font-medium text-white/40 pt-1">
                       Cinema room hosted by <span className="text-white/80 font-bold">{selectedTrailer.host_name}</span>

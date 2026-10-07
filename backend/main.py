@@ -39,32 +39,40 @@ from moviebox_api.v1 import MovieDetails, DownloadableMovieFilesDetail, TVSeries
 
 # Load environment
 from dotenv import load_dotenv
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+if os.path.exists(env_path):
+    load_dotenv(dotenv_path=env_path)
 load_dotenv()
 
 # =========================
 # INITIALIZE FIREBASE FIRST
 # =========================
 try:
-    if os.getenv("FIREBASE_PRIVATE_KEY"):
-        firebase_creds = {
-            "type": "service_account",
-            "project_id": os.getenv("FIREBASE_PROJECT_ID"),
-            "private_key_id": os.getenv("FIREBASE_PRIVATE_KEY_ID"),
-            "private_key": os.getenv("FIREBASE_PRIVATE_KEY", "").replace('\\n', '\n'),
-            "client_email": os.getenv("FIREBASE_CLIENT_EMAIL"),
-            "client_id": os.getenv("FIREBASE_CLIENT_ID"),
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": os.getenv("FIREBASE_CLIENT_X509_CERT_URL")
-        }
-        cred = credentials.Certificate(firebase_creds)
-        firebase_admin.initialize_app(cred)
-    elif os.path.exists("serviceAccountKey.json"):
-        cred = credentials.Certificate("serviceAccountKey.json")
-        firebase_admin.initialize_app(cred)
-    else:
-        firebase_admin.initialize_app()
+    sa_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "serviceAccountKey.json")
+    if not firebase_admin._apps:
+        if os.getenv("FIREBASE_PRIVATE_KEY"):
+            firebase_creds = {
+                "type": "service_account",
+                "project_id": os.getenv("FIREBASE_PROJECT_ID"),
+                "private_key_id": os.getenv("FIREBASE_PRIVATE_KEY_ID"),
+                "private_key": os.getenv("FIREBASE_PRIVATE_KEY", "").replace('\\n', '\n'),
+                "client_email": os.getenv("FIREBASE_CLIENT_EMAIL"),
+                "client_id": os.getenv("FIREBASE_CLIENT_ID"),
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "client_x509_cert_url": os.getenv("FIREBASE_CLIENT_X509_CERT_URL")
+            }
+            cred = credentials.Certificate(firebase_creds)
+            firebase_admin.initialize_app(cred)
+        elif os.path.exists(sa_path):
+            cred = credentials.Certificate(sa_path)
+            firebase_admin.initialize_app(cred)
+        elif os.path.exists("serviceAccountKey.json"):
+            cred = credentials.Certificate("serviceAccountKey.json")
+            firebase_admin.initialize_app(cred)
+        else:
+            firebase_admin.initialize_app()
     db_admin = firestore.client()
 except Exception as e:
     print(f"Firebase Init Error: {e}")
