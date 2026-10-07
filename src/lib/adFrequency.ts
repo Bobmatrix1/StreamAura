@@ -399,7 +399,7 @@ export const recordAdClickLocally = (adId: string, source: AdInteractionSource =
 };
 
 const VALID_APP_TABS = new Set([
-  'home', 'video', 'music', 'movie', 'series', 'cinema', 'games', 'wallet', 'bulk', 'referral',
+  'home', 'video', 'music', 'movie', 'series', 'cinema', 'snacks', 'games', 'wallet', 'bulk', 'referral',
   'profile', 'history', 'about', 'privacy', 'terms', 'cookies', 'contact', 'notifications', 'vendor', 'admin'
 ]);
 

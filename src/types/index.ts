@@ -156,7 +156,7 @@ export interface Toast {
 }
 
 // App state types
-export type ViewType = MediaType | 'home' | 'bulk' | 'history' | 'admin' | 'notifications' | 'about' | 'privacy' | 'terms' | 'cookies' | 'contact' | 'cinema' | 'wallet' | 'referral' | 'games' | 'profile' | 'vendor';
+export type ViewType = MediaType | 'home' | 'bulk' | 'history' | 'admin' | 'notifications' | 'about' | 'privacy' | 'terms' | 'cookies' | 'contact' | 'cinema' | 'snacks' | 'wallet' | 'referral' | 'games' | 'profile' | 'vendor';
 
 export interface AppState {
   isAuthenticated: boolean;

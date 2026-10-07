@@ -106,6 +106,12 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, className = '' }) =>
               </button>
             </li>
             <li>
+              <button onClick={() => handleNav('snacks')} className="hover:text-primary transition-colors text-left flex items-center gap-1.5 group">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary/40 group-hover:bg-primary transition-colors" />
+                Cinema Snacks Store
+              </button>
+            </li>
+            <li>
               <button onClick={() => handleNav('games')} className="hover:text-primary transition-colors text-left flex items-center gap-1.5 group">
                 <span className="w-1.5 h-1.5 rounded-full bg-primary/40 group-hover:bg-primary transition-colors" />
                 Game Rooms (Split / Steal)

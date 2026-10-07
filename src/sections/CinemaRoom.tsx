@@ -1551,13 +1551,34 @@ const CinemaRoom: React.FC = () => {
           </motion.div>
         ))}
 
-        {((activeTab === 'trailers' && trailers.length === 0) || (activeTab === 'schedule' && upcoming.length === 0)) && (
+        {((activeTab === 'rooms' && rooms.length === 0) || (activeTab === 'trailers' && trailers.length === 0) || (activeTab === 'schedule' && upcoming.length === 0)) && (
           <div className="col-span-full py-20 text-center">
             <div className="w-24 h-24 rounded-3xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-center mx-auto mb-6 shadow-inner opacity-40">
-              {activeTab === 'trailers' ? <Video className="w-10 h-10 text-muted-foreground" /> : <Calendar className="w-10 h-10 text-muted-foreground" />}
+              {activeTab === 'rooms' ? (
+                <DoorOpen className="w-10 h-10 text-muted-foreground" />
+              ) : activeTab === 'trailers' ? (
+                <Video className="w-10 h-10 text-muted-foreground" />
+              ) : (
+                <Calendar className="w-10 h-10 text-muted-foreground" />
+              )}
             </div>
-            <h3 className="text-xl font-black opacity-60">No {activeTab === 'trailers' ? 'trailers' : 'upcoming screenings'} found</h3>
-            <p className="text-muted-foreground mt-2 font-medium max-w-sm mx-auto opacity-50">Check back soon for new theater content.</p>
+            <h3 className="text-xl font-black opacity-60">
+              No {activeTab === 'rooms' ? 'active rooms' : activeTab === 'trailers' ? 'trailers' : 'upcoming screenings'} found
+            </h3>
+            <p className="text-muted-foreground mt-2 font-medium max-w-sm mx-auto opacity-50">
+              {activeTab === 'rooms' ? 'Create a room to host a watch party or check back soon.' : 'Check back soon for new theater content.'}
+            </p>
+            {activeTab === 'rooms' && (
+              <div className="pt-6">
+                <Button 
+                  onClick={handleOpenCreateModal} 
+                  className="rounded-2xl px-6 py-5 font-black uppercase text-xs tracking-wider gradient-bg shadow-xl shadow-primary/20 hover:scale-105 transition-transform"
+                >
+                  <Plus className="w-4 h-4 mr-1.5" />
+                  Host A Cinema Room
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

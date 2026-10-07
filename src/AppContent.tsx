@@ -21,6 +21,7 @@ import PrivacyPolicy from '@/sections/PrivacyPolicy';
 import TermsOfUse from '@/sections/TermsOfUse';
 import CookiePolicy from '@/sections/CookiePolicy';
 import ContactUs from '@/sections/ContactUs';
+import { CinemaStoreModal } from '@/sections/CinemaStoreModal';
 import InstallPWA from '@/components/InstallPWA';
 import CookieBanner from '@/components/CookieBanner';
 import { AppUpdateModal } from '@/components/AppUpdateModal';
@@ -56,7 +57,7 @@ export const AppContent: React.FC = () => {
   const [activeView, setActiveView] = useState<ViewType>(() => {
     if (typeof window !== 'undefined') {
       const saved = sessionStorage.getItem('aura_active_view') as ViewType;
-      const allowedTabs = ['home', 'video', 'music', 'movie', 'cinema', 'games', 'wallet', 'bulk', 'admin', 'notifications', 'history', 'referral', 'profile', 'about', 'privacy', 'terms', 'cookies', 'contact', 'vendor'];
+      const allowedTabs = ['home', 'video', 'music', 'movie', 'cinema', 'snacks', 'games', 'wallet', 'bulk', 'admin', 'notifications', 'history', 'referral', 'profile', 'about', 'privacy', 'terms', 'cookies', 'contact', 'vendor'];
       if (saved && allowedTabs.includes(saved)) return saved;
     }
     return 'home';
@@ -88,7 +89,7 @@ export const AppContent: React.FC = () => {
 
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as ViewType;
-    const allowedTabs = ['home', 'video', 'music', 'movie', 'cinema', 'games', 'wallet', 'bulk', 'admin', 'notifications', 'history', 'referral', 'profile', 'about', 'privacy', 'terms', 'cookies', 'contact', 'vendor'];
+    const allowedTabs = ['home', 'video', 'music', 'movie', 'cinema', 'snacks', 'games', 'wallet', 'bulk', 'admin', 'notifications', 'history', 'referral', 'profile', 'about', 'privacy', 'terms', 'cookies', 'contact', 'vendor'];
     
     // Handle Referral Code cleanup so URL looks clean
     if (params.has('ref') || params.has('referral') || params.has('referralCode') || params.has('r')) {
@@ -452,6 +453,7 @@ export const AppContent: React.FC = () => {
           {activeView === 'music' && <MusicDownloader />}
           {activeView === 'movie' && <MovieDownloader />}
           {activeView === 'cinema' && <CinemaRoom />}
+          {activeView === 'snacks' && <CinemaRoom />}
           {activeView === 'games' && <Games />}
           {activeView === 'wallet' && <Wallet />}
           {activeView === 'bulk' && <BulkDownloader />}
@@ -470,6 +472,14 @@ export const AppContent: React.FC = () => {
           {activeView === 'vendor' && !(isAdmin || user?.isVendor) && <Home onNavigate={handleTabChange} />}
         </div>
       </Layout>
+      <CinemaStoreModal 
+        isOpen={activeView === 'snacks'} 
+        onClose={() => {
+          if (activeView === 'snacks') {
+            handleBack();
+          }
+        }} 
+      />
       <InstallPWA />
       <CookieBanner onNavigate={handleTabChange} />
       <AppUpdateModal />

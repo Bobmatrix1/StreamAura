@@ -63,6 +63,7 @@ const AVAILABLE_PAGES: { id: string; label: string }[] = [
   { id: 'all', label: 'All Pages (Global)' },
   { id: 'home', label: 'Home Page' },
   { id: 'cinema', label: 'Cinema Room' },
+  { id: 'snacks', label: 'Cinema Snacks Store' },
   { id: 'video', label: 'Video Downloader' },
   { id: 'music', label: 'Music Downloader' },
   { id: 'movie', label: 'Movie Downloader' },
@@ -79,6 +80,7 @@ const AVAILABLE_PAGES: { id: string; label: string }[] = [
 
 const IN_APP_DESTINATION_PAGES: { id: string; label: string }[] = [
   { id: 'cinema', label: '🎬 Cinema (Free Movies & Series Streaming)' },
+  { id: 'snacks', label: '🍿 Cinema Snacks Store' },
   { id: 'video', label: '🎥 Video Downloader (TikTok, YouTube, IG, Twitter)' },
   { id: 'music', label: '🎵 Music Downloader & Streamer' },
   { id: 'movie', label: '🍿 Movie Downloader' },

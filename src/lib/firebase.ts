@@ -1341,6 +1341,7 @@ const ALL_APP_PAGES: { id: string; label: string }[] = [
   { id: 'music', label: 'Music Downloader' },
   { id: 'movie', label: 'Movie Downloader' },
   { id: 'cinema', label: 'Cinema Room' },
+  { id: 'snacks', label: 'Cinema Snacks Store' },
   { id: 'games', label: 'Game Room' },
   { id: 'wallet', label: 'Wallet' },
   { id: 'bulk', label: 'Bulk Downloader' },
