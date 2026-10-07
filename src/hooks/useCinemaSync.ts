@@ -68,6 +68,9 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
       if (ws.current) {
         try {
           if (ws.current.readyState === WebSocket.OPEN) return;
+          ws.current.onopen = null;
+          ws.current.onerror = null;
+          ws.current.onclose = null;
           ws.current.close();
         } catch {}
       }
@@ -111,6 +114,10 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
         ws.current = socket;
 
         socket.onopen = () => {
+          if (isDestroyedRef.current) {
+            try { socket.close(); } catch {}
+            return;
+          }
           retryCount = 0;
           console.log('Cinema WS Connected');
           if (socket.readyState === WebSocket.OPEN) {
@@ -180,6 +187,7 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
         };
 
         socket.onerror = (err) => {
+          if (isDestroyedRef.current) return;
           console.warn('Cinema WS error:', err);
         };
       } catch (err) {
@@ -222,6 +230,9 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (ws.current) {
         try {
+          ws.current.onopen = null;
+          ws.current.onerror = null;
+          ws.current.onclose = null;
           ws.current.close();
         } catch {}
         ws.current = null;

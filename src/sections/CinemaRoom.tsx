@@ -22,7 +22,10 @@ import {
   Check,
   Loader2,
   Trash2,
-  Wallet as WalletIcon
+  Wallet as WalletIcon,
+  DoorOpen,
+  Clapperboard,
+  ArrowRight
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -70,6 +73,26 @@ const CinemaRoom: React.FC = () => {
   const [isLoadingTrailerVideo, setIsLoadingTrailerVideo] = useState(false);
   const [isTrailerBuffering, setIsTrailerBuffering] = useState(false);
   const [trailerPlayError, setTrailerPlayError] = useState<string | null>(null);
+  
+  // Cinema Doors & Curtain Opening Entrance State
+  const [selectedDoorRoom, setSelectedDoorRoom] = useState<any | null>(null);
+  const [isDoorCurtainsOpen, setIsDoorCurtainsOpen] = useState(false);
+
+  const handleOpenDoorEntrance = (room: any) => {
+    setSelectedDoorRoom(room);
+    setIsDoorCurtainsOpen(false);
+    // Smoothly trigger the curtain opening sequence shortly after mount
+    setTimeout(() => {
+      setIsDoorCurtainsOpen(true);
+    }, 120);
+  };
+
+  const handleCloseDoorEntrance = () => {
+    setIsDoorCurtainsOpen(false);
+    setTimeout(() => {
+      setSelectedDoorRoom(null);
+    }, 450);
+  };
   
   // Live Room State
   const [activeRoom, setActiveRoom] = useState<any | null>(null);
@@ -1197,205 +1220,201 @@ const CinemaRoom: React.FC = () => {
       </div>
 
       {/* Tab Content */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {activeTab === 'rooms' && rooms.map(room => (
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
+        {activeTab === 'rooms' && rooms.map((room, idx) => (
           <motion.div
             key={room.id}
-            whileHover={{ y: -5 }}
-            className="group relative"
+            whileHover={{ y: -4, scale: 1.02 }}
+            transition={{ type: "spring", stiffness: 350, damping: 22 }}
+            className="group relative cursor-pointer flex flex-col"
+            onClick={() => handleOpenDoorEntrance(room)}
           >
-            <Card className="overflow-hidden glass-card border-white/5 h-full flex flex-col">
-              <div className="relative aspect-[16/9] overflow-hidden">
-                <img 
-                  src={room.movie_cover_image} 
-                  alt={room.movie_title} 
-                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
-                
-                <div className="absolute top-3 left-3 flex gap-2">
+            {/* Cinema Door Architectural Portal Card */}
+            <div className="relative rounded-2xl overflow-hidden bg-gradient-to-b from-[#1c120c] via-[#0d0d12] to-[#040406] border border-amber-500/30 p-2 sm:p-2.5 shadow-[0_6px_20px_rgba(0,0,0,0.85)] group-hover:border-amber-400/70 group-hover:shadow-[0_0_25px_rgba(245,158,11,0.25)] transition-all duration-300 flex flex-col h-full">
+              
+              {/* Top Illuminated Marquee Screen Header */}
+              <div className="relative mb-2 px-2 py-1 rounded-xl bg-gradient-to-r from-zinc-950 via-[#1a110a] to-zinc-950 border border-amber-500/20 flex items-center justify-between shadow-inner">
+                {/* Screen Sign with Glowing Retro Bulb Vibe */}
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shadow-[0_0_6px_#fbbf24]" />
+                  <span className="text-[9px] font-black uppercase tracking-wider text-amber-300 drop-shadow-[0_0_6px_rgba(251,191,36,0.4)]">
+                    HALL {(idx + 1).toString().padStart(2, '0')}
+                  </span>
+                </div>
+
+                {/* Status Badges */}
+                <div className="flex items-center gap-1">
                   {room.status === 'live' ? (
-                    <Badge className="bg-rose-500 hover:bg-rose-500 border-none gap-1.5 shadow-lg shadow-rose-500/20">
-                      <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                    <Badge className="bg-rose-600/90 hover:bg-rose-600 border border-rose-400/40 text-[8px] font-black tracking-wider gap-1 py-0 px-1.5 shadow-[0_0_8px_rgba(225,29,72,0.4)]">
+                      <span className="w-1 h-1 rounded-full bg-white animate-ping inline-block" />
                       LIVE
                     </Badge>
                   ) : (
-                    <Badge variant="outline" className="bg-black/60 backdrop-blur-md border-white/20">
+                    <Badge variant="outline" className="bg-amber-500/10 border-amber-500/30 text-amber-300 text-[8px] font-black py-0 px-1.5">
                       UPCOMING
                     </Badge>
                   )}
-                </div>
-
-                <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center border border-white/20 shadow-lg">
-                      <span className="text-[10px] font-black tracking-widest">{(room.host_name || 'H')[0]}</span>
-                    </div>
-                    <span className="text-xs font-bold text-white/90 drop-shadow-md">by {room.host_name}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-white/90 bg-black/40 backdrop-blur-md px-2 py-1 rounded-lg border border-white/10">
-                    <Users className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-bold">{room.active_viewers || 0} watching</span>
-                  </div>
-                </div>
-
-                <div className="absolute top-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                   <button 
-                    onClick={(e) => { e.stopPropagation(); handleShareRoom(room); }}
-                    className="p-2 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white hover:bg-primary transition-all"
-                   >
-                     <Share2 className="w-4 h-4" />
-                   </button>
-                   {(isAdmin || room.host_uid === auth.currentUser?.uid) && (
-                     <button 
-                      onClick={(e) => { e.stopPropagation(); handleDeleteRoom(room.id); }}
-                      className="p-2 rounded-full bg-rose-500/20 backdrop-blur-md border border-rose-500/30 text-rose-500 hover:bg-rose-500 hover:text-white transition-all"
-                      title="Delete Room & Files"
-                     >
-                       <Trash2 className="w-4 h-4" />
-                     </button>
-                   )}
+                  {room.room_type === 'paid' && room.ticket_price && (
+                    <Badge className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[8px] font-black py-0 px-1">
+                      ₦{room.ticket_price}
+                    </Badge>
+                  )}
+                  {room.room_type === 'private' && (
+                    <Badge className="bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[8px] font-black py-0 px-1">
+                      Priv
+                    </Badge>
+                  )}
                 </div>
               </div>
-              
-              <div className="p-5 flex-1 flex flex-col gap-3">
-                {/* Header: Room Name & Room Type Tag */}
-                <div>
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <h3 className="font-black text-lg leading-tight line-clamp-1 text-white">{room.room_name}</h3>
-                    {room.room_type === 'paid' && room.ticket_price && (
-                      <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-black shrink-0">
-                        ₦{room.ticket_price}
-                      </Badge>
-                    )}
-                    {room.room_type === 'private' && (
-                      <Badge className="bg-purple-500/20 text-purple-400 border border-purple-500/30 text-[10px] font-black shrink-0">
-                        Private
-                      </Badge>
-                    )}
-                  </div>
 
-                  {room.movie_title && (
-                    <p className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium line-clamp-1">
-                      <Film className="w-3.5 h-3.5 text-primary shrink-0" />
-                      Showing: <span className="text-foreground font-bold">{room.movie_title}</span>
-                    </p>
+              {/* The Cinema Double Doors & Poster Centerpiece (Flyer 2/3 ratio) */}
+              <div className="relative aspect-[2/3] rounded-xl overflow-hidden bg-black border border-amber-500/20 shadow-xl group/door">
+                {/* Poster Artwork with glass reflections */}
+                <img 
+                  src={room.movie_cover_image} 
+                  alt={room.movie_title} 
+                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 filter brightness-[0.92] group-hover:brightness-100" 
+                />
+
+                {/* Cinema Door Glass Overlay & Shadow Gradient */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/25 to-black/10 pointer-events-none" />
+                
+                {/* Top Corner Transom Light Glow */}
+                <div className="absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-amber-400/15 via-transparent to-transparent pointer-events-none" />
+
+                {/* Left & Right Door Vertical Split Seam with Brass Trim */}
+                <div className="absolute inset-y-0 left-1/2 w-[1.5px] -translate-x-1/2 bg-gradient-to-b from-amber-500/50 via-amber-400/30 to-amber-600/50 pointer-events-none shadow-[0_0_3px_rgba(0,0,0,0.9)]" />
+
+                {/* Twin Brass Door Handles in the Center */}
+                <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 flex items-center gap-1 pointer-events-none z-10">
+                  {/* Left Door Handle */}
+                  <div className="w-1 h-8 sm:h-10 rounded-full bg-gradient-to-b from-amber-200 via-amber-400 to-amber-600 border border-amber-100/40 shadow-[0_0_8px_rgba(251,191,36,0.6)] group-hover:scale-110 transition-transform" />
+                  {/* Right Door Handle */}
+                  <div className="w-1 h-8 sm:h-10 rounded-full bg-gradient-to-b from-amber-200 via-amber-400 to-amber-600 border border-amber-100/40 shadow-[0_0_8px_rgba(251,191,36,0.6)] group-hover:scale-110 transition-transform" />
+                </div>
+
+                {/* Quick Action Overlay (Share & Delete) */}
+                <div className="absolute top-2 right-2 flex gap-1 z-20">
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); handleShareRoom(room); }}
+                    className="p-1 rounded-full bg-black/70 backdrop-blur-md border border-white/20 text-white/90 hover:bg-primary hover:text-white transition-all shadow-md"
+                    title="Share Room"
+                  >
+                    <Share2 className="w-3 h-3" />
+                  </button>
+                  {(isAdmin || room.host_uid === auth.currentUser?.uid) && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleDeleteRoom(room.id); }}
+                      className="p-1 rounded-full bg-rose-500/30 backdrop-blur-md border border-rose-500/40 text-rose-400 hover:bg-rose-600 hover:text-white transition-all shadow-md"
+                      title="Delete Room & Files"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
                   )}
                 </div>
 
-                {/* Smart Metadata Badges Row (Only render if present) */}
+                {/* Bottom Center Prompt on Door */}
+                <div className="absolute bottom-2 inset-x-2 flex items-center justify-between z-10 pointer-events-none">
+                  <div className="flex items-center gap-1 text-white/90 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded-md border border-amber-500/30 shadow-md">
+                    <Users className="w-2.5 h-2.5 text-amber-400" />
+                    <span className="text-[9px] font-black text-amber-200">{room.active_viewers || 0}</span>
+                  </div>
+                  <div className="flex items-center gap-1 bg-amber-500/20 backdrop-blur-md border border-amber-500/40 text-amber-300 px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider shadow-md">
+                    <DoorOpen className="w-2.5 h-2.5 text-amber-400" />
+                    <span>Open</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Lower Theater Plaque / Movie Identity */}
+              <div className="mt-2 space-y-1.5 flex-1 flex flex-col justify-between">
+                <div>
+                  <h3 className="font-black text-xs sm:text-sm leading-snug text-white group-hover:text-amber-300 transition-colors line-clamp-1">
+                    {room.movie_title || room.room_name}
+                  </h3>
+                  <p className="text-[10px] text-muted-foreground font-medium truncate flex items-center gap-1 mt-0.5">
+                    <span className="w-1 h-1 rounded-full bg-primary/80 shrink-0" />
+                    <span className="truncate">{room.room_name}</span>
+                  </p>
+                </div>
+
+                {/* Smart Metadata Highlights (Only rendered if present) */}
                 {(room.release_year || room.year || room.age_rating || room.duration || room.category || room.content_type === 'series') && (
-                  <div className="flex items-center gap-1.5 flex-wrap">
+                  <div className="flex items-center gap-1 flex-wrap pt-0.5">
                     {(room.release_year || room.year) && (
-                      <span className="px-2 py-0.5 rounded-md bg-white/10 text-white/90 text-[10px] font-bold">
+                      <span className="px-1.5 py-0.2 rounded bg-white/10 text-white/90 text-[8px] sm:text-[9px] font-bold">
                         {room.release_year || room.year}
                       </span>
                     )}
                     {room.age_rating && (
-                      <span className="px-1.5 py-0.5 rounded border border-white/20 text-white/80 text-[10px] font-black uppercase">
+                      <span className="px-1 py-0.2 rounded border border-white/20 text-white/80 text-[8px] sm:text-[9px] font-black uppercase">
                         {room.age_rating}
                       </span>
                     )}
                     {room.duration && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold">
-                        <Clock className="w-2.5 h-2.5" />
+                      <span className="flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[8px] sm:text-[9px] font-bold">
+                        <Clock className="w-2 h-2" />
                         {room.duration}
                       </span>
                     )}
-                    {room.category && (
-                      <span className="px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20 text-[10px] font-bold">
-                        {room.category}
-                      </span>
-                    )}
                     {room.content_type === 'series' && (
-                      <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-bold">
-                        Series {room.episodes?.length ? `(${room.episodes.length} Eps)` : ''}
+                      <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[8px] sm:text-[9px] font-bold">
+                        Series
                       </span>
                     )}
                   </div>
                 )}
 
-                {/* Smart Tagline (Only if present) */}
-                {room.tagline && (
-                  <p className="text-xs italic text-white/75 line-clamp-1 border-l-2 border-primary/60 pl-2">
-                    "{room.tagline}"
-                  </p>
-                )}
-
-                {/* Smart Description / Synopsis (Only if present) */}
-                {room.description && (
-                  <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                    {room.description}
-                  </p>
-                )}
-
-                {/* Smart Director & Cast (Only if present) */}
-                {(room.director || room.cast) && (
-                  <div className="space-y-1 pt-1.5 border-t border-white/5 text-[11px]">
-                    {room.director && (
-                      <div className="flex items-center gap-1 text-white/60 truncate">
-                        <span className="text-[9px] font-black uppercase tracking-wider text-white/40">Director:</span>
-                        <span className="text-white/80 font-medium truncate">{room.director}</span>
-                      </div>
-                    )}
-                    {room.cast && (
-                      <div className="flex items-center gap-1 text-white/60 truncate">
-                        <span className="text-[9px] font-black uppercase tracking-wider text-white/40">Cast:</span>
-                        <span className="text-white/80 font-medium truncate">{room.cast}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-                
-                <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between">
-                  <div className="flex flex-col">
-                    <span className="text-[9px] text-muted-foreground uppercase font-black tracking-widest">Start Time</span>
-                    <span className="text-xs font-bold flex items-center gap-1 mt-0.5">
-                      <Clock className="w-3 h-3" /> 
-                      {room.scheduled_start_time ? new Date(room.scheduled_start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Live Now'}
-                    </span>
-                  </div>
-                  <Button onClick={() => handleJoinRoomById(room.id)} size="sm" className="rounded-xl px-6 font-bold shadow-lg transition-transform hover:scale-105 gradient-bg">
-                    Join Room
-                  </Button>
+                {/* Enter Door Action Button */}
+                <div className="pt-1">
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); handleOpenDoorEntrance(room); }}
+                    className="w-full py-1.5 sm:py-2 px-2 rounded-xl bg-gradient-to-r from-amber-500/20 via-rose-500/20 to-amber-500/20 border border-amber-500/40 text-amber-300 hover:text-black hover:bg-amber-400 font-black text-[9px] sm:text-[10px] tracking-wider uppercase flex items-center justify-center gap-1.5 transition-all shadow-md group-hover:scale-[1.02]"
+                  >
+                    <DoorOpen className="w-3.5 h-3.5" />
+                    <span>Enter Door</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
                 </div>
               </div>
-            </Card>
+
+            </div>
           </motion.div>
         ))}
 
         {activeTab === 'trailers' && trailers.map(trailer => (
           <motion.div
             key={trailer.id}
-            whileHover={{ y: -5 }}
-            className="group relative"
+            whileHover={{ y: -4, scale: 1.02 }}
+            transition={{ type: "spring", stiffness: 350, damping: 22 }}
+            className="group relative flex flex-col"
           >
-            <Card className="overflow-hidden glass-card border-white/5 h-full flex flex-col">
+            <Card className="overflow-hidden glass-card border-white/5 h-full flex flex-col p-2 sm:p-2.5 rounded-2xl">
               <div 
-                className="relative aspect-[16/9] overflow-hidden cursor-pointer"
+                className="relative aspect-[2/3] rounded-xl overflow-hidden cursor-pointer"
                 onClick={() => setSelectedTrailer(trailer)}
               >
                 <img 
                   src={trailer.thumbnail} 
                   alt={trailer.title || trailer.movie_title} 
-                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
+                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent" />
                 
                 {/* Category & Trailer Badges */}
-                <div className="absolute top-3 left-3 flex items-center gap-1.5 flex-wrap z-10">
-                  <Badge className="bg-blue-600 hover:bg-blue-600 border-none font-black text-[9px] tracking-widest uppercase shadow-lg shadow-blue-600/20">
+                <div className="absolute top-2 left-2 flex items-center gap-1 flex-wrap z-10">
+                  <Badge className="bg-blue-600 hover:bg-blue-600 border-none font-black text-[8px] tracking-wider uppercase shadow-md py-0 px-1.5">
                     TRAILER
                   </Badge>
                   {trailer.category && (
-                    <Badge variant="outline" className="bg-black/60 backdrop-blur-md border-white/20 text-[9px] font-bold uppercase tracking-wider text-white">
+                    <Badge variant="outline" className="bg-black/60 backdrop-blur-md border-white/20 text-[8px] font-bold uppercase tracking-wider text-white py-0 px-1.5">
                       {trailer.category}
                     </Badge>
                   )}
                 </div>
 
-                {/* Top Right Action Icons: Share & Delete */}
-                <div className="absolute top-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                {/* Top Right Action Icons */}
+                <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20">
                    <button 
                     onClick={(e) => { 
                       e.stopPropagation(); 
@@ -1406,142 +1425,61 @@ const CinemaRoom: React.FC = () => {
                         showSuccess("Trailer link copied!");
                       }
                     }}
-                    className="p-2 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white hover:bg-primary transition-all"
+                    className="p-1 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white hover:bg-primary transition-all"
                     title="Share Trailer"
                    >
-                     <Share2 className="w-4 h-4" />
+                     <Share2 className="w-3 h-3" />
                    </button>
                    {(isAdmin || trailer.host_uid === auth.currentUser?.uid) && (
                      <button 
                       onClick={(e) => { e.stopPropagation(); handleDeleteTrailer(trailer.id); }}
-                      className="p-2 rounded-full bg-rose-500/20 backdrop-blur-md border border-rose-500/30 text-rose-500 hover:bg-rose-500 hover:text-white transition-all"
+                      className="p-1 rounded-full bg-rose-500/20 backdrop-blur-md border border-rose-500/30 text-rose-500 hover:bg-rose-500 hover:text-white transition-all"
                       title="Delete Trailer"
                      >
-                       <Trash2 className="w-4 h-4" />
+                       <Trash2 className="w-3 h-3" />
                      </button>
                    )}
                 </div>
 
                 {/* Play Button Overlay */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-14 h-14 rounded-full bg-blue-600/90 text-white backdrop-blur-md flex items-center justify-center border border-white/30 shadow-2xl group-hover:scale-110 transition-transform">
-                    <Play className="w-6 h-6 fill-current translate-x-0.5" />
+                  <div className="w-10 h-10 rounded-full bg-blue-600/90 text-white backdrop-blur-md flex items-center justify-center border border-white/30 shadow-xl group-hover:scale-110 transition-transform">
+                    <Play className="w-4 h-4 fill-current translate-x-0.5" />
                   </div>
-                </div>
-
-                {/* Bottom Bar: Host info & Duration */}
-                <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between z-10">
-                  {trailer.host_name ? (
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center border border-white/20 shadow-lg">
-                        <span className="text-[10px] font-black tracking-widest text-white">{(trailer.host_name || 'H')[0]}</span>
-                      </div>
-                      <span className="text-xs font-bold text-white/90 drop-shadow-md">by {trailer.host_name}</span>
-                    </div>
-                  ) : <div />}
-                  {trailer.duration && (
-                    <div className="bg-black/80 backdrop-blur-md px-2 py-0.5 rounded-md text-[10px] font-black tracking-widest text-blue-400 border border-white/10">
-                      {trailer.duration}
-                    </div>
-                  )}
                 </div>
               </div>
 
               {/* Movie Details Section */}
-              <div className="p-5 flex-1 flex flex-col gap-3">
+              <div className="pt-2 flex-1 flex flex-col justify-between">
                 <div>
-                  <h3 className="font-black text-lg leading-tight line-clamp-1 text-white">{trailer.title || trailer.movie_title}</h3>
+                  <h3 className="font-black text-xs sm:text-sm leading-snug line-clamp-1 text-white">{trailer.title || trailer.movie_title}</h3>
+                  {trailer.host_name && (
+                    <p className="text-[10px] text-muted-foreground truncate mt-0.5">by {trailer.host_name}</p>
+                  )}
                 </div>
 
-                {/* Smart Metadata Badges (Only render if present) */}
-                {(trailer.release_year || trailer.year || trailer.age_rating || trailer.duration || trailer.category) && (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {(trailer.release_year || trailer.year) && (
-                      <span className="px-2 py-0.5 rounded-md bg-white/10 text-white/90 text-[10px] font-bold">
-                        {trailer.release_year || trailer.year}
-                      </span>
-                    )}
-                    {trailer.age_rating && (
-                      <span className="px-1.5 py-0.5 rounded border border-white/20 text-white/80 text-[10px] font-black uppercase">
-                        {trailer.age_rating}
-                      </span>
-                    )}
-                    {trailer.duration && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold">
-                        <Clock className="w-2.5 h-2.5" />
-                        {trailer.duration}
-                      </span>
-                    )}
-                    {trailer.category && (
-                      <span className="px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20 text-[10px] font-bold">
-                        {trailer.category}
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                {/* Smart Tagline (Only if present) */}
-                {trailer.tagline && (
-                  <p className="text-xs italic text-white/75 line-clamp-1 border-l-2 border-primary/60 pl-2">
-                    "{trailer.tagline}"
-                  </p>
-                )}
-
-                {/* Smart Description / Synopsis (Only if present) */}
-                {trailer.description ? (
-                  <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                    {trailer.description}
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground/60 italic">
-                    Official movie trailer and preview for {trailer.title || trailer.movie_title}.
-                  </p>
-                )}
-
-                {/* Smart Director & Cast (Only if present) */}
-                {(trailer.director || trailer.cast) && (
-                  <div className="space-y-1 pt-1.5 border-t border-white/5 text-[11px]">
-                    {trailer.director && (
-                      <div className="flex items-center gap-1 text-white/60 truncate">
-                        <span className="text-[9px] font-black uppercase tracking-wider text-white/40">Director:</span>
-                        <span className="text-white/80 font-medium truncate">{trailer.director}</span>
-                      </div>
-                    )}
-                    {trailer.cast && (
-                      <div className="flex items-center gap-1 text-white/60 truncate">
-                        <span className="text-[9px] font-black uppercase tracking-wider text-white/40">Cast:</span>
-                        <span className="text-white/80 font-medium truncate">{trailer.cast}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Footer Controls: Watch Preview & Join Room (if active) */}
-                <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between gap-2">
+                {/* Footer Controls: Watch Preview & Join Room */}
+                <div className="pt-2 mt-auto border-t border-white/5 flex items-center justify-between gap-1.5">
                   <Button 
                     onClick={() => setSelectedTrailer(trailer)} 
                     size="sm" 
                     variant="outline"
-                    className="rounded-xl px-4 text-xs font-bold border-white/10 hover:bg-white/10 flex items-center gap-1.5"
+                    className="w-full rounded-xl py-1 px-2 h-7 text-[9px] sm:text-[10px] font-bold border-white/10 hover:bg-white/10 flex items-center justify-center gap-1"
                   >
-                    <Play className="w-3.5 h-3.5 fill-current text-blue-400" />
-                    Watch Preview
+                    <Play className="w-2.5 h-2.5 fill-current text-blue-400" />
+                    Preview
                   </Button>
 
-                  {trailer.roomId && rooms.some(r => r.id === trailer.roomId) ? (
+                  {trailer.roomId && rooms.some(r => r.id === trailer.roomId) && (
                     <Button 
                       onClick={() => handleJoinRoomById(trailer.roomId)} 
                       size="sm" 
-                      className="rounded-xl px-4 text-xs font-bold gradient-bg shadow-lg shadow-primary/20 flex items-center gap-1.5"
+                      className="rounded-xl py-1 px-2.5 h-7 text-[9px] sm:text-[10px] font-bold gradient-bg shadow-md flex items-center justify-center gap-1 shrink-0"
                     >
-                      <Tv className="w-3.5 h-3.5" />
-                      Join Room
+                      <Tv className="w-2.5 h-2.5" />
+                      Join
                     </Button>
-                  ) : trailer.roomId ? (
-                    <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/70">
-                      Room Created
-                    </span>
-                  ) : null}
+                  )}
                 </div>
               </div>
             </Card>
@@ -1551,19 +1489,20 @@ const CinemaRoom: React.FC = () => {
         {activeTab === 'schedule' && upcoming.map(item => (
           <motion.div
             key={item.id}
-            whileHover={{ y: -5 }}
-            className="group relative"
+            whileHover={{ y: -4, scale: 1.02 }}
+            transition={{ type: "spring", stiffness: 350, damping: 22 }}
+            className="group relative flex flex-col"
           >
-            <Card className="overflow-hidden glass-card border-white/5 h-full flex flex-col">
-              <div className="relative aspect-[16/9] overflow-hidden">
+            <Card className="overflow-hidden glass-card border-white/5 h-full flex flex-col p-2 sm:p-2.5 rounded-2xl">
+              <div className="relative aspect-[2/3] rounded-xl overflow-hidden">
                 <img 
                   src={item.poster} 
                   alt={item.title} 
-                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
+                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
-                <div className="absolute top-3 right-3">
-                   <Badge className="bg-emerald-600 hover:bg-emerald-600 border-none font-black text-[9px] tracking-widest shadow-lg shadow-emerald-600/20">
+                <div className="absolute top-2 right-2">
+                   <Badge className="bg-emerald-600 hover:bg-emerald-600 border-none font-black text-[8px] tracking-wider shadow-md py-0 px-1.5">
                      COMING SOON
                    </Badge>
                 </div>
@@ -1587,85 +1526,23 @@ const CinemaRoom: React.FC = () => {
                     })}
                     className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                   >
-                    <div className="w-12 h-12 rounded-full bg-emerald-600/80 backdrop-blur-md flex items-center justify-center border border-white/20 hover:scale-110 transition-transform">
-                      <Video className="w-5 h-5 text-white" />
+                    <div className="w-10 h-10 rounded-full bg-emerald-600/80 backdrop-blur-md flex items-center justify-center border border-white/20 hover:scale-110 transition-transform">
+                      <Video className="w-4 h-4 text-white" />
                     </div>
                   </button>
                 )}
               </div>
               
-              <div className="p-5 flex-1 flex flex-col gap-3">
+              <div className="pt-2 flex-1 flex flex-col justify-between">
                 <div>
-                  <h3 className="font-black text-lg leading-tight mb-1 uppercase tracking-tighter text-white">{item.title}</h3>
+                  <h3 className="font-black text-xs sm:text-sm leading-snug line-clamp-1 uppercase text-white">{item.title}</h3>
+                  <p className="text-[9px] text-emerald-400 font-bold uppercase mt-0.5">
+                    {item.releaseDate || item.release_year || 'Coming Soon'}
+                  </p>
                 </div>
 
-                {/* Smart Metadata Badges (Only render if present) */}
-                {(item.release_year || item.year || item.age_rating || item.duration || item.category) && (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {(item.release_year || item.year) && (
-                      <span className="px-2 py-0.5 rounded-md bg-white/10 text-white/90 text-[10px] font-bold">
-                        {item.release_year || item.year}
-                      </span>
-                    )}
-                    {item.age_rating && (
-                      <span className="px-1.5 py-0.5 rounded border border-white/20 text-white/80 text-[10px] font-black uppercase">
-                        {item.age_rating}
-                      </span>
-                    )}
-                    {item.duration && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold">
-                        <Clock className="w-2.5 h-2.5" />
-                        {item.duration}
-                      </span>
-                    )}
-                    {item.category && (
-                      <span className="px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20 text-[10px] font-bold">
-                        {item.category}
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                {/* Smart Tagline (Only if present) */}
-                {item.tagline && (
-                  <p className="text-xs italic text-white/75 line-clamp-1 border-l-2 border-emerald-500/60 pl-2">
-                    "{item.tagline}"
-                  </p>
-                )}
-
-                {/* Smart Description / Synopsis (Only if present) */}
-                {item.description && (
-                  <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                    {item.description}
-                  </p>
-                )}
-
-                {/* Smart Director & Cast (Only if present) */}
-                {(item.director || item.cast) && (
-                  <div className="space-y-1 pt-1.5 border-t border-white/5 text-[11px]">
-                    {item.director && (
-                      <div className="flex items-center gap-1 text-white/60 truncate">
-                        <span className="text-[9px] font-black uppercase tracking-wider text-white/40">Director:</span>
-                        <span className="text-white/80 font-medium truncate">{item.director}</span>
-                      </div>
-                    )}
-                    {item.cast && (
-                      <div className="flex items-center gap-1 text-white/60 truncate">
-                        <span className="text-[9px] font-black uppercase tracking-wider text-white/40">Cast:</span>
-                        <span className="text-white/80 font-medium truncate">{item.cast}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-                
-                <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between">
-                  <div className="flex flex-col">
-                    <span className="text-[9px] text-muted-foreground uppercase font-black tracking-widest">Expected Release</span>
-                    <span className="text-xs font-bold text-emerald-400 mt-0.5 uppercase">
-                      {item.releaseDate || item.release_year || 'Coming Soon'}
-                    </span>
-                  </div>
-                  <Button variant="outline" className="rounded-xl border-white/10 hover:bg-white/5 h-9 text-[10px] font-black uppercase">
+                <div className="pt-2 mt-auto border-t border-white/5 flex items-center justify-between">
+                  <Button variant="outline" className="w-full rounded-xl border-white/10 hover:bg-white/5 h-7 text-[9px] sm:text-[10px] font-black uppercase">
                     Notify Me
                   </Button>
                 </div>
@@ -2776,7 +2653,7 @@ const CinemaRoom: React.FC = () => {
             {/* Trailer Details & Actions Footer */}
             <div className="p-5 md:p-6 bg-zinc-900/80 border-t border-white/5 space-y-4 overflow-y-auto">
               {/* Smart Metadata Badges */}
-              {(selectedTrailer.release_year || selectedTrailer.year || selectedTrailer.age_rating || selectedTrailer.duration || selectedTrailer.category) && (
+              {(selectedTrailer.release_year || selectedTrailer.year || selectedTrailer.age_rating || selectedTrailer.category) && (
                 <div className="flex items-center gap-2 flex-wrap">
                   {(selectedTrailer.release_year || selectedTrailer.year) && (
                     <span className="px-2.5 py-0.5 rounded-md bg-white/10 text-white/90 text-[11px] font-bold">
@@ -2786,12 +2663,6 @@ const CinemaRoom: React.FC = () => {
                   {selectedTrailer.age_rating && (
                     <span className="px-2 py-0.5 rounded border border-white/20 text-white/80 text-[11px] font-black uppercase">
                       {selectedTrailer.age_rating}
-                    </span>
-                  )}
-                  {selectedTrailer.duration && (
-                    <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[11px] font-bold">
-                      <Clock className="w-3 h-3" />
-                      {selectedTrailer.duration}
                     </span>
                   )}
                   {selectedTrailer.category && (
@@ -2858,6 +2729,292 @@ const CinemaRoom: React.FC = () => {
             </div>
           </motion.div>
         </div>,
+        document.body
+      )}
+
+      {/* Cinema Door Curtain-Opening Entrance Modal */}
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {selectedDoorRoom && (
+            <div className="fixed inset-0 z-[2500] flex items-center justify-center overflow-hidden bg-black select-none">
+              
+              {/* Grand Velvet Theater Curtains (Left & Right) */}
+              {/* Left Velvet Curtain */}
+              <motion.div
+                key="door-curtain-left"
+                initial={{ x: 0 }}
+                animate={{ x: isDoorCurtainsOpen ? '-100%' : 0 }}
+                exit={{ x: 0 }}
+                transition={{ duration: 1.15, ease: [0.22, 1, 0.36, 1] }}
+                className="absolute inset-y-0 left-0 w-1/2 z-40 bg-gradient-to-r from-[#180206] via-[#450a15] to-[#250308] border-r-2 border-amber-500/40 shadow-[25px_0_50px_rgba(0,0,0,0.9)] flex items-center justify-end"
+                style={{
+                  backgroundImage: 'repeating-linear-gradient(90deg, transparent, transparent 35px, rgba(0,0,0,0.5) 36px, rgba(0,0,0,0.5) 70px)',
+                  backgroundSize: '70px 100%'
+                }}
+              >
+                {/* Velvet Drape Highlight & Golden Fringe Edge */}
+                <div className="absolute inset-0 bg-gradient-to-b from-amber-500/10 via-transparent to-black/60 pointer-events-none" />
+                <div className="h-full w-2.5 bg-gradient-to-b from-amber-300 via-amber-500 to-amber-700 shadow-[0_0_15px_rgba(245,158,11,0.6)]" />
+              </motion.div>
+
+              {/* Right Velvet Curtain */}
+              <motion.div
+                key="door-curtain-right"
+                initial={{ x: 0 }}
+                animate={{ x: isDoorCurtainsOpen ? '100%' : 0 }}
+                exit={{ x: 0 }}
+                transition={{ duration: 1.15, ease: [0.22, 1, 0.36, 1] }}
+                className="absolute inset-y-0 right-0 w-1/2 z-40 bg-gradient-to-r from-[#250308] via-[#450a15] to-[#180206] border-l-2 border-amber-500/40 shadow-[-25px_0_50px_rgba(0,0,0,0.9)] flex items-center justify-start"
+                style={{
+                  backgroundImage: 'repeating-linear-gradient(90deg, transparent, transparent 35px, rgba(0,0,0,0.5) 36px, rgba(0,0,0,0.5) 70px)',
+                  backgroundSize: '70px 100%'
+                }}
+              >
+                {/* Velvet Drape Highlight & Golden Fringe Edge */}
+                <div className="absolute inset-0 bg-gradient-to-b from-amber-500/10 via-transparent to-black/60 pointer-events-none" />
+                <div className="h-full w-2.5 bg-gradient-to-b from-amber-300 via-amber-500 to-amber-700 shadow-[0_0_15px_rgba(245,158,11,0.6)]" />
+              </motion.div>
+
+              {/* Ambient Theater Light Cone */}
+              <div className="absolute inset-0 pointer-events-none z-10 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-amber-500/15 via-black/80 to-black" />
+
+              {/* The Revealed Cinema Foyer & Screening Lounge */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.94 }}
+                animate={{ opacity: isDoorCurtainsOpen ? 1 : 0, scale: isDoorCurtainsOpen ? 1 : 0.94 }}
+                exit={{ opacity: 0, scale: 0.94 }}
+                transition={{ delay: 0.25, duration: 0.65, ease: "easeOut" }}
+                className="relative z-30 w-full max-w-5xl h-full max-h-[92vh] mx-auto p-4 md:p-6 flex flex-col"
+              >
+                {/* Cinema Lounge Card */}
+                <div className="relative w-full h-full rounded-[2rem] bg-gradient-to-b from-zinc-900/95 via-black/95 to-zinc-950/95 border border-amber-500/30 shadow-[0_0_60px_rgba(0,0,0,0.9)] overflow-hidden flex flex-col backdrop-blur-2xl">
+                  
+                  {/* Atmospheric Backdrop Poster Blur */}
+                  <div className="absolute inset-0 z-0 opacity-20 pointer-events-none overflow-hidden">
+                    <img 
+                      src={selectedDoorRoom.movie_cover_image} 
+                      alt="" 
+                      className="w-full h-full object-cover filter blur-3xl scale-110"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-transparent" />
+                  </div>
+
+                  {/* Top Bar: Screen Marquee & Close Controls */}
+                  <div className="relative z-10 px-6 py-4 border-b border-amber-500/20 bg-black/40 backdrop-blur-md flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+                        <Clapperboard className="w-5 h-5 text-amber-400" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black tracking-[0.25em] uppercase text-amber-400">
+                            HALL {(rooms.findIndex(r => r.id === selectedDoorRoom.id) + 1 || 1).toString().padStart(2, '0')}
+                          </span>
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                          <span className="text-[10px] font-bold text-white/60 uppercase">The Grand Theater</span>
+                        </div>
+                        <h2 className="text-lg md:text-xl font-black uppercase tracking-tight text-white line-clamp-1">
+                          {selectedDoorRoom.room_name}
+                        </h2>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleCloseDoorEntrance}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold text-xs transition-all"
+                      >
+                        <X className="w-4 h-4" />
+                        <span className="hidden sm:inline">Back to Lobby</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Modal Content: Two-Column Showcase */}
+                  <div className="relative z-10 flex-1 overflow-y-auto p-5 md:p-8 grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8 items-center">
+                    
+                    {/* Left Column: Framed Movie Poster Showcase */}
+                    <div className="md:col-span-5 flex flex-col items-center">
+                      <div className="relative w-full max-w-[280px] md:max-w-[320px] aspect-[2/3] rounded-2xl overflow-hidden border-2 border-amber-500/40 shadow-[0_15px_45px_rgba(245,158,11,0.2)] group">
+                        <img 
+                          src={selectedDoorRoom.movie_cover_image} 
+                          alt={selectedDoorRoom.movie_title}
+                          className="w-full h-full object-cover" 
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
+                        
+                        {/* Status Beacon on Poster */}
+                        <div className="absolute top-3 left-3 flex gap-2">
+                          {selectedDoorRoom.status === 'live' ? (
+                            <Badge className="bg-rose-600 hover:bg-rose-600 border border-rose-300 text-[10px] font-black tracking-widest gap-1.5 shadow-lg shadow-rose-600/40">
+                              <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                              LIVE
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="bg-amber-500/20 border-amber-400 text-amber-300 text-[10px] font-black tracking-widest">
+                              UPCOMING
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Ticket Badge */}
+                        <div className="absolute top-3 right-3">
+                          {selectedDoorRoom.room_type === 'paid' && selectedDoorRoom.ticket_price ? (
+                            <Badge className="bg-emerald-500 text-black font-black text-xs px-2.5 py-0.5 shadow-lg">
+                              ₦{selectedDoorRoom.ticket_price}
+                            </Badge>
+                          ) : selectedDoorRoom.room_type === 'private' ? (
+                            <Badge className="bg-purple-600 text-white font-black text-xs px-2.5 py-0.5 shadow-lg">
+                              Private Room
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-amber-400 text-black font-black text-[10px] uppercase px-2 py-0.5 shadow-lg">
+                              Free Access
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Audience overlay at bottom of poster */}
+                        <div className="absolute bottom-3 inset-x-3 flex items-center justify-between text-xs bg-black/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10">
+                          <div className="flex items-center gap-1.5 text-white/90">
+                            <Users className="w-4 h-4 text-amber-400" />
+                            <span className="font-bold">{selectedDoorRoom.active_viewers || 0} watching</span>
+                          </div>
+                          <span className="text-[10px] font-black uppercase tracking-wider text-amber-300">
+                            Now Screening
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right Column: Rich Smart Details & Entry CTA */}
+                    <div className="md:col-span-7 flex flex-col justify-center space-y-4">
+                      
+                      {/* Movie Header */}
+                      <div className="space-y-1">
+                        {selectedDoorRoom.content_type === 'series' && (
+                          <div className="flex items-center gap-2">
+                            <span className="px-2.5 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-black uppercase tracking-wider">
+                              TV Series {selectedDoorRoom.episodes?.length ? `(${selectedDoorRoom.episodes.length} Episodes)` : ''}
+                            </span>
+                          </div>
+                        )}
+                        <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tight text-white leading-tight">
+                          {selectedDoorRoom.movie_title || selectedDoorRoom.room_name}
+                        </h1>
+                        <p className="text-xs text-muted-foreground font-medium flex items-center gap-2">
+                          <span>Room: <strong className="text-white">{selectedDoorRoom.room_name}</strong></span>
+                          <span>•</span>
+                          <span>Hosted by <strong className="text-amber-300">{selectedDoorRoom.host_name}</strong></span>
+                        </p>
+                      </div>
+
+                      {/* Smart Metadata Badges (Only rendered if present) */}
+                      {(selectedDoorRoom.release_year || selectedDoorRoom.year || selectedDoorRoom.age_rating || selectedDoorRoom.duration || selectedDoorRoom.category) && (
+                        <div className="flex items-center gap-2 flex-wrap pt-1">
+                          {(selectedDoorRoom.release_year || selectedDoorRoom.year) && (
+                            <span className="px-3 py-1 rounded-lg bg-white/10 text-white font-bold text-xs">
+                              {selectedDoorRoom.release_year || selectedDoorRoom.year}
+                            </span>
+                          )}
+                          {selectedDoorRoom.age_rating && (
+                            <span className="px-2.5 py-1 rounded-lg border border-white/20 text-white font-black text-xs uppercase">
+                              {selectedDoorRoom.age_rating}
+                            </span>
+                          )}
+                          {selectedDoorRoom.duration && (
+                            <span className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 text-xs font-bold">
+                              <Clock className="w-3.5 h-3.5" />
+                              {selectedDoorRoom.duration}
+                            </span>
+                          )}
+                          {selectedDoorRoom.category && (
+                            <span className="px-3 py-1 rounded-lg bg-purple-500/10 text-purple-300 border border-purple-500/20 text-xs font-bold">
+                              {selectedDoorRoom.category}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Smart Tagline (Only if present) */}
+                      {selectedDoorRoom.tagline && (
+                        <p className="text-xs md:text-sm italic text-amber-200/90 border-l-2 border-amber-400 pl-3 py-0.5">
+                          "{selectedDoorRoom.tagline}"
+                        </p>
+                      )}
+
+                      {/* Smart Description / Synopsis (Only if present) */}
+                      {selectedDoorRoom.description && (
+                        <div className="space-y-1">
+                          <h4 className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Synopsis</h4>
+                          <p className="text-xs md:text-sm text-white/80 leading-relaxed max-h-28 overflow-y-auto pr-2">
+                            {selectedDoorRoom.description}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Smart Director & Cast (Only if present) */}
+                      {(selectedDoorRoom.director || selectedDoorRoom.cast) && (
+                        <div className="space-y-1.5 pt-2 border-t border-white/10 text-xs">
+                          {selectedDoorRoom.director && (
+                            <div className="flex items-center gap-2 text-white/70">
+                              <Clapperboard className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              <span className="text-[10px] font-black uppercase tracking-wider text-white/40">Director:</span>
+                              <span className="text-white/90 font-medium truncate">{selectedDoorRoom.director}</span>
+                            </div>
+                          )}
+                          {selectedDoorRoom.cast && (
+                            <div className="flex items-center gap-2 text-white/70">
+                              <Users className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              <span className="text-[10px] font-black uppercase tracking-wider text-white/40">Cast:</span>
+                              <span className="text-white/90 font-medium truncate">{selectedDoorRoom.cast}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Schedule & Start Time */}
+                      <div className="pt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                        <Clock className="w-3.5 h-3.5 text-primary" />
+                        <span>Screening Time: <strong className="text-white">{selectedDoorRoom.scheduled_start_time ? new Date(selectedDoorRoom.scheduled_start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Live In Session Now'}</strong></span>
+                      </div>
+
+                      {/* Prominent Enter Theater Action Buttons */}
+                      <div className="pt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                        <Button
+                          onClick={() => {
+                            const rId = selectedDoorRoom.id;
+                            handleCloseDoorEntrance();
+                            handleJoinRoomById(rId);
+                          }}
+                          className="flex-1 py-6 rounded-2xl font-black uppercase text-xs md:text-sm tracking-widest bg-gradient-to-r from-amber-500 via-rose-500 to-amber-500 text-black hover:opacity-95 shadow-[0_0_30px_rgba(245,158,11,0.4)] flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform"
+                        >
+                          <Play className="w-5 h-5 fill-current" />
+                          Enter Cinema Room Now
+                        </Button>
+
+                        <Button
+                          onClick={() => {
+                            handleShareRoom(selectedDoorRoom);
+                          }}
+                          variant="outline"
+                          className="py-6 px-5 rounded-2xl border-white/10 hover:bg-white/10 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2"
+                        >
+                          <Share2 className="w-4 h-4 text-amber-400" />
+                          Share
+                        </Button>
+                      </div>
+
+                    </div>
+
+                  </div>
+
+                </div>
+              </motion.div>
+
+            </div>
+          )}
+        </AnimatePresence>,
         document.body
       )}
     </div>
