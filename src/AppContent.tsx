@@ -111,6 +111,13 @@ export const AppContent: React.FC = () => {
       window.history.replaceState({}, '', newUrl);
     }
 
+    const craveStore = params.get('craveStore') || params.get('store');
+    if (craveStore) {
+      sessionStorage.setItem('aura_initial_vendor_store', craveStore);
+      setActiveView('snacks');
+      sessionStorage.setItem('aura_active_view', 'snacks');
+    }
+
     if (tab && allowedTabs.includes(tab)) {
       setActiveView(tab);
       sessionStorage.setItem('aura_active_view', tab);

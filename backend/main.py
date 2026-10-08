@@ -3974,6 +3974,8 @@ def format_order_telegram_message(order: dict, status: str = "pending", eta: Opt
     cust_addr = escape_tg(order.get("deliveryAddress") or order.get("customerAddress", "N/A"))
     vendor_name = escape_tg(order.get("vendorName", "Store Vendor"))
     total = order.get("totalAmount") if order.get("totalAmount") is not None else order.get("total", 0)
+    est_time = order.get("estimatedDeliveryTime") or order.get("deliveryTime")
+    est_time_line = f"⏱️ <b>Est. Delivery Time:</b> {escape_tg(est_time)}\n" if est_time else ""
     
     items = order.get("items", [])
     items_lines = []
@@ -4004,6 +4006,7 @@ def format_order_telegram_message(order: dict, status: str = "pending", eta: Opt
         f"<b>Phone:</b> {cust_phone}\n"
         f"<b>Address:</b> {cust_addr}\n\n"
         f"<b>Items:</b>\n{items_text}\n\n"
+        f"{est_time_line}"
         f"<b>Total Paid:</b> ₦{total:,.0f}\n\n"
         f"<b>Status:</b> {status_display}\n\n"
         f"Sent for {vendor_name}."
@@ -4371,6 +4374,7 @@ class VendorGroupRequest(BaseModel):
     vendorId: str
     vendorName: str
     telegramGroupId: Optional[str] = None
+    estimatedDeliveryTime: Optional[str] = None
     items: List[CheckoutItemRequest]
 
 class StoreCheckoutPayload(BaseModel):
@@ -4539,6 +4543,8 @@ async def checkout_store_order(payload: StoreCheckoutPayload, user: dict = Depen
                 "customerAddress": payload.customerAddress,
                 "vendorId": vg.vendorId,
                 "vendorName": vg.vendorName,
+                "estimatedDeliveryTime": vg.estimatedDeliveryTime or "5-10 mins",
+                "deliveryTime": vg.estimatedDeliveryTime or "5-10 mins",
                 "totalAmount": group_total,
                 "total": group_total,
                 "items": [{"productId": it.productId, "name": it.name, "quantity": it.quantity, "price": it.price} for it in vg.items],
@@ -4561,6 +4567,7 @@ async def checkout_store_order(payload: StoreCheckoutPayload, user: dict = Depen
                 "orderNumber": order_num,
                 "vendorId": vg.vendorId,
                 "vendorName": vg.vendorName,
+                "estimatedDeliveryTime": vg.estimatedDeliveryTime or "5-10 mins",
                 "orderStatus": "pending"
             })
 
@@ -4570,6 +4577,7 @@ async def checkout_store_order(payload: StoreCheckoutPayload, user: dict = Depen
                 "vendorId": vg.vendorId,
                 "vendorName": vg.vendorName,
                 "telegramGroupId": vg.telegramGroupId,
+                "estimatedDeliveryTime": vg.estimatedDeliveryTime or "5-10 mins",
                 "totalAmount": group_total,
                 "items": [{"productId": it.productId, "name": it.name, "quantity": it.quantity, "price": it.price} for it in vg.items]
             })
@@ -4609,6 +4617,7 @@ async def checkout_store_order(payload: StoreCheckoutPayload, user: dict = Depen
                         "deliveryAddress": payload.customerAddress,
                         "vendorName": ord_info["vendorName"],
                         "totalAmount": ord_info["totalAmount"],
+                        "estimatedDeliveryTime": ord_info.get("estimatedDeliveryTime", "5-10 mins"),
                         "items": ord_info["items"]
                     }
                     message = format_order_telegram_message(order_dict, status="pending")

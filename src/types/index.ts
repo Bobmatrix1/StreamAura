@@ -219,10 +219,35 @@ export interface Vendor {
   name: string;
   telegramGroupId: string;
   logo?: string;
+  flyer?: string;
+  banner?: string;
+  tagline?: string;
+  description?: string;
+  category?: string;
+  deliveryTime?: string;
+  phone?: string;
   rating?: number;
   ratingCount?: number;
   totalRatingPoints?: number;
+  slug?: string;
 }
+
+export const STORE_CATEGORIES = [
+  'Chilled Drinks & Mocktails',
+  'Snacks & Small Chops',
+  'Grills, BBQ & Suya',
+  'Popcorn & Cinema Combos',
+  'Pastries & Bakery',
+  'Fast Food & Finger Foods',
+  'Local & African Dishes',
+  'Desserts & Ice Cream',
+  'Healthy & Fruit Bowls',
+  'Gourmet Platters & Meals',
+  'Coffee, Tea & Warm Drinks',
+  'Sweets, Candies & Chocolates'
+] as const;
+
+export type StoreCategory = typeof STORE_CATEGORIES[number];
 
 export interface Product {
   id: string;
@@ -239,6 +264,14 @@ export interface Product {
   available?: boolean;
   rating?: number;
   reviewCount?: number;
+  deliveryTime?: string;
+  isFeatured?: boolean;
+  isBestSeller?: boolean;
+  isNewArrival?: boolean;
+  tags?: string[];
+  salesCount?: number;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 export interface ProductReview {

@@ -25,13 +25,20 @@ import {
   X, 
   Upload,
   Loader2,
-  Camera
+  Camera,
+  Clock,
+  Store,
+  Copy,
+  ImageIcon,
+  ChefHat
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
 import { AnimatePresence, motion } from 'framer-motion';
+import { CustomPlatformDropdown } from '../components/ui/CustomPlatformDropdown';
+import { STORE_CATEGORIES } from '../types';
 
 export const StoreManager: React.FC = () => {
   const [activeSubTab, setActiveSubTab] = useState<'vendors' | 'products' | 'partners'>('vendors');
@@ -39,6 +46,7 @@ export const StoreManager: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isUploadingVendorAsset, setIsUploadingVendorAsset] = useState<'flyer' | 'logo' | null>(null);
 
   // In-app Delete Confirmation Modal State
   const [deleteModal, setDeleteModal] = useState<{
@@ -58,15 +66,29 @@ export const StoreManager: React.FC = () => {
   // Form States
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
   const [isAddingVendor, setIsAddingVendor] = useState(false);
-  const [newVendor, setNewVendor] = useState({ name: '', telegramGroupId: '' });
+  const [newVendor, setNewVendor] = useState<Partial<Vendor>>({ 
+    name: '', 
+    telegramGroupId: '',
+    tagline: '',
+    category: 'Snacks & Bites',
+    deliveryTime: '5-10 mins',
+    logo: '',
+    flyer: '',
+    description: '',
+    phone: ''
+  });
 
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
-    name: '', description: '', price: 0, slashPrice: 0, image: '', vendorId: '', inStock: true, quantity: 10, category: 'Snacks'
+    name: '', description: '', price: 0, slashPrice: 0, deliveryTime: '5-10 mins', image: '', vendorId: '', inStock: true, quantity: 10, category: 'Snacks'
   });
   const [newPartner, setNewPartner] = useState<Partial<Partner>>({ name: '', logo: '', url: '' });
 
   const productFileRef = useRef<HTMLInputElement>(null);
   const partnerFileRef = useRef<HTMLInputElement>(null);
+  const newVendorFlyerRef = useRef<HTMLInputElement>(null);
+  const newVendorLogoRef = useRef<HTMLInputElement>(null);
+  const editVendorFlyerRef = useRef<HTMLInputElement>(null);
+  const editVendorLogoRef = useRef<HTMLInputElement>(null);
 
   const fetchData = async () => {
     try {
@@ -130,18 +152,61 @@ export const StoreManager: React.FC = () => {
     toast.info('Partner logo removed');
   };
 
+  // Copy Store Link helper
+  const handleCopyVendorStoreLink = (vendorId: string) => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://streamaura.site';
+    const url = `${origin}/?craveStore=${vendorId}`;
+    navigator.clipboard.writeText(url);
+    toast.success('🔗 Store link copied to clipboard!');
+  };
+
+  // Vendor Flyer / Logo Upload Handlers
+  const handleVendorAssetUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>, 
+    assetType: 'flyer' | 'logo', 
+    target: 'new' | 'edit'
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingVendorAsset(assetType);
+    try {
+      const url = await uploadFile(file, `vendors/${assetType}s`);
+      if (target === 'new') {
+        setNewVendor(prev => ({ ...prev, [assetType]: url }));
+      } else if (editingVendor) {
+        setEditingVendor({ ...editingVendor, [assetType]: url });
+      }
+      toast.success(`Vendor ${assetType} uploaded successfully`);
+    } catch (error) {
+      toast.error(`Failed to upload ${assetType}`);
+    } finally {
+      setIsUploadingVendorAsset(null);
+    }
+  };
+
   // Vendor Handlers
   const handleCreateVendor = async () => {
-    if (!newVendor.name.trim() || !newVendor.telegramGroupId.trim()) {
+    if (!newVendor.name?.trim() || !newVendor.telegramGroupId?.trim()) {
       toast.error('Please fill in both Vendor Name and Telegram Group ID');
       return;
     }
     
     try {
       const id = `vendor_${Date.now()}`;
-      await updateVendor({ id, ...newVendor });
+      await updateVendor({ id, ...newVendor } as Vendor);
       toast.success(`Vendor "${newVendor.name}" created successfully`);
-      setNewVendor({ name: '', telegramGroupId: '' });
+      setNewVendor({ 
+        name: '', 
+        telegramGroupId: '',
+        tagline: '',
+        category: 'Snacks & Bites',
+        deliveryTime: '5-10 mins',
+        logo: '',
+        flyer: '',
+        description: '',
+        phone: ''
+      });
       setIsAddingVendor(false);
       await fetchData();
     } catch (error: any) { 
@@ -152,7 +217,7 @@ export const StoreManager: React.FC = () => {
 
   const handleUpdateVendor = async () => {
     if (!editingVendor) return;
-    if (!editingVendor.name.trim() || !editingVendor.telegramGroupId.trim()) {
+    if (!editingVendor.name?.trim() || !editingVendor.telegramGroupId?.trim()) {
       toast.error('Fields cannot be empty');
       return;
     }
@@ -226,7 +291,7 @@ export const StoreManager: React.FC = () => {
         stockStatus: 'in_stock'
       } as Omit<Product, 'id'>);
       toast.success('Product added');
-      setNewProduct({ name: '', description: '', price: 0, slashPrice: 0, image: '', vendorId: '', inStock: true, quantity: 10, category: 'Snacks' });
+      setNewProduct({ name: '', description: '', price: 0, slashPrice: 0, deliveryTime: '5-10 mins', image: '', vendorId: '', inStock: true, quantity: 10, category: 'Snacks' });
       fetchData();
     } catch (error) { toast.error('Add failed'); }
   };
@@ -269,7 +334,17 @@ export const StoreManager: React.FC = () => {
 
   const handleSubTabChange = (tab: 'vendors' | 'products' | 'partners') => {
     setIsAddingVendor(false);
-    setNewVendor({ name: '', telegramGroupId: '' });
+    setNewVendor({ 
+      name: '', 
+      telegramGroupId: '',
+      tagline: '',
+      category: 'Snacks & Bites',
+      deliveryTime: '5-10 mins',
+      logo: '',
+      flyer: '',
+      description: '',
+      phone: ''
+    });
     setEditingVendor(null);
     setNewProduct({ name: '', description: '', price: 0, slashPrice: 0, image: '', vendorId: '', inStock: true, quantity: 10, category: 'Snacks' });
     setNewPartner({ name: '', logo: '', url: '' });
@@ -304,79 +379,304 @@ export const StoreManager: React.FC = () => {
       {activeSubTab === 'vendors' && (
         <div className="space-y-6">
           <div className="flex justify-between items-center">
-             <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-               <Users className="w-4 h-4" /> Manage Vendors
-             </h3>
+             <div>
+               <h3 className="text-sm font-black uppercase tracking-widest text-white flex items-center gap-2">
+                 <Store className="w-4 h-4 text-amber-500" /> Manage Brand Vendors & Flyers
+               </h3>
+               <p className="text-[10px] text-muted-foreground uppercase mt-0.5">
+                 Manage vendor brand logos, flyer banners, taglines, and direct Crave Aura store links
+               </p>
+             </div>
              <Button onClick={() => setIsAddingVendor(true)} variant="outline" className="h-8 text-[10px] font-black uppercase tracking-widest gap-2">
-               <Plus className="w-3 h-3" /> New Vendor
+               <Plus className="w-3 h-3" /> New Brand Vendor
              </Button>
           </div>
 
+          {/* Hidden inputs for Flyer & Logo uploads */}
+          <input 
+            type="file" 
+            ref={newVendorFlyerRef} 
+            accept="image/*" 
+            className="hidden" 
+            onChange={(e) => handleVendorAssetUpload(e, 'flyer', 'new')} 
+          />
+          <input 
+            type="file" 
+            ref={newVendorLogoRef} 
+            accept="image/*" 
+            className="hidden" 
+            onChange={(e) => handleVendorAssetUpload(e, 'logo', 'new')} 
+          />
+          <input 
+            type="file" 
+            ref={editVendorFlyerRef} 
+            accept="image/*" 
+            className="hidden" 
+            onChange={(e) => handleVendorAssetUpload(e, 'flyer', 'edit')} 
+          />
+          <input 
+            type="file" 
+            ref={editVendorLogoRef} 
+            accept="image/*" 
+            className="hidden" 
+            onChange={(e) => handleVendorAssetUpload(e, 'logo', 'edit')} 
+          />
+
           <AnimatePresence>
             {isAddingVendor && (
-              <Card className="p-4 glass-card border-primary/20 space-y-4">
+              <Card className="p-5 glass-card border-amber-500/30 bg-amber-500/5 space-y-4">
                 <div className="flex justify-between items-center">
-                  <h4 className="text-xs font-black uppercase text-primary">New Vendor Details</h4>
-                  <Button variant="ghost" size="icon" onClick={() => { setNewVendor({ name: '', telegramGroupId: '' }); setIsAddingVendor(false); }} className="h-6 w-6">
+                  <h4 className="text-xs font-black uppercase text-amber-400 flex items-center gap-1.5">
+                    <Store className="w-3.5 h-3.5" /> Create New Brand Store
+                  </h4>
+                  <Button variant="ghost" size="icon" onClick={() => setIsAddingVendor(false)} className="h-6 w-6">
                     <X className="w-4 h-4" />
                   </Button>
                 </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Vendor Name</label>
-                    <input className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs" placeholder="e.g. Ada Chinchin" value={newVendor.name} onChange={e => setNewVendor({...newVendor, name: e.target.value})} />
+                    <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Brand Name (e.g. Zobo by Liza)</label>
+                    <input 
+                      className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs font-bold" 
+                      placeholder="e.g. Zobo by Liza, Small Chops by Sam" 
+                      value={newVendor.name || ''} 
+                      onChange={e => setNewVendor({...newVendor, name: e.target.value})} 
+                    />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Telegram Group ID</label>
-                    <input className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs font-mono" placeholder="-100..." value={newVendor.telegramGroupId} onChange={e => setNewVendor({...newVendor, telegramGroupId: e.target.value})} />
+                    <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Tagline / What They Sell</label>
+                    <input 
+                      className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs" 
+                      placeholder="e.g. Authentic Chilled Hibiscus Drinks & Fruit Blends" 
+                      value={newVendor.tagline || ''} 
+                      onChange={e => setNewVendor({...newVendor, tagline: e.target.value})} 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Category / Specialty</label>
+                    <CustomPlatformDropdown
+                      value={newVendor.category || STORE_CATEGORIES[0]}
+                      onChange={val => setNewVendor({...newVendor, category: val})}
+                      options={STORE_CATEGORIES as unknown as string[]}
+                      variant="gold"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Telegram Group ID (for order alerts)</label>
+                    <input 
+                      className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs font-mono" 
+                      placeholder="-100..." 
+                      value={newVendor.telegramGroupId || ''} 
+                      onChange={e => setNewVendor({...newVendor, telegramGroupId: e.target.value})} 
+                    />
                   </div>
                 </div>
-                <div className="flex justify-end gap-2">
-                  <Button variant="ghost" onClick={() => { setNewVendor({ name: '', telegramGroupId: '' }); setIsAddingVendor(false); }} className="h-9 text-[10px] font-black uppercase">Cancel</Button>
-                  <Button onClick={handleCreateVendor} className="h-9 text-[10px] font-black uppercase px-6 gradient-bg">Save Vendor</Button>
+
+                {/* Upload flyer and logo for new vendor */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black uppercase text-muted-foreground ml-1 flex items-center gap-1">
+                      <ImageIcon className="w-3 h-3 text-amber-500" /> Brand Flyer Banner
+                    </label>
+                    <div 
+                      onClick={() => newVendorFlyerRef.current?.click()}
+                      className="h-24 rounded-xl border-2 border-dashed border-white/10 bg-black/40 flex items-center justify-center cursor-pointer hover:border-amber-500/50 transition-all overflow-hidden relative"
+                    >
+                      {isUploadingVendorAsset === 'flyer' ? (
+                        <div className="text-center p-2">
+                          <Loader2 className="w-5 h-5 mx-auto text-amber-500 mb-1 animate-spin" />
+                          <span className="text-[9px] uppercase font-bold text-muted-foreground">Uploading Flyer...</span>
+                        </div>
+                      ) : newVendor.flyer ? (
+                        <img src={newVendor.flyer} alt="Flyer" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="text-center p-2">
+                          <Upload className="w-4 h-4 mx-auto text-amber-500 mb-1" />
+                          <span className="text-[9px] uppercase font-bold text-muted-foreground">Upload Flyer Banner</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black uppercase text-muted-foreground ml-1 flex items-center gap-1">
+                      <Store className="w-3 h-3 text-amber-500" /> Brand Logo / Avatar
+                    </label>
+                    <div 
+                      onClick={() => newVendorLogoRef.current?.click()}
+                      className="h-24 rounded-xl border-2 border-dashed border-white/10 bg-black/40 flex items-center justify-center cursor-pointer hover:border-amber-500/50 transition-all overflow-hidden relative"
+                    >
+                      {isUploadingVendorAsset === 'logo' ? (
+                        <div className="text-center p-2">
+                          <Loader2 className="w-5 h-5 mx-auto text-amber-500 mb-1 animate-spin" />
+                          <span className="text-[9px] uppercase font-bold text-muted-foreground">Uploading Logo...</span>
+                        </div>
+                      ) : newVendor.logo ? (
+                        <img src={newVendor.logo} alt="Logo" className="w-16 h-16 object-cover rounded-xl" />
+                      ) : (
+                        <div className="text-center p-2">
+                          <ChefHat className="w-4 h-4 mx-auto text-amber-500 mb-1" />
+                          <span className="text-[9px] uppercase font-bold text-muted-foreground">Upload Brand Logo</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="ghost" onClick={() => setIsAddingVendor(false)} className="h-9 text-[10px] font-black uppercase">Cancel</Button>
+                  <Button onClick={handleCreateVendor} className="h-9 text-[10px] font-black uppercase px-6 gradient-bg">Save Brand Vendor</Button>
                 </div>
               </Card>
             )}
           </AnimatePresence>
 
+          {/* Vendors Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {vendors.map(v => (
-              <Card key={v.id} className="p-4 glass-card border-white/10 flex justify-between items-center group">
+              <Card key={v.id} className="glass-card border-white/10 overflow-hidden flex flex-col justify-between group hover:border-amber-500/30 transition-all">
                 {editingVendor?.id === v.id ? (
-                  <div className="flex-1 space-y-2 pr-4">
-                    <input 
-                      className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-xs font-bold" 
-                      value={editingVendor.name} 
-                      onChange={e => setEditingVendor({...editingVendor, name: e.target.value})}
-                    />
-                    <input 
-                      className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-[10px] font-mono" 
-                      value={editingVendor.telegramGroupId} 
-                      onChange={e => setEditingVendor({...editingVendor, telegramGroupId: e.target.value})}
-                    />
+                  <div className="p-4 space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black uppercase text-amber-400">Editing Brand: {v.name}</span>
+                      <div className="flex gap-1">
+                        <Button size="sm" variant="ghost" onClick={handleUpdateVendor} className="text-emerald-400 h-7 text-[10px] font-bold"><Check className="w-3.5 h-3.5 mr-1" /> Save</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingVendor(null)} className="text-rose-400 h-7 text-[10px] font-bold"><X className="w-3.5 h-3.5 mr-1" /> Cancel</Button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2.5">
+                      <div>
+                        <label className="text-[8px] font-black uppercase text-muted-foreground">Brand Name</label>
+                        <input 
+                          className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-xs font-bold" 
+                          value={editingVendor.name || ''} 
+                          onChange={e => setEditingVendor({...editingVendor, name: e.target.value})}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[8px] font-black uppercase text-muted-foreground">Tagline / What they sell</label>
+                        <input 
+                          className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-xs" 
+                          value={editingVendor.tagline || ''} 
+                          placeholder="e.g. Zobo drinks, small chops"
+                          onChange={e => setEditingVendor({...editingVendor, tagline: e.target.value})}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[8px] font-black uppercase text-muted-foreground">Category</label>
+                          <input 
+                            className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-xs" 
+                            value={editingVendor.category || 'Snacks & Bites'} 
+                            onChange={e => setEditingVendor({...editingVendor, category: e.target.value})}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[8px] font-black uppercase text-muted-foreground">Telegram Group ID</label>
+                          <input 
+                            className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-xs font-mono" 
+                            value={editingVendor.telegramGroupId || ''} 
+                            onChange={e => setEditingVendor({...editingVendor, telegramGroupId: e.target.value})}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Flyer / Logo replace triggers */}
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => editVendorFlyerRef.current?.click()}
+                          disabled={isUploadingVendorAsset === 'flyer'}
+                          className="h-7 text-[9px] uppercase font-black border-white/10"
+                        >
+                          {isUploadingVendorAsset === 'flyer' ? (
+                            <Loader2 className="w-3 h-3 mr-1 animate-spin text-amber-400" />
+                          ) : (
+                            <Upload className="w-3 h-3 mr-1 text-amber-400" />
+                          )}
+                          {editingVendor.flyer ? 'Replace Flyer' : 'Add Flyer'}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => editVendorLogoRef.current?.click()}
+                          disabled={isUploadingVendorAsset === 'logo'}
+                          className="h-7 text-[9px] uppercase font-black border-white/10"
+                        >
+                          {isUploadingVendorAsset === 'logo' ? (
+                            <Loader2 className="w-3 h-3 mr-1 animate-spin text-amber-400" />
+                          ) : (
+                            <Upload className="w-3 h-3 mr-1 text-amber-400" />
+                          )}
+                          {editingVendor.logo ? 'Replace Logo' : 'Add Logo'}
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 ) : (
-                  <div className="space-y-1">
-                    <p className="font-black text-sm uppercase tracking-tight">{v.name}</p>
-                    <p className="text-[10px] text-muted-foreground font-mono">TG ID: {v.telegramGroupId}</p>
+                  <div>
+                    {/* Flyer Banner Thumbnail */}
+                    {v.flyer && (
+                      <div className="relative aspect-[21/9] w-full bg-slate-900 overflow-hidden border-b border-white/5">
+                        <img src={v.flyer} alt={v.name} className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                        <div className="absolute bottom-2 left-3 right-3 flex justify-between items-center">
+                          <Badge variant="outline" className="text-[8px] font-black uppercase border-amber-500/40 text-amber-300 bg-black/60">
+                            {v.category || 'Kitchen'}
+                          </Badge>
+                          <span className="text-[8px] font-mono text-white/70 bg-black/60 px-1.5 py-0.5 rounded">
+                            {v.deliveryTime || '5-10 mins'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 overflow-hidden flex items-center justify-center shrink-0">
+                            {v.logo ? (
+                              <img src={v.logo} alt={v.name} className="w-full h-full object-cover" />
+                            ) : (
+                              <ChefHat className="w-5 h-5 text-amber-500" />
+                            )}
+                          </div>
+                          <div>
+                            <p className="font-black text-sm uppercase tracking-tight text-white">{v.name}</p>
+                            {v.tagline && (
+                              <p className="text-[10px] text-amber-400 font-bold line-clamp-1">{v.tagline}</p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <Button size="icon" variant="ghost" onClick={() => setEditingVendor(v)} className="text-primary hover:bg-primary/10 h-8 w-8">
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </Button>
+                          <button onClick={() => handleDeleteVendor(v.id)} className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg opacity-0 group-hover:opacity-100 transition-all">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[9px] text-muted-foreground font-mono bg-black/40 p-2 rounded-lg border border-white/5">
+                        <span>TG: {v.telegramGroupId}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyVendorStoreLink(v.id)}
+                          className="flex items-center gap-1 text-amber-400 hover:text-amber-300 font-bold uppercase"
+                        >
+                          <Copy className="w-3 h-3" /> Store Link
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
-                
-                <div className="flex gap-2">
-                  {editingVendor?.id === v.id ? (
-                    <>
-                      <Button size="icon" variant="ghost" onClick={handleUpdateVendor} className="text-emerald-500"><Check className="w-4 h-4" /></Button>
-                      <Button size="icon" variant="ghost" onClick={() => setEditingVendor(null)} className="text-rose-500"><X className="w-4 h-4" /></Button>
-                    </>
-                  ) : (
-                    <>
-                      <Button size="icon" variant="ghost" onClick={() => setEditingVendor(v)} className="text-primary hover:bg-primary/10"><Edit2 className="w-4 h-4" /></Button>
-                      <button onClick={() => handleDeleteVendor(v.id)} className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg opacity-0 group-hover:opacity-100 transition-all">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </>
-                  )}
-                </div>
               </Card>
             ))}
           </div>
@@ -398,19 +698,31 @@ export const StoreManager: React.FC = () => {
                   <input className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs" placeholder="e.g. Jumbo Popcorn" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Vendor</label>
-                  <select className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs" value={newProduct.vendorId} onChange={e => setNewProduct({...newProduct, vendorId: e.target.value})}>
-                    <option value="">Select Vendor</option>
-                    {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                  </select>
+                  <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Vendor / Kitchen</label>
+                  <CustomPlatformDropdown
+                    value={newProduct.vendorId || ''}
+                    onChange={val => setNewProduct({...newProduct, vendorId: val})}
+                    options={vendors.map(v => ({ value: v.id, label: v.name, description: v.category || v.tagline }))}
+                    placeholder="Select Vendor / Kitchen"
+                    variant="gold"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Product Category</label>
+                  <CustomPlatformDropdown
+                    value={newProduct.category || STORE_CATEGORIES[3]}
+                    onChange={val => setNewProduct({...newProduct, category: val})}
+                    options={STORE_CATEGORIES as unknown as string[]}
+                    variant="gold"
+                  />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Price (₦)</label>
                   <input type="number" className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs" placeholder="3000" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: parseFloat(e.target.value)})} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Slash Price (₦)</label>
-                  <input type="number" className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs" placeholder="4500" value={newProduct.slashPrice} onChange={e => setNewProduct({...newProduct, slashPrice: parseFloat(e.target.value)})} />
+                  <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Delivery Time</label>
+                  <input type="text" className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs" placeholder="e.g. 5-10 mins" value={newProduct.deliveryTime || ''} onChange={e => setNewProduct({...newProduct, deliveryTime: e.target.value})} />
                 </div>
                 <div className="md:col-span-2 space-y-1">
                   <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Description</label>
@@ -488,7 +800,14 @@ export const StoreManager: React.FC = () => {
                     <span className="text-emerald-400 font-black text-xs">₦{p.price.toLocaleString()}</span>
                     {p.slashPrice && <span className="text-[10px] text-muted-foreground line-through italic">₦{p.slashPrice.toLocaleString()}</span>}
                   </div>
-                  <Badge variant={p.inStock ? "default" : "secondary"} className="text-[8px] h-4">{p.inStock ? 'IN STOCK' : 'OUT OF STOCK'}</Badge>
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <Badge variant={p.inStock ? "default" : "secondary"} className="text-[8px] h-4">{p.inStock ? 'IN STOCK' : 'OUT OF STOCK'}</Badge>
+                    {p.deliveryTime && (
+                      <span className="text-[9px] text-amber-400 font-bold flex items-center gap-1 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                        <Clock className="w-2.5 h-2.5" /> {p.deliveryTime}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <button onClick={() => handleDeleteProduct(p.id)} className="absolute top-2 right-2 p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10 transition-colors opacity-0 group-hover:opacity-100">
                   <Trash2 className="w-3.5 h-3.5" />
@@ -609,7 +928,7 @@ export const StoreManager: React.FC = () => {
                 </h3>
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   Are you sure you want to permanently delete <span className="font-bold text-white">"{deleteModal.name}"</span>?
-                  {deleteModal.type === 'product' && ' This will remove it from the Cinema Snack Store and Cloudflare storage.'}
+                  {deleteModal.type === 'product' && ' This will remove it from the Crave Aura Store and Cloudflare storage.'}
                   {deleteModal.type === 'vendor' && ' Products under this vendor will remain but won\'t route correctly.'}
                 </p>
               </div>

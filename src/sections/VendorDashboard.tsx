@@ -36,7 +36,14 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   Eye,
-  ShieldCheck
+  ShieldCheck,
+  Share2,
+  ExternalLink,
+  ImageIcon,
+  Globe,
+  Sparkles,
+  PackagePlus,
+  Tag
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -59,11 +66,15 @@ import {
   where, 
   addDoc, 
   updateDoc, 
+  setDoc,
   doc, 
+  deleteDoc,
   onSnapshot
 } from 'firebase/firestore';
 import { API_BASE_URL } from '../api/mediaApi';
 import { fetchBanks, resolveBankAccount } from '../api/paymentApi';
+import { CustomPlatformDropdown } from '../components/ui/CustomPlatformDropdown';
+import { STORE_CATEGORIES } from '../types';
 
 interface Product {
   id: string;
@@ -77,6 +88,16 @@ interface Product {
   available: boolean;
   stockStatus?: 'in_stock' | 'out_of_stock' | 'restocking';
   quantity?: number;
+  deliveryTime?: string;
+  rating?: number;
+  reviewCount?: number;
+  isFeatured?: boolean;
+  isBestSeller?: boolean;
+  isNewArrival?: boolean;
+  tags?: string[];
+  salesCount?: number;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 interface VendorFilterDropdownProps {
@@ -278,8 +299,8 @@ export const VendorDashboard: React.FC = () => {
   const { user, isAdmin } = useAuth();
   const isUserAdmin = Boolean(isAdmin || user?.isAdmin);
   
-  // Tab states: 'dashboard' | 'orders' | 'products' | 'transactions' | 'payout'
-  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'orders' | 'products' | 'transactions' | 'payout'>('dashboard');
+  // Tab states: 'dashboard' | 'orders' | 'products' | 'brand' | 'transactions' | 'payout'
+  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'orders' | 'products' | 'brand' | 'transactions' | 'payout'>('dashboard');
 
   // Vendor filter states for admin view
   const [selectedVendorFilter, setSelectedVendorFilter] = useState<string>('all');
@@ -326,9 +347,11 @@ export const VendorDashboard: React.FC = () => {
     setExpandedOrderIds({});
   };
 
-  // Transactions filters & detail modal state
+  // Transactions & Payouts filters, collapsible states & detail modal state
   const [txTypeFilter, setTxTypeFilter] = useState<'all' | 'sale' | 'withdrawal'>('all');
   const [txSearchQuery, setTxSearchQuery] = useState('');
+  const [isTransactionsExpanded, setIsTransactionsExpanded] = useState(false);
+  const [isPayoutHistoryExpanded, setIsPayoutHistoryExpanded] = useState(false);
   const [selectedTxDetail, setSelectedTxDetail] = useState<any | null>(null);
 
   // Shipping ETA Modal state
@@ -469,15 +492,20 @@ export const VendorDashboard: React.FC = () => {
     description: '',
     price: '',
     slashPrice: '',
-    category: 'snack',
+    deliveryTime: '',
+    category: STORE_CATEGORIES[3] as string, // default Popcorn & Cinema Combos
     image: '',
     stockStatus: 'in_stock' as 'in_stock' | 'out_of_stock' | 'restocking',
-    available: true
+    available: true,
+    isFeatured: false,
+    isBestSeller: false,
+    isNewArrival: true,
+    tags: [] as string[]
   });
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
 
-  // In-app Delete Confirmation Modal State
+  // In-app Delete Confirmation Modal State (Products)
   const [deleteModalState, setDeleteModalState] = useState<{
     isOpen: boolean;
     productId: string;
@@ -491,14 +519,51 @@ export const VendorDashboard: React.FC = () => {
   });
   const [isDeletingProduct, setIsDeletingProduct] = useState(false);
 
+  // In-app Delete Confirmation Modal State for Fulfilled Orders & Transactions
+  const [deleteRecordModal, setDeleteRecordModal] = useState<{
+    isOpen: boolean;
+    type: 'single_order' | 'all_fulfilled_orders' | 'single_transaction' | 'all_fulfilled_transactions';
+    title: string;
+    description: string;
+    orderId?: string;
+    orderNumber?: string;
+    txId?: string;
+    count?: number;
+  }>({
+    isOpen: false,
+    type: 'single_order',
+    title: '',
+    description: '',
+    count: 0
+  });
+  const [isDeletingRecord, setIsDeletingRecord] = useState(false);
+
   // Cashout modal states
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [isSubmittingWithdrawal, setIsSubmittingWithdrawal] = useState(false);
 
+  // Brand & Flyer state
+  const flyerFileInputRef = useRef<HTMLInputElement>(null);
+  const logoFileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingFlyer, setIsUploadingFlyer] = useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [isSavingBrand, setIsSavingBrand] = useState(false);
+  const [brandForm, setBrandForm] = useState({
+    name: '',
+    tagline: '',
+    description: '',
+    category: 'Snacks & Bites',
+    deliveryTime: '5-10 mins',
+    telegramGroupId: '',
+    logo: '',
+    flyer: '',
+    phone: ''
+  });
+
   // Background scroll lock
   useEffect(() => {
-    if (isProductModalOpen || isWithdrawModalOpen || deleteModalState.isOpen || shippingModal.isOpen || selectedTxDetail) {
+    if (isProductModalOpen || isWithdrawModalOpen || deleteModalState.isOpen || deleteRecordModal.isOpen || shippingModal.isOpen || selectedTxDetail) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = 'unset';
@@ -506,7 +571,7 @@ export const VendorDashboard: React.FC = () => {
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [isProductModalOpen, isWithdrawModalOpen, deleteModalState.isOpen, shippingModal.isOpen, selectedTxDetail]);
+  }, [isProductModalOpen, isWithdrawModalOpen, deleteModalState.isOpen, deleteRecordModal.isOpen, shippingModal.isOpen, selectedTxDetail]);
 
   // Load vendors list if admin
   useEffect(() => {
@@ -596,7 +661,8 @@ export const VendorDashboard: React.FC = () => {
           inStock: isInStock,
           available: data.available ?? isInStock,
           stockStatus: data.stockStatus || (isInStock ? 'in_stock' : 'out_of_stock'),
-          quantity: data.quantity ?? 10
+          quantity: data.quantity ?? 10,
+          deliveryTime: data.deliveryTime || '5-10 mins'
         } as Product;
       });
       setAllProducts(prods);
@@ -741,6 +807,34 @@ export const VendorDashboard: React.FC = () => {
       console.warn('Orders listener warning:', err);
     });
 
+    // 6. Listen to Vendor Brand Profile Doc
+    let unsubVendorDoc = () => {};
+    if (targetVendorId) {
+      unsubVendorDoc = onSnapshot(doc(db, 'vendors', targetVendorId), (snap) => {
+        if (snap.exists()) {
+          const vData = { id: snap.id, ...snap.data() } as Vendor;
+          setBrandForm({
+            name: vData.name || user?.displayName || 'My Brand Store',
+            tagline: vData.tagline || '',
+            description: vData.description || '',
+            category: vData.category || 'Snacks & Bites',
+            deliveryTime: vData.deliveryTime || '5-10 mins',
+            telegramGroupId: vData.telegramGroupId || '',
+            logo: vData.logo || '',
+            flyer: vData.flyer || '',
+            phone: vData.phone || ''
+          });
+        } else {
+          setBrandForm(prev => ({
+            ...prev,
+            name: prev.name || user?.displayName || 'My Brand Store'
+          }));
+        }
+      }, (err) => {
+        console.warn('Vendor doc listener warning:', err);
+      });
+    }
+
     return () => {
       unsubWallet();
       unsubProducts();
@@ -748,6 +842,7 @@ export const VendorDashboard: React.FC = () => {
       unsubSales();
       unsubUser();
       unsubOrders();
+      unsubVendorDoc();
     };
   }, [user?.uid, isUserAdmin, selectedVendorFilter]);
 
@@ -1024,12 +1119,17 @@ export const VendorDashboard: React.FC = () => {
         description: productForm.description,
         price: priceNum,
         slashPrice: slashPriceNum,
-        category: productForm.category,
+        deliveryTime: productForm.deliveryTime.trim() || '5-10 mins',
+        category: productForm.category || STORE_CATEGORIES[3],
         image: productForm.image,
         inStock: isAvailable,
         available: isAvailable,
         stockStatus: productForm.stockStatus,
         vendorId: targetVendorId,
+        isFeatured: Boolean(productForm.isFeatured),
+        isBestSeller: Boolean(productForm.isBestSeller),
+        isNewArrival: Boolean(productForm.isNewArrival),
+        tags: productForm.tags || [],
         updatedAt: Date.now()
       };
 
@@ -1057,10 +1157,15 @@ export const VendorDashboard: React.FC = () => {
         description: '',
         price: '',
         slashPrice: '',
-        category: 'snack',
+        deliveryTime: '',
+        category: STORE_CATEGORIES[3] as string,
         image: '',
         stockStatus: 'in_stock',
-        available: true
+        available: true,
+        isFeatured: false,
+        isBestSeller: false,
+        isNewArrival: true,
+        tags: []
       });
     } catch (err: any) {
       toast.error(err.message || 'Failed to save product');
@@ -1097,6 +1202,121 @@ export const VendorDashboard: React.FC = () => {
     }
   };
 
+  // Prompt single order deletion (strictly only fulfilled or cancelled orders)
+  const promptDeleteSingleOrder = (order: Order) => {
+    if (order.status !== 'delivered' && order.status !== 'cancelled') {
+      toast.error('Only fulfilled (delivered) or cancelled orders can be deleted to protect active customer orders.');
+      return;
+    }
+    const orderNum = order.orderNumber || order.id.substring(0, 8).toUpperCase();
+    setDeleteRecordModal({
+      isOpen: true,
+      type: 'single_order',
+      title: `Delete Fulfilled Order #${orderNum}`,
+      description: `Are you sure you want to permanently delete fulfilled order #${orderNum}? This completed order will be removed from your dashboard to keep things clean.`,
+      orderId: order.id,
+      orderNumber: orderNum,
+      count: 1
+    });
+  };
+
+  // Prompt delete all fulfilled orders
+  const promptDeleteAllFulfilledOrders = () => {
+    const fulfilled = displayedOrders.filter(o => o.status === 'delivered');
+    if (fulfilled.length === 0) {
+      toast.info('No fulfilled / delivered orders to clean up.');
+      return;
+    }
+    setDeleteRecordModal({
+      isOpen: true,
+      type: 'all_fulfilled_orders',
+      title: `Delete ${fulfilled.length} Fulfilled Orders`,
+      description: `Are you sure you want to permanently delete all ${fulfilled.length} fulfilled/delivered order(s)? This will clean up completed orders from your dashboard. Active orders (pending, in kitchen, out for delivery) will NOT be affected.`,
+      count: fulfilled.length
+    });
+  };
+
+  // Prompt single transaction deletion (only completed/delivered)
+  const promptDeleteSingleTransaction = (tx: any) => {
+    if (tx.status !== 'completed' && tx.status !== 'delivered') {
+      toast.error('Only completed transaction records can be deleted.');
+      return;
+    }
+    const refCode = tx.orderNumber ? `#${tx.orderNumber}` : tx.id.substring(0, 10).toUpperCase();
+    setDeleteRecordModal({
+      isOpen: true,
+      type: 'single_transaction',
+      title: `Delete Transaction ${refCode}`,
+      description: `Are you sure you want to permanently delete this completed transaction ledger record (${refCode})?`,
+      txId: tx.id,
+      count: 1
+    });
+  };
+
+  // Prompt delete all fulfilled transactions
+  const promptDeleteAllFulfilledTransactions = () => {
+    const fulfilledTx = displayedTransactions.filter(t => t.status === 'completed' || t.status === 'delivered');
+    if (fulfilledTx.length === 0) {
+      toast.info('No fulfilled transaction records to clean up.');
+      return;
+    }
+    setDeleteRecordModal({
+      isOpen: true,
+      type: 'all_fulfilled_transactions',
+      title: `Delete ${fulfilledTx.length} Fulfilled Transactions`,
+      description: `Are you sure you want to permanently delete all ${fulfilledTx.length} completed transaction records from your ledger to clean things up?`,
+      count: fulfilledTx.length
+    });
+  };
+
+  // Execute record deletion
+  const handleConfirmDeleteRecord = async () => {
+    setIsDeletingRecord(true);
+    const toastId = toast.loading('Deleting record(s)...');
+    try {
+      if (deleteRecordModal.type === 'single_order' && deleteRecordModal.orderId) {
+        await deleteDoc(doc(db, 'orders', deleteRecordModal.orderId));
+        // Also remove matching sales transaction if present
+        const matchingTx = history.find(h => h.orderId === deleteRecordModal.orderId || (deleteRecordModal.orderNumber && h.orderNumber === deleteRecordModal.orderNumber));
+        if (matchingTx?.id) {
+          await deleteDoc(doc(db, 'transactions', matchingTx.id)).catch(() => {});
+        }
+        toast.success(`Fulfilled Order #${deleteRecordModal.orderNumber || ''} deleted`, { id: toastId });
+      } else if (deleteRecordModal.type === 'all_fulfilled_orders') {
+        const fulfilled = displayedOrders.filter(o => o.status === 'delivered');
+        await Promise.all(fulfilled.map(async o => {
+          await deleteDoc(doc(db, 'orders', o.id)).catch(() => {});
+          const matchingTx = history.find(h => h.orderId === o.id || (o.orderNumber && h.orderNumber === o.orderNumber));
+          if (matchingTx?.id) {
+            await deleteDoc(doc(db, 'transactions', matchingTx.id)).catch(() => {});
+          }
+        }));
+        toast.success(`Cleaned up ${fulfilled.length} fulfilled order(s)!`, { id: toastId });
+      } else if (deleteRecordModal.type === 'single_transaction' && deleteRecordModal.txId) {
+        await deleteDoc(doc(db, 'transactions', deleteRecordModal.txId)).catch(async () => {
+          await deleteDoc(doc(db, 'withdrawals', deleteRecordModal.txId!)).catch(() => {});
+        });
+        toast.success('Transaction record deleted', { id: toastId });
+      } else if (deleteRecordModal.type === 'all_fulfilled_transactions') {
+        const fulfilledTx = displayedTransactions.filter(t => t.status === 'completed' || t.status === 'delivered');
+        await Promise.all(fulfilledTx.map(async t => {
+          if (t.type === 'withdrawal') {
+            await deleteDoc(doc(db, 'withdrawals', t.id)).catch(() => {});
+          } else {
+            await deleteDoc(doc(db, 'transactions', t.id)).catch(() => {});
+          }
+        }));
+        toast.success(`Cleaned up ${fulfilledTx.length} fulfilled transaction record(s)!`, { id: toastId });
+      }
+      setDeleteRecordModal(prev => ({ ...prev, isOpen: false }));
+    } catch (err: any) {
+      console.error('Failed to delete records:', err);
+      toast.error(err.message || 'Failed to delete record(s)', { id: toastId });
+    } finally {
+      setIsDeletingRecord(false);
+    }
+  };
+
   const closeProductModal = () => {
     setIsProductModalOpen(false);
     setEditingProduct(null);
@@ -1105,10 +1325,15 @@ export const VendorDashboard: React.FC = () => {
       description: '',
       price: '',
       slashPrice: '',
-      category: 'snack',
+      deliveryTime: '',
+      category: STORE_CATEGORIES[3] as string,
       image: '',
       stockStatus: 'in_stock',
-      available: true
+      available: true,
+      isFeatured: false,
+      isBestSeller: false,
+      isNewArrival: true,
+      tags: []
     });
   };
 
@@ -1121,10 +1346,15 @@ export const VendorDashboard: React.FC = () => {
         description: product.description,
         price: product.price.toString(),
         slashPrice: product.slashPrice?.toString() || '',
-        category: product.category,
+        deliveryTime: product.deliveryTime || '',
+        category: product.category || STORE_CATEGORIES[3],
         image: product.image,
         stockStatus: product.stockStatus || (product.available !== false ? 'in_stock' : 'out_of_stock'),
-        available: product.available !== false
+        available: product.available !== false,
+        isFeatured: Boolean(product.isFeatured),
+        isBestSeller: Boolean(product.isBestSeller),
+        isNewArrival: product.isNewArrival !== undefined ? Boolean(product.isNewArrival) : false,
+        tags: product.tags || []
       });
     } else {
       setEditingProduct(null);
@@ -1133,10 +1363,15 @@ export const VendorDashboard: React.FC = () => {
         description: '',
         price: '',
         slashPrice: '',
-        category: 'snack',
+        deliveryTime: '',
+        category: STORE_CATEGORIES[3] as string,
         image: '',
         stockStatus: 'in_stock',
-        available: true
+        available: true,
+        isFeatured: false,
+        isBestSeller: false,
+        isNewArrival: true,
+        tags: []
       });
     }
     setIsProductModalOpen(true);
@@ -1199,6 +1434,162 @@ export const VendorDashboard: React.FC = () => {
     }
   };
 
+  // Brand & Flyer action handlers
+  const getVendorStoreUrl = (vId?: string) => {
+    const id = vId || (isUserAdmin && selectedVendorFilter !== 'all' ? selectedVendorFilter : user?.uid) || '';
+    if (typeof window !== 'undefined') {
+      return `${window.location.origin}/?craveStore=${id}`;
+    }
+    return `https://streamaura.site/?craveStore=${id}`;
+  };
+
+  const handleCopyStoreLink = (vId?: string) => {
+    const url = getVendorStoreUrl(vId);
+    navigator.clipboard.writeText(url);
+    toast.success('🔗 Store link copied to clipboard! Share it with your customers.');
+  };
+
+  const handleShareStore = async (vId?: string) => {
+    const url = getVendorStoreUrl(vId);
+    const brandName = brandForm.name || 'Crave Aura Store';
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `${brandName} on Crave Aura`,
+          text: `Order fresh snacks & drinks directly from ${brandName} on Crave Aura!`,
+          url: url
+        });
+      } catch {}
+    } else {
+      handleCopyStoreLink(vId);
+    }
+  };
+
+  // Open Store in Crave Aura Modal / Tab
+  const handleOpenStorePreview = (vId?: string) => {
+    const targetVendorId = vId || (isUserAdmin && selectedVendorFilter !== 'all' ? selectedVendorFilter : user?.uid) || '';
+    if (targetVendorId) {
+      sessionStorage.setItem('aura_initial_vendor_store', targetVendorId);
+    }
+    window.dispatchEvent(new CustomEvent('navigate', { detail: { view: 'snacks' } }));
+  };
+
+  const handleSaveBrandProfile = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const targetVendorId = isUserAdmin && selectedVendorFilter !== 'all' ? selectedVendorFilter : user?.uid;
+    if (!targetVendorId) {
+      toast.error('Unable to determine vendor account');
+      return;
+    }
+    if (!brandForm.name.trim()) {
+      toast.error('Please provide a brand name (e.g. Zobo by Liza, Small Chops by Sam)');
+      return;
+    }
+
+    setIsSavingBrand(true);
+    try {
+      const vendorPayload: Partial<Vendor> = {
+        name: brandForm.name.trim(),
+        tagline: brandForm.tagline.trim(),
+        description: brandForm.description.trim(),
+        category: brandForm.category,
+        deliveryTime: brandForm.deliveryTime || '5-10 mins',
+        telegramGroupId: brandForm.telegramGroupId.trim(),
+        logo: brandForm.logo || '',
+        flyer: brandForm.flyer || '',
+        phone: brandForm.phone.trim()
+      };
+
+      await setDoc(doc(db, 'vendors', targetVendorId), vendorPayload, { merge: true });
+      toast.success('🎉 Brand Store & Flyer updated successfully! Your store is live.');
+    } catch (err: any) {
+      console.error('Error saving brand profile:', err);
+      toast.error(err.message || 'Failed to update brand profile');
+    } finally {
+      setIsSavingBrand(false);
+    }
+  };
+
+  const handleFlyerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingFlyer(true);
+    try {
+      if (brandForm.flyer) {
+        await deleteCloudflareAsset(brandForm.flyer).catch(() => {});
+      }
+      const url = await uploadFile(file, `vendors/flyers/${user?.uid || 'anon'}_${Date.now()}`);
+      setBrandForm(prev => ({ ...prev, flyer: url }));
+      
+      const targetVendorId = isUserAdmin && selectedVendorFilter !== 'all' ? selectedVendorFilter : user?.uid;
+      if (targetVendorId) {
+        await setDoc(doc(db, 'vendors', targetVendorId), { flyer: url }, { merge: true });
+      }
+      toast.success('Brand flyer banner uploaded successfully!');
+    } catch (err) {
+      console.error('Failed to upload flyer:', err);
+      toast.error('Failed to upload flyer image');
+    } finally {
+      setIsUploadingFlyer(false);
+      if (flyerFileInputRef.current) flyerFileInputRef.current.value = '';
+    }
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingLogo(true);
+    try {
+      if (brandForm.logo) {
+        await deleteCloudflareAsset(brandForm.logo).catch(() => {});
+      }
+      const url = await uploadFile(file, `vendors/logos/${user?.uid || 'anon'}_${Date.now()}`);
+      setBrandForm(prev => ({ ...prev, logo: url }));
+      
+      const targetVendorId = isUserAdmin && selectedVendorFilter !== 'all' ? selectedVendorFilter : user?.uid;
+      if (targetVendorId) {
+        await setDoc(doc(db, 'vendors', targetVendorId), { logo: url }, { merge: true });
+      }
+      toast.success('Brand logo uploaded successfully!');
+    } catch (err) {
+      console.error('Failed to upload logo:', err);
+      toast.error('Failed to upload logo image');
+    } finally {
+      setIsUploadingLogo(false);
+      if (logoFileInputRef.current) logoFileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveFlyer = async () => {
+    if (!brandForm.flyer) return;
+    try {
+      await deleteCloudflareAsset(brandForm.flyer).catch(() => {});
+      setBrandForm(prev => ({ ...prev, flyer: '' }));
+      const targetVendorId = isUserAdmin && selectedVendorFilter !== 'all' ? selectedVendorFilter : user?.uid;
+      if (targetVendorId) {
+        await setDoc(doc(db, 'vendors', targetVendorId), { flyer: '' }, { merge: true });
+      }
+      toast.success('Brand flyer removed');
+    } catch (err) {
+      console.error('Failed to remove flyer:', err);
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    if (!brandForm.logo) return;
+    try {
+      await deleteCloudflareAsset(brandForm.logo).catch(() => {});
+      setBrandForm(prev => ({ ...prev, logo: '' }));
+      const targetVendorId = isUserAdmin && selectedVendorFilter !== 'all' ? selectedVendorFilter : user?.uid;
+      if (targetVendorId) {
+        await setDoc(doc(db, 'vendors', targetVendorId), { logo: '' }, { merge: true });
+      }
+      toast.success('Brand logo removed');
+    } catch (err) {
+      console.error('Failed to remove logo:', err);
+    }
+  };
+
   return (
     <div className="space-y-6 md:space-y-8 min-h-screen pb-16">
       {/* Header */}
@@ -1243,6 +1634,15 @@ export const VendorDashboard: React.FC = () => {
             }`}
           >
             Products ({allProducts.length})
+          </Button>
+          <Button 
+            onClick={() => setActiveSubTab('brand')} 
+            variant={activeSubTab === 'brand' ? 'default' : 'outline'}
+            className={`flex-1 md:flex-initial text-[10px] md:text-xs uppercase font-black tracking-widest px-2.5 py-1.5 h-9 md:h-10 ${
+              activeSubTab !== 'brand' ? 'border-slate-200 dark:border-white/10 bg-white/70 dark:bg-white/5 text-slate-700 dark:text-white hover:bg-slate-100 dark:hover:bg-white/10' : ''
+            }`}
+          >
+            <Store className="w-3.5 h-3.5 mr-1 text-amber-500" /> Brand & Flyer
           </Button>
           <Button 
             onClick={() => setActiveSubTab('transactions')} 
@@ -1422,7 +1822,7 @@ export const VendorDashboard: React.FC = () => {
                       <ShoppingBag className="w-7 h-7 text-primary flex-shrink-0" />
                       <div>
                         <h4 className="text-xs sm:text-sm font-bold uppercase text-slate-900 dark:text-white">{allProducts.length} Live Items</h4>
-                        <p className="text-[9px] text-slate-500 dark:text-muted-foreground uppercase">In Cinema Snack Store</p>
+                        <p className="text-[9px] text-slate-500 dark:text-muted-foreground uppercase">In Crave Aura Store</p>
                       </div>
                     </div>
                     <Button onClick={() => openProductModal()} className="w-full px-3 py-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest h-8">
@@ -1581,41 +1981,59 @@ export const VendorDashboard: React.FC = () => {
                   )}
                 </div>
 
-                {/* Clean View Toggle (Segmented Compact vs Expand All) */}
+                {/* Clean View Toggle & Batch Delete Fulfilled */}
                 {displayedOrders.length > 0 && (
-                  <div className="flex items-center gap-1 bg-slate-200/70 dark:bg-black/40 border border-slate-200 dark:border-white/10 p-1 rounded-lg w-full sm:w-auto justify-end">
-                    <button
-                      type="button"
-                      onClick={collapseAllOrders}
-                      className={`flex-1 sm:flex-initial px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
-                        displayedOrders.filter(o => expandedOrderIds[o.id]).length === 0
-                          ? 'bg-white dark:bg-white/15 text-slate-900 dark:text-white shadow-sm font-black'
-                          : 'text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white'
-                      }`}
-                      title="Collapse all orders into compact list"
-                    >
-                      <Minimize2 className="w-3 h-3" />
-                      <span>Compact</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={expandAllOrders}
-                      className={`flex-1 sm:flex-initial px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
-                        displayedOrders.length > 0 && displayedOrders.every(o => expandedOrderIds[o.id])
-                          ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
-                          : 'text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white'
-                      }`}
-                      title="Expand all orders to show full details"
-                    >
-                      <Maximize2 className="w-3 h-3" />
-                      <span>Expand All</span>
-                      {displayedOrders.filter(o => expandedOrderIds[o.id]).length > 0 && (
-                        <span className={`px-1.5 py-0.2 rounded-full text-[8px] font-black ${displayedOrders.every(o => expandedOrderIds[o.id]) ? 'bg-black/20 text-slate-950' : 'bg-slate-300 dark:bg-white/15 text-slate-800 dark:text-white'}`}>
-                          {displayedOrders.filter(o => expandedOrderIds[o.id]).length}/{displayedOrders.length}
+                  <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto justify-end">
+                    {displayedOrders.filter(o => o.status === 'delivered').length > 0 && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={promptDeleteAllFulfilledOrders}
+                        className="h-8 px-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/10 hover:border-rose-500/50 transition-all flex items-center gap-1.5 shadow-xs"
+                        title="Delete all fulfilled/delivered orders to clean up dashboard"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                        <span>Clean Fulfilled</span>
+                        <span className="px-1.5 py-0.2 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400 font-black text-[8.5px]">
+                          {displayedOrders.filter(o => o.status === 'delivered').length}
                         </span>
-                      )}
-                    </button>
+                      </Button>
+                    )}
+
+                    <div className="flex items-center gap-1 bg-slate-200/70 dark:bg-black/40 border border-slate-200 dark:border-white/10 p-1 rounded-lg">
+                      <button
+                        type="button"
+                        onClick={collapseAllOrders}
+                        className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
+                          displayedOrders.filter(o => expandedOrderIds[o.id]).length === 0
+                            ? 'bg-white dark:bg-white/15 text-slate-900 dark:text-white shadow-sm font-black'
+                            : 'text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                        title="Collapse all orders into compact list"
+                      >
+                        <Minimize2 className="w-3 h-3" />
+                        <span>Compact</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={expandAllOrders}
+                        className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
+                          displayedOrders.length > 0 && displayedOrders.every(o => expandedOrderIds[o.id])
+                            ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                            : 'text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                        title="Expand all orders to show full details"
+                      >
+                        <Maximize2 className="w-3 h-3" />
+                        <span>Expand All</span>
+                        {displayedOrders.filter(o => expandedOrderIds[o.id]).length > 0 && (
+                          <span className={`px-1.5 py-0.2 rounded-full text-[8px] font-black ${displayedOrders.every(o => expandedOrderIds[o.id]) ? 'bg-black/20 text-slate-950' : 'bg-slate-300 dark:bg-white/15 text-slate-800 dark:text-white'}`}>
+                            {displayedOrders.filter(o => expandedOrderIds[o.id]).length}/{displayedOrders.length}
+                          </span>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1705,13 +2123,28 @@ export const VendorDashboard: React.FC = () => {
                             )}
                           </div>
 
-                          {/* Right Group: Paid Amount & Explicit Details Toggle Button */}
-                          <div className="flex items-center gap-2.5 ml-auto">
+                          {/* Right Group: Paid Amount, Delete Action (if fulfilled/cancelled), & Explicit Details Toggle Button */}
+                          <div className="flex items-center gap-2 sm:gap-2.5 ml-auto">
                             <div className="text-right">
                               <span className="text-xs sm:text-base font-black text-emerald-600 dark:text-emerald-400 font-mono">
                                 ₦{grossAmount.toLocaleString()}
                               </span>
                             </div>
+
+                            {(status === 'delivered' || status === 'cancelled') && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  promptDeleteSingleOrder(order);
+                                }}
+                                className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 transition-all text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0"
+                                title="Delete fulfilled/cancelled order"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">Delete</span>
+                              </button>
+                            )}
 
                             <button
                               type="button"
@@ -1964,14 +2397,34 @@ export const VendorDashboard: React.FC = () => {
                                   )}
 
                                   {status === 'delivered' && (
-                                    <div className="flex items-center gap-1.5 text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase py-1.5 px-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-                                      <CheckCircle2 className="w-4 h-4" /> Delivered & Completed
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <div className="flex items-center gap-1.5 text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase py-1.5 px-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                                        <CheckCircle2 className="w-4 h-4" /> Delivered & Completed
+                                      </div>
+                                      <Button
+                                        type="button"
+                                        onClick={() => promptDeleteSingleOrder(order)}
+                                        variant="outline"
+                                        className="h-9 px-3 text-[10px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/10"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete Order
+                                      </Button>
                                     </div>
                                   )}
 
                                   {status === 'cancelled' && (
-                                    <div className="flex items-center gap-1.5 text-xs font-black text-red-600 dark:text-red-400 uppercase py-1.5 px-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-                                      <XCircle className="w-4 h-4" /> Order Cancelled
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <div className="flex items-center gap-1.5 text-xs font-black text-red-600 dark:text-red-400 uppercase py-1.5 px-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                                        <XCircle className="w-4 h-4" /> Order Cancelled
+                                      </div>
+                                      <Button
+                                        type="button"
+                                        onClick={() => promptDeleteSingleOrder(order)}
+                                        variant="outline"
+                                        className="h-9 px-3 text-[10px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/10"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete Order
+                                      </Button>
                                     </div>
                                   )}
 
@@ -2129,6 +2582,515 @@ export const VendorDashboard: React.FC = () => {
             </motion.div>
           )}
 
+          {/* BRAND & FLYER STUDIO TAB */}
+          {activeSubTab === 'brand' && (
+            <motion.div 
+              key="brand"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              className="space-y-6"
+            >
+              {/* Header & Controls */}
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-widest text-slate-900 dark:text-white flex items-center gap-2">
+                    <Store className="w-4 h-4 text-amber-500" /> Brand Storefront & Flyer Studio
+                  </h3>
+                  <p className="text-[9px] sm:text-xs text-slate-500 dark:text-muted-foreground uppercase font-medium mt-0.5">
+                    Upload your brand flyer banner & logo, define what you sell, and share your direct Crave Aura store link
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+                  {/* Admin Vendor Filter */}
+                  {isUserAdmin && (
+                    <VendorFilterCustomDropdown
+                      selectedVendor={selectedVendorFilter}
+                      onSelectVendor={setSelectedVendorFilter}
+                      vendors={adminVendors}
+                      totalAllCount={adminVendors.length}
+                      countLabel="brands"
+                      currentUserId={user?.uid}
+                      variant="gold"
+                      className="w-full sm:w-auto"
+                    />
+                  )}
+
+                  <Button 
+                    type="button"
+                    onClick={() => handleCopyStoreLink()}
+                    className="flex-1 sm:flex-initial text-[10px] uppercase font-black tracking-widest h-9 bg-amber-500/15 text-amber-900 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25"
+                  >
+                    <Copy className="w-3.5 h-3.5 mr-1.5" /> Copy Store Link
+                  </Button>
+
+                  <Button 
+                    type="button"
+                    onClick={() => handleShareStore()}
+                    className="flex-1 sm:flex-initial text-[10px] uppercase font-black tracking-widest h-9 gradient-bg shadow-sm"
+                  >
+                    <Share2 className="w-3.5 h-3.5 mr-1.5" /> Share Store
+                  </Button>
+                </div>
+              </div>
+
+              {/* Shareable Store URL Banner */}
+              <Card className="glass-card p-4 sm:p-5 border-amber-500/30 bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent relative overflow-hidden shadow-sm">
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div className="space-y-1.5 max-w-2xl">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse shadow-sm" />
+                      <span className="text-[10px] font-black uppercase tracking-wider text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                        <Globe className="w-3 h-3 text-amber-500" /> Direct Brand Store Link Active
+                      </span>
+                    </div>
+                    <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                      Share your store link on WhatsApp, Instagram, or TikTok. Customers who click will land straight inside your storefront!
+                    </p>
+                    <div className="flex items-center gap-2 pt-1 font-mono text-[11px] text-slate-700 dark:text-slate-200 bg-white/70 dark:bg-black/50 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-white/10 break-all select-all shadow-inner">
+                      <Store className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      <span className="font-bold">{getVendorStoreUrl()}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 shrink-0 w-full md:w-auto">
+                    <Button
+                      type="button"
+                      onClick={() => handleCopyStoreLink()}
+                      className="flex-1 md:flex-initial text-[10px] font-black uppercase tracking-wider h-9 px-3.5 border border-amber-500/40 bg-white dark:bg-black/60 text-slate-800 dark:text-white hover:bg-amber-500/10 shadow-xs"
+                    >
+                      <Copy className="w-3.5 h-3.5 mr-1.5" /> Copy Link
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => handleOpenStorePreview()}
+                      className="flex-1 md:flex-initial text-[10px] font-black uppercase tracking-wider h-9 px-4 gradient-bg text-slate-950 shadow-md hover:brightness-110"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 mr-1.5" /> Visit Store
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Grid: Edit Form (Left) & Customer Preview (Right) */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Brand Setup Form */}
+                <div className="lg:col-span-7 space-y-5">
+                  <form onSubmit={handleSaveBrandProfile} className="space-y-5">
+                    
+                    {/* SECTION 1: VISUAL IDENTITY & BANNER */}
+                    <Card className="glass-card p-4 sm:p-5 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] space-y-4 shadow-sm">
+                      <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/5 pb-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-black flex items-center justify-center border border-amber-500/20">1</span>
+                          <h4 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-1.5">
+                            <ImageIcon className="w-3.5 h-3.5 text-amber-500" /> Store Flyer Banner & Logo
+                          </h4>
+                        </div>
+                        <Badge variant="outline" className="text-[8px] font-black uppercase text-amber-800 dark:text-amber-400 border-amber-500/30 bg-amber-500/10">
+                          Visual Identity
+                        </Badge>
+                      </div>
+
+                      {/* Flyer Banner Upload */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                            Brand Flyer Banner (Menu / Poster)
+                          </label>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase">Recommended: 16:9 or 4:3 high-res</span>
+                        </div>
+
+                        {/* Hidden File Input for Flyer */}
+                        <input 
+                          type="file" 
+                          ref={flyerFileInputRef}
+                          accept="image/*" 
+                          className="hidden" 
+                          onChange={handleFlyerUpload}
+                        />
+
+                        {brandForm.flyer ? (
+                          <div className="relative group rounded-2xl overflow-hidden border border-slate-200 dark:border-white/10 aspect-[16/9] bg-slate-950 shadow-md">
+                            <img 
+                              src={brandForm.flyer} 
+                              alt="Brand Flyer Banner" 
+                              className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent flex items-end justify-between p-4">
+                              <div className="space-y-0.5">
+                                <p className="text-xs font-black text-white uppercase tracking-wider drop-shadow flex items-center gap-1.5">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Active Store Banner
+                                </p>
+                                <p className="text-[9px] text-white/80 font-medium">Shown at top of your Crave Aura store & directory</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => flyerFileInputRef.current?.click()}
+                                  disabled={isUploadingFlyer}
+                                  className="h-8 text-[9px] uppercase font-black bg-black/70 border-white/25 text-white hover:bg-black/90 shadow-sm"
+                                >
+                                  {isUploadingFlyer ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Upload className="w-3 h-3 mr-1" />}
+                                  Replace
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={handleRemoveFlyer}
+                                  className="h-8 text-[9px] uppercase font-black shadow-sm"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div 
+                            onClick={() => flyerFileInputRef.current?.click()}
+                            className="border-2 border-dashed border-amber-500/40 hover:border-amber-500/70 bg-amber-500/5 hover:bg-amber-500/10 rounded-2xl p-6 sm:p-8 text-center cursor-pointer transition-all space-y-2 group shadow-xs"
+                          >
+                            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mx-auto text-amber-500 group-hover:scale-110 transition-transform">
+                              {isUploadingFlyer ? <Loader2 className="w-6 h-6 animate-spin" /> : <Upload className="w-6 h-6" />}
+                            </div>
+                            <div className="space-y-1">
+                              <p className="text-xs font-black uppercase text-slate-800 dark:text-white">
+                                {isUploadingFlyer ? 'Uploading Flyer...' : 'Click to Upload Brand Flyer / Menu Poster'}
+                              </p>
+                              <p className="text-[10px] text-slate-500 dark:text-muted-foreground max-w-sm mx-auto">
+                                Upload your food flyer, drink menu, or promo poster to visually showcase your items.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Logo Section */}
+                      <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-white/5">
+                        <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                          Brand Logo / Avatar
+                        </label>
+                        <input 
+                          type="file" 
+                          ref={logoFileInputRef}
+                          accept="image/*" 
+                          className="hidden" 
+                          onChange={handleLogoUpload}
+                        />
+                        <div className="flex items-center gap-3.5 bg-slate-50 dark:bg-white/5 p-3 rounded-2xl border border-slate-200 dark:border-white/10">
+                          <div 
+                            onClick={() => logoFileInputRef.current?.click()}
+                            className="relative w-16 h-16 rounded-2xl border-2 border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-black/40 overflow-hidden flex items-center justify-center cursor-pointer hover:border-amber-500 transition-all shrink-0 shadow-xs"
+                          >
+                            {isUploadingLogo ? (
+                              <Loader2 className="w-5 h-5 text-amber-500 animate-spin" />
+                            ) : brandForm.logo ? (
+                              <img src={brandForm.logo} alt="Logo" className="w-full h-full object-cover" />
+                            ) : (
+                              <Store className="w-7 h-7 text-amber-500/70" />
+                            )}
+                          </div>
+                          <div className="space-y-1.5 flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs font-black uppercase text-slate-900 dark:text-white">
+                                {brandForm.logo ? 'Logo Attached' : 'No Logo Uploaded'}
+                              </p>
+                              {brandForm.logo && (
+                                <Badge variant="outline" className="text-[7px] font-black border-emerald-500/30 text-emerald-600 bg-emerald-500/10">
+                                  Live
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-[9px] text-slate-500 dark:text-muted-foreground">Appears as your verified store avatar beside your products</p>
+                            <div className="flex items-center gap-2 pt-0.5">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => logoFileInputRef.current?.click()}
+                                disabled={isUploadingLogo}
+                                className="h-7 text-[9px] uppercase font-black border-slate-300 dark:border-white/15 text-slate-800 dark:text-white"
+                              >
+                                <Upload className="w-3 h-3 mr-1" /> {brandForm.logo ? 'Change' : 'Upload Logo'}
+                              </Button>
+                              {brandForm.logo && (
+                                <button
+                                  type="button"
+                                  onClick={handleRemoveLogo}
+                                  className="text-[9px] font-black text-rose-500 hover:text-rose-600 uppercase px-2 py-1 rounded hover:bg-rose-500/10 transition-colors"
+                                >
+                                  Remove
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </Card>
+
+                    {/* SECTION 2: STORE DETAILS & SPECIALTY */}
+                    <Card className="glass-card p-4 sm:p-5 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] space-y-4 shadow-sm">
+                      <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/5 pb-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-black flex items-center justify-center border border-amber-500/20">2</span>
+                          <h4 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-1.5">
+                            <Store className="w-3.5 h-3.5 text-amber-500" /> Store Profile & Offerings
+                          </h4>
+                        </div>
+                        <Badge variant="outline" className="text-[8px] font-black uppercase text-amber-800 dark:text-amber-400 border-amber-500/30 bg-amber-500/10">
+                          Store Details
+                        </Badge>
+                      </div>
+
+                      {/* Store Name */}
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center justify-between">
+                          <span>Brand / Store Name <span className="text-rose-500">*</span></span>
+                          <span className="text-[9px] font-normal text-slate-400">e.g. Zobo by Liza, Small Chops by Sam</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={brandForm.name}
+                          onChange={(e) => setBrandForm(prev => ({ ...prev, name: e.target.value }))}
+                          placeholder="e.g. Zobo by Liza, Small Chops by Sam"
+                          className="w-full bg-slate-50 dark:bg-black/50 border border-slate-300 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-inner"
+                        />
+                      </div>
+
+                      {/* Tagline / What you sell */}
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center justify-between">
+                          <span>Tagline / What You Sell <span className="text-amber-500">*</span></span>
+                          <span className="text-[9px] font-normal text-slate-400">Sub-headline</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={brandForm.tagline}
+                          onChange={(e) => setBrandForm(prev => ({ ...prev, tagline: e.target.value }))}
+                          placeholder="e.g. Authentic Chilled Hibiscus Drinks, Fruit Blends & Cocktails"
+                          className="w-full bg-slate-50 dark:bg-black/50 border border-slate-300 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-inner"
+                        />
+                        <p className="text-[9px] text-slate-400 font-medium">Displayed right below your brand name in Crave Aura so shoppers know what you sell immediately.</p>
+                      </div>
+
+                      {/* Specialty Dropdown & Delivery Time */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                            Brand Specialty / Category
+                          </label>
+                          <CustomPlatformDropdown
+                            value={brandForm.category || STORE_CATEGORIES[0]}
+                            onChange={(val) => setBrandForm(prev => ({ ...prev, category: val }))}
+                            options={STORE_CATEGORIES as unknown as string[]}
+                            variant="gold"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center justify-between">
+                            <span>Default Delivery Time</span>
+                            <span className="text-[9px] font-normal text-slate-400">ETA</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={brandForm.deliveryTime}
+                            onChange={(e) => setBrandForm(prev => ({ ...prev, deliveryTime: e.target.value }))}
+                            placeholder="e.g. 5-10 mins, 15-20 mins"
+                            className="w-full bg-slate-50 dark:bg-black/50 border border-slate-300 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-inner"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Contact Phone & Telegram Alerts (Telegram only visible to Admins) */}
+                      <div className={isUserAdmin ? "grid grid-cols-1 sm:grid-cols-2 gap-4" : "space-y-1.5"}>
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center justify-between">
+                            <span>Vendor Phone / WhatsApp</span>
+                            <span className="text-[9px] font-normal text-slate-400">Order Alerts</span>
+                          </label>
+                          <input
+                            type="tel"
+                            value={brandForm.phone}
+                            onChange={(e) => setBrandForm(prev => ({ ...prev, phone: e.target.value }))}
+                            placeholder="e.g. 08012345678"
+                            className="w-full bg-slate-50 dark:bg-black/50 border border-slate-300 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-inner"
+                          />
+                        </div>
+
+                        {isUserAdmin && (
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                              Telegram Dispatch Group ID <span className="text-[9px] text-amber-500 font-normal">(Admin Only)</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={brandForm.telegramGroupId}
+                              onChange={(e) => setBrandForm(prev => ({ ...prev, telegramGroupId: e.target.value }))}
+                              placeholder="e.g. -100xxxxxxxxxx"
+                              className="w-full bg-slate-50 dark:bg-black/50 border border-slate-300 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-inner"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </Card>
+
+                    {/* SECTION 3: BRAND STORY / BIO */}
+                    <Card className="glass-card p-4 sm:p-5 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] space-y-4 shadow-sm">
+                      <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/5 pb-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-black flex items-center justify-center border border-amber-500/20">3</span>
+                          <h4 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-1.5">
+                            <ChefHat className="w-3.5 h-3.5 text-amber-500" /> About Your Kitchen & Craft
+                          </h4>
+                        </div>
+                        <Badge variant="outline" className="text-[8px] font-black uppercase text-slate-500 dark:text-muted-foreground">
+                          Bio & Story
+                        </Badge>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                          Brand Story / About
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={brandForm.description}
+                          onChange={(e) => setBrandForm(prev => ({ ...prev, description: e.target.value }))}
+                          placeholder="Tell cinema shoppers about your kitchen, fresh ingredients, packaging standards, and passion..."
+                          className="w-full bg-slate-50 dark:bg-black/50 border border-slate-300 dark:border-white/10 rounded-xl p-3 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 resize-none shadow-inner"
+                        />
+                      </div>
+                    </Card>
+
+                    {/* Submit Button */}
+                    <Button
+                      type="submit"
+                      disabled={isSavingBrand}
+                      className="w-full h-12 text-xs font-black uppercase tracking-widest gradient-bg shadow-lg hover:brightness-110 active:scale-[0.99] transition-all"
+                    >
+                      {isSavingBrand ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving Storefront Profile...
+                        </>
+                      ) : (
+                        <>
+                          <Store className="w-4 h-4 mr-2" /> Save & Update Brand Storefront
+                        </>
+                      )}
+                    </Button>
+                  </form>
+                </div>
+
+                {/* Right Column: Live Customer Preview Card */}
+                <div className="lg:col-span-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground flex items-center gap-1.5">
+                      <Eye className="w-3.5 h-3.5 text-amber-500" /> Live Customer Storefront Preview
+                    </h4>
+                    <span className="text-[9px] font-black text-amber-500 uppercase px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20">
+                      Crave Aura View
+                    </span>
+                  </div>
+
+                  {/* Flyer Card Preview */}
+                  <div 
+                    onClick={() => handleOpenStorePreview()}
+                    className="glass-card rounded-2xl overflow-hidden border border-slate-200 dark:border-white/10 bg-white/95 dark:bg-slate-900 shadow-xl group hover:border-amber-500/50 transition-all cursor-pointer relative"
+                  >
+                    {/* Flyer Banner Header */}
+                    <div className="relative aspect-[16/9] w-full bg-slate-950 overflow-hidden">
+                      {brandForm.flyer ? (
+                        <img 
+                          src={brandForm.flyer} 
+                          alt="Flyer Preview" 
+                          className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-br from-amber-500/20 via-slate-900 to-black">
+                          <Store className="w-10 h-10 text-amber-500/40 mb-2 animate-pulse" />
+                          <p className="text-xs font-black text-white/70 uppercase">Brand Flyer Banner</p>
+                          <p className="text-[9px] text-white/40">Upload a flyer in Step 1 to preview here</p>
+                        </div>
+                      )}
+
+                      {/* Top Overlay Badges */}
+                      <div className="absolute top-3 left-3 right-3 flex justify-between items-center pointer-events-none">
+                        <span className="bg-black/75 backdrop-blur-md text-amber-400 text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border border-amber-500/30 shadow-md">
+                          {brandForm.category || 'Store'}
+                        </span>
+                        <span className="bg-black/75 backdrop-blur-md text-white text-[9px] font-black uppercase px-2.5 py-1 rounded-lg flex items-center gap-1 border border-white/15 shadow-md">
+                          <Clock className="w-2.5 h-2.5 text-amber-400" /> {brandForm.deliveryTime || '5-10 mins'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Content Section */}
+                    <div className="p-4 space-y-3">
+                      <div className="flex items-start gap-3">
+                        <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-black/60 border-2 border-slate-200 dark:border-white/10 overflow-hidden flex items-center justify-center shrink-0 shadow-sm">
+                          {brandForm.logo ? (
+                            <img src={brandForm.logo} alt="Logo" className="w-full h-full object-cover" />
+                          ) : (
+                            <Store className="w-6 h-6 text-amber-500" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-sm font-black text-slate-900 dark:text-white uppercase truncate">
+                            {brandForm.name || 'Your Brand Name'}
+                          </h4>
+                          <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400 truncate">
+                            {brandForm.tagline || 'What you sell / specialty drinks & snacks'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {brandForm.description && (
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                          {brandForm.description}
+                        </p>
+                      )}
+
+                      {/* Products count info & Visit CTA */}
+                      <div className="flex items-center justify-between pt-2.5 border-t border-slate-100 dark:border-white/5 text-[9px] font-black uppercase text-slate-500 dark:text-slate-400">
+                        <span className="flex items-center gap-1">
+                          <ShoppingBag className="w-3 h-3 text-amber-500" /> {displayedProducts.length} Products in Menu
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenStorePreview();
+                          }}
+                          className="text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 font-black uppercase"
+                        >
+                          Visit Store <ArrowUpRight className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Quick Tips Callout */}
+                  <div className="p-3.5 rounded-2xl bg-amber-500/5 dark:bg-white/[0.03] border border-amber-500/20 dark:border-white/10 space-y-2">
+                    <p className="text-[10px] font-black uppercase text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <Store className="w-3.5 h-3.5 text-amber-500" /> Pro Tip for Maximum Sales
+                    </p>
+                    <ul className="text-[9px] text-slate-600 dark:text-slate-300 space-y-1 list-disc pl-4 font-medium leading-relaxed">
+                      <li>Use a clear, vibrant flyer showcasing your popular items and combo offers.</li>
+                      <li>Include your direct store link on your WhatsApp Status and social media bio.</li>
+                      <li>Products you add in the Products tab automatically display inside your store.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           {/* DEDICATED TRANSACTIONS ACTIVITY TAB */}
           {activeSubTab === 'transactions' && (
             <motion.div 
@@ -2224,200 +3186,344 @@ export const VendorDashboard: React.FC = () => {
                 </Card>
               </div>
 
-              {/* Activity Type Filters */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                {[
-                  { id: 'all', label: 'All Activities', count: history.length },
-                  { id: 'sale', label: 'Store Sales (80%)', count: history.filter(h => h.type === 'sale').length },
-                  { id: 'withdrawal', label: 'Payout Settlements', count: history.filter(h => h.type === 'withdrawal').length }
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setTxTypeFilter(tab.id as any)}
-                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1.5 border ${
-                      txTypeFilter === tab.id
-                        ? 'bg-primary text-black border-primary font-black shadow-lg shadow-primary/20'
-                        : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-white/10'
+              {/* Transactions Accordion / Dropdown Toggle Bar */}
+              <div className="glass-card p-4 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                    <Receipt className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white">
+                        Transaction Activity Ledger
+                      </h4>
+                      <Badge variant="outline" className="text-[9px] font-black border-emerald-500/30 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10">
+                        {displayedTransactions.length} {displayedTransactions.length === 1 ? 'Record' : 'Records'}
+                      </Badge>
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-muted-foreground font-medium mt-0.5">
+                      {isTransactionsExpanded 
+                        ? 'Ledger is currently expanded. Showing detailed breakdown and logs.' 
+                        : 'Ledger is collapsed by default. Click the dropdown button to inspect records.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                  {displayedTransactions.filter(t => t.status === 'completed' || t.status === 'delivered').length > 0 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={promptDeleteAllFulfilledTransactions}
+                      className="h-9 px-3 text-[10px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/10 hover:border-rose-500/50 rounded-xl flex items-center gap-1.5 transition-all shadow-xs"
+                      title="Delete all fulfilled/completed transaction records to clean up ledger"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                      <span>Clean Fulfilled</span>
+                      <span className="px-1.5 py-0.2 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400 text-[8.5px] font-black">
+                        {displayedTransactions.filter(t => t.status === 'completed' || t.status === 'delivered').length}
+                      </span>
+                    </Button>
+                  )}
+
+                  <Button
+                    type="button"
+                    onClick={() => setIsTransactionsExpanded(prev => !prev)}
+                    className={`flex-1 sm:flex-initial text-[10px] font-black uppercase tracking-wider h-9 px-4 rounded-xl transition-all flex items-center justify-center gap-2 ${
+                      isTransactionsExpanded 
+                        ? 'bg-slate-200 dark:bg-white/10 text-slate-800 dark:text-white border border-slate-300 dark:border-white/10 hover:bg-slate-300 dark:hover:bg-white/15'
+                        : 'gradient-bg text-slate-950 shadow-md hover:brightness-110'
                     }`}
                   >
-                    <span>{tab.label}</span>
-                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] ${txTypeFilter === tab.id ? 'bg-black/20 text-black' : 'bg-slate-200 dark:bg-white/10 text-slate-700 dark:text-white'}`}>
-                      {tab.count}
-                    </span>
-                  </button>
-                ))}
+                    {isTransactionsExpanded ? (
+                      <>
+                        <ChevronUp className="w-4 h-4 text-slate-700 dark:text-white" />
+                        <span>Collapse Transactions</span>
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="w-4 h-4 text-slate-950" />
+                        <span>Expand Transactions ({displayedTransactions.length})</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
 
-              {/* Desktop Table View */}
-              <div className="glass-card overflow-hidden border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm hidden md:block">
-                <div className="p-4 overflow-x-auto">
-                  <table className="w-full border-collapse text-left">
-                    <thead>
-                      <tr className="border-b border-slate-200 dark:border-white/10 text-[9px] uppercase font-black text-slate-500 dark:text-muted-foreground tracking-widest bg-slate-50/50 dark:bg-transparent">
-                        <th className="py-3 px-4">Ref / Order #</th>
-                        <th className="py-3 px-4">Type</th>
-                        <th className="py-3 px-4">Net Amount</th>
-                        <th className="py-3 px-4">Gross Breakdown</th>
-                        <th className="py-3 px-4">Activity Details</th>
-                        <th className="py-3 px-4">Date & Time</th>
-                        <th className="py-3 px-4">Status</th>
-                        <th className="py-3 px-4 text-right">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                      {displayedTransactions.map((item) => {
-                        const isSale = item.type === 'sale';
-                        const refCode = item.orderNumber ? `#${item.orderNumber}` : item.id.substring(0, 10).toUpperCase();
+              {/* Collapsed Default State Banner */}
+              {!isTransactionsExpanded && (
+                <div 
+                  onClick={() => setIsTransactionsExpanded(true)}
+                  className="glass-card p-6 sm:p-8 rounded-2xl border border-dashed border-emerald-500/30 hover:border-emerald-500/60 bg-emerald-500/5 hover:bg-emerald-500/10 text-center cursor-pointer transition-all space-y-3 group"
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform shadow-xs">
+                    <Receipt className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <h5 className="text-xs sm:text-sm font-black uppercase text-slate-900 dark:text-white flex items-center justify-center gap-1.5">
+                      <span>Transaction Ledger Collapsed ({displayedTransactions.length} Records)</span>
+                      <ChevronDown className="w-4 h-4 text-emerald-500 group-hover:translate-y-0.5 transition-transform" />
+                    </h5>
+                    <p className="text-[10px] text-slate-500 dark:text-muted-foreground max-w-md mx-auto">
+                      Click here or tap the button above to expand and view sales earnings, platform fees, order breakdown, and settlements.
+                    </p>
+                  </div>
+                  <div className="pt-1">
+                    <span className="inline-flex items-center gap-1.5 text-[9px] uppercase font-black px-3 py-1.5 rounded-xl gradient-bg text-slate-950 shadow-sm group-hover:brightness-110">
+                      <ChevronDown className="w-3 h-3" /> Expand Full Ledger
+                    </span>
+                  </div>
+                </div>
+              )}
 
-                        return (
-                          <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.02] text-xs font-bold uppercase tracking-tight transition-colors">
-                            <td className="py-3.5 px-4">
-                              <div className="flex items-center gap-1.5 font-mono text-[11px] text-amber-700 dark:text-amber-400">
-                                <span>{refCode}</span>
+              {/* Expanded Content: Filters, Desktop Table, Mobile Feed */}
+              {isTransactionsExpanded && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="space-y-4"
+                >
+                  {/* Activity Type Filters */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                    {[
+                      { id: 'all', label: 'All Activities', count: history.length },
+                      { id: 'sale', label: 'Store Sales (80%)', count: history.filter(h => h.type === 'sale').length },
+                      { id: 'withdrawal', label: 'Payout Settlements', count: history.filter(h => h.type === 'withdrawal').length }
+                    ].map(tab => (
+                      <button
+                        key={tab.id}
+                        onClick={() => setTxTypeFilter(tab.id as any)}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1.5 border ${
+                          txTypeFilter === tab.id
+                            ? 'bg-primary text-black border-primary font-black shadow-lg shadow-primary/20'
+                            : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-white/10'
+                        }`}
+                      >
+                        <span>{tab.label}</span>
+                        <span className={`px-1.5 py-0.2 rounded-full text-[9px] ${txTypeFilter === tab.id ? 'bg-black/20 text-black' : 'bg-slate-200 dark:bg-white/10 text-slate-700 dark:text-white'}`}>
+                          {tab.count}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Desktop Table View */}
+                  <div className="glass-card overflow-hidden border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm hidden md:block">
+                    <div className="p-4 overflow-x-auto">
+                      <table className="w-full border-collapse text-left">
+                        <thead>
+                          <tr className="border-b border-slate-200 dark:border-white/10 text-[9px] uppercase font-black text-slate-500 dark:text-muted-foreground tracking-widest bg-slate-50/50 dark:bg-transparent">
+                            <th className="py-3 px-4">Ref / Order #</th>
+                            <th className="py-3 px-4">Type</th>
+                            <th className="py-3 px-4">Net Amount</th>
+                            <th className="py-3 px-4">Gross Breakdown</th>
+                            <th className="py-3 px-4">Activity Details</th>
+                            <th className="py-3 px-4">Date & Time</th>
+                            <th className="py-3 px-4">Status</th>
+                            <th className="py-3 px-4 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                          {displayedTransactions.map((item) => {
+                            const isSale = item.type === 'sale';
+                            const refCode = item.orderNumber ? `#${item.orderNumber}` : item.id.substring(0, 10).toUpperCase();
+
+                            return (
+                              <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.02] text-xs font-bold uppercase tracking-tight transition-colors">
+                                <td className="py-3.5 px-4">
+                                  <div className="flex items-center gap-1.5 font-mono text-[11px] text-amber-700 dark:text-amber-400">
+                                    <span>{refCode}</span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigator.clipboard.writeText(item.orderNumber || item.id);
+                                        toast.success(`Copied ${refCode}`);
+                                      }}
+                                      className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-400 hover:text-slate-700 dark:text-muted-foreground dark:hover:text-white transition-colors"
+                                      title="Copy"
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </td>
+
+                                <td className="py-3.5 px-4">
+                                  <Badge 
+                                    variant={isSale ? 'default' : 'secondary'} 
+                                    className={`text-[8px] font-black uppercase tracking-widest ${isSale ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30' : 'bg-orange-500/20 text-orange-700 dark:text-orange-400 border-orange-500/30'}`}
+                                  >
+                                    {isSale ? 'Sale Earning (80%)' : 'Settlement Payout'}
+                                  </Badge>
+                                </td>
+
+                                <td className={`py-3.5 px-4 font-black font-mono text-sm ${isSale ? 'text-emerald-600 dark:text-emerald-400' : 'text-orange-600 dark:text-orange-400'}`}>
+                                  {isSale ? `+₦${item.amount.toLocaleString()}` : `-₦${item.amount.toLocaleString()}`}
+                                </td>
+
+                                <td className="py-3.5 px-4 text-[10px] font-mono text-slate-500 dark:text-muted-foreground">
+                                  {isSale ? (
+                                    <div className="space-y-0.5">
+                                      <div>Gross: <span className="text-slate-900 dark:text-white font-bold">₦{(item.grossAmount || item.amount).toLocaleString()}</span></div>
+                                      <div>Fee (20%): <span className="text-indigo-600 dark:text-indigo-300 font-bold">-₦{(item.platformFee || 0).toLocaleString()}</span></div>
+                                    </div>
+                                  ) : (
+                                    <div>Fee: <span className="text-slate-500 dark:text-muted-foreground">₦{(item.feeAmount || 0).toLocaleString()}</span></div>
+                                  )}
+                                </td>
+
+                                <td className="py-3.5 px-4 max-w-xs truncate text-slate-500 dark:text-muted-foreground text-[11px]">
+                                  {item.customerName && <span className="text-slate-900 dark:text-white font-bold block truncate">{item.customerName}</span>}
+                                  <span className="truncate block">{item.description}</span>
+                                </td>
+
+                                <td className="py-3.5 px-4 text-slate-500 dark:text-muted-foreground text-[10px] font-mono whitespace-nowrap">
+                                  {item.date.toLocaleString()}
+                                </td>
+
+                                <td className="py-3.5 px-4">
+                                  <Badge 
+                                    variant={item.status === 'completed' || item.status === 'delivered' ? 'default' : item.status === 'pending' ? 'secondary' : 'destructive'} 
+                                    className="text-[8px] font-black uppercase"
+                                  >
+                                    {item.status}
+                                  </Badge>
+                                </td>
+
+                                <td className="py-3.5 px-4 text-right">
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => setSelectedTxDetail(item)}
+                                      className="h-7 px-2 text-[10px] font-black uppercase text-primary hover:bg-primary/10"
+                                    >
+                                      <Eye className="w-3.5 h-3.5 mr-1" /> View
+                                    </Button>
+                                    {(item.status === 'completed' || item.status === 'delivered') && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          promptDeleteSingleTransaction(item);
+                                        }}
+                                        className="p-1.5 rounded-lg hover:bg-rose-500/15 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
+                                        title="Delete completed transaction record"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+
+                          {displayedTransactions.length === 0 && (
+                            <tr>
+                              <td colSpan={8} className="py-16 text-center space-y-2">
+                                <Receipt className="w-10 h-10 text-slate-400 dark:text-muted-foreground mx-auto opacity-30" />
+                                <p className="text-xs uppercase font-bold text-slate-500 dark:text-muted-foreground">No transaction records found</p>
+                                <p className="text-[10px] text-slate-400 dark:text-muted-foreground/60">
+                                  {txSearchQuery || txTypeFilter !== 'all' ? 'Try clearing your search filters' : 'Incoming snack store sales will automatically show here.'}
+                                </p>
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Mobile Card Feed View */}
+                  <div className="space-y-3 md:hidden">
+                    {displayedTransactions.map((item) => {
+                      const isSale = item.type === 'sale';
+                      const refCode = item.orderNumber ? `#${item.orderNumber}` : item.id.substring(0, 10).toUpperCase();
+
+                      return (
+                        <Card 
+                          key={item.id} 
+                          onClick={() => setSelectedTxDetail(item)}
+                          className="glass-card p-4 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm space-y-3 text-left active:scale-[0.99] transition-transform cursor-pointer"
+                        >
+                          <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-1.5 font-mono text-[10px] text-amber-700 dark:text-amber-400">
+                              <span>{refCode}</span>
+                              <Badge 
+                                variant={isSale ? 'default' : 'secondary'} 
+                                className={`text-[7px] font-black uppercase tracking-widest px-1 py-0.2 ${isSale ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400' : 'bg-orange-500/20 text-orange-700 dark:text-orange-400'}`}
+                              >
+                                {isSale ? '80% Sale' : 'Payout'}
+                              </Badge>
+                            </div>
+                            <Badge 
+                              variant={item.status === 'completed' || item.status === 'delivered' ? 'default' : item.status === 'pending' ? 'secondary' : 'destructive'} 
+                              className="text-[8px] font-black uppercase"
+                            >
+                              {item.status}
+                            </Badge>
+                          </div>
+
+                          <div className="space-y-1">
+                            {item.customerName && (
+                              <p className="text-xs font-bold text-slate-900 dark:text-white uppercase">{item.customerName}</p>
+                            )}
+                            <p className="text-[11px] text-slate-700 dark:text-white/90 leading-tight line-clamp-2">{item.description}</p>
+                            <p className="text-[9px] text-slate-500 dark:text-muted-foreground font-mono">{item.date.toLocaleString()}</p>
+                          </div>
+
+                          <div className="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-white/5 text-[10px]">
+                            <div className="text-slate-500 dark:text-muted-foreground font-mono">
+                              {isSale ? `Gross: ₦${(item.grossAmount || item.amount).toLocaleString()}` : (item.bankName || 'Bank')}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className={`text-sm font-black font-mono ${isSale ? 'text-emerald-600 dark:text-emerald-400' : 'text-orange-600 dark:text-orange-400'}`}>
+                                {isSale ? `+₦${item.amount.toLocaleString()}` : `-₦${item.amount.toLocaleString()}`}
+                              </div>
+                              {(item.status === 'completed' || item.status === 'delivered') && (
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    navigator.clipboard.writeText(item.orderNumber || item.id);
-                                    toast.success(`Copied ${refCode}`);
+                                    promptDeleteSingleTransaction(item);
                                   }}
-                                  className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-400 hover:text-slate-700 dark:text-muted-foreground dark:hover:text-white transition-colors"
-                                  title="Copy"
+                                  className="p-1 rounded hover:bg-rose-500/15 text-rose-500 transition-colors"
+                                  title="Delete completed transaction record"
                                 >
-                                  <Copy className="w-3 h-3" />
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
-                              </div>
-                            </td>
-
-                            <td className="py-3.5 px-4">
-                              <Badge 
-                                variant={isSale ? 'default' : 'secondary'} 
-                                className={`text-[8px] font-black uppercase tracking-widest ${isSale ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30' : 'bg-orange-500/20 text-orange-700 dark:text-orange-400 border-orange-500/30'}`}
-                              >
-                                {isSale ? 'Sale Earning (80%)' : 'Settlement Payout'}
-                              </Badge>
-                            </td>
-
-                            <td className={`py-3.5 px-4 font-black font-mono text-sm ${isSale ? 'text-emerald-600 dark:text-emerald-400' : 'text-orange-600 dark:text-orange-400'}`}>
-                              {isSale ? `+₦${item.amount.toLocaleString()}` : `-₦${item.amount.toLocaleString()}`}
-                            </td>
-
-                            <td className="py-3.5 px-4 text-[10px] font-mono text-slate-500 dark:text-muted-foreground">
-                              {isSale ? (
-                                <div className="space-y-0.5">
-                                  <div>Gross: <span className="text-slate-900 dark:text-white font-bold">₦{(item.grossAmount || item.amount).toLocaleString()}</span></div>
-                                  <div>Fee (20%): <span className="text-indigo-600 dark:text-indigo-300 font-bold">-₦{(item.platformFee || 0).toLocaleString()}</span></div>
-                                </div>
-                              ) : (
-                                <div>Fee: <span className="text-slate-500 dark:text-muted-foreground">₦{(item.feeAmount || 0).toLocaleString()}</span></div>
                               )}
-                            </td>
+                            </div>
+                          </div>
+                        </Card>
+                      );
+                    })}
 
-                            <td className="py-3.5 px-4 max-w-xs truncate text-slate-500 dark:text-muted-foreground text-[11px]">
-                              {item.customerName && <span className="text-slate-900 dark:text-white font-bold block truncate">{item.customerName}</span>}
-                              <span className="truncate block">{item.description}</span>
-                            </td>
-
-                            <td className="py-3.5 px-4 text-slate-500 dark:text-muted-foreground text-[10px] font-mono whitespace-nowrap">
-                              {item.date.toLocaleString()}
-                            </td>
-
-                            <td className="py-3.5 px-4">
-                              <Badge 
-                                variant={item.status === 'completed' || item.status === 'delivered' ? 'default' : item.status === 'pending' ? 'secondary' : 'destructive'} 
-                                className="text-[8px] font-black uppercase"
-                              >
-                                {item.status}
-                              </Badge>
-                            </td>
-
-                            <td className="py-3.5 px-4 text-right">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setSelectedTxDetail(item)}
-                                className="h-7 px-2 text-[10px] font-black uppercase text-primary hover:bg-primary/10"
-                              >
-                                <Eye className="w-3.5 h-3.5 mr-1" /> View
-                              </Button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-
-                      {displayedTransactions.length === 0 && (
-                        <tr>
-                          <td colSpan={8} className="py-16 text-center space-y-2">
-                            <Receipt className="w-10 h-10 text-slate-400 dark:text-muted-foreground mx-auto opacity-30" />
-                            <p className="text-xs uppercase font-bold text-slate-500 dark:text-muted-foreground">No transaction records found</p>
-                            <p className="text-[10px] text-slate-400 dark:text-muted-foreground/60">
-                              {txSearchQuery || txTypeFilter !== 'all' ? 'Try clearing your search filters' : 'Incoming snack store sales will automatically show here.'}
-                            </p>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Mobile Card Feed View */}
-              <div className="space-y-3 md:hidden">
-                {displayedTransactions.map((item) => {
-                  const isSale = item.type === 'sale';
-                  const refCode = item.orderNumber ? `#${item.orderNumber}` : item.id.substring(0, 10).toUpperCase();
-
-                  return (
-                    <Card 
-                      key={item.id} 
-                      onClick={() => setSelectedTxDetail(item)}
-                      className="glass-card p-4 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm space-y-3 text-left active:scale-[0.99] transition-transform cursor-pointer"
-                    >
-                      <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-1.5 font-mono text-[10px] text-amber-700 dark:text-amber-400">
-                          <span>{refCode}</span>
-                          <Badge 
-                            variant={isSale ? 'default' : 'secondary'} 
-                            className={`text-[7px] font-black uppercase tracking-widest px-1 py-0.2 ${isSale ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400' : 'bg-orange-500/20 text-orange-700 dark:text-orange-400'}`}
-                          >
-                            {isSale ? '80% Sale' : 'Payout'}
-                          </Badge>
-                        </div>
-                        <Badge 
-                          variant={item.status === 'completed' || item.status === 'delivered' ? 'default' : item.status === 'pending' ? 'secondary' : 'destructive'} 
-                          className="text-[8px] font-black uppercase"
-                        >
-                          {item.status}
-                        </Badge>
+                    {displayedTransactions.length === 0 && (
+                      <div className="p-8 text-center space-y-2 glass-card border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.02]">
+                        <Receipt className="w-10 h-10 text-slate-400 dark:text-muted-foreground mx-auto opacity-30" />
+                        <p className="text-xs uppercase font-bold text-slate-500 dark:text-muted-foreground">No transactions found</p>
                       </div>
-
-                      <div className="space-y-1">
-                        {item.customerName && (
-                          <p className="text-xs font-bold text-slate-900 dark:text-white uppercase">{item.customerName}</p>
-                        )}
-                        <p className="text-[11px] text-slate-700 dark:text-white/90 leading-tight line-clamp-2">{item.description}</p>
-                        <p className="text-[9px] text-slate-500 dark:text-muted-foreground font-mono">{item.date.toLocaleString()}</p>
-                      </div>
-
-                      <div className="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-white/5 text-[10px]">
-                        <div className="text-slate-500 dark:text-muted-foreground font-mono">
-                          {isSale ? `Gross: ₦${(item.grossAmount || item.amount).toLocaleString()}` : (item.bankName || 'Bank')}
-                        </div>
-                        <div className={`text-sm font-black font-mono ${isSale ? 'text-emerald-600 dark:text-emerald-400' : 'text-orange-600 dark:text-orange-400'}`}>
-                          {isSale ? `+₦${item.amount.toLocaleString()}` : `-₦${item.amount.toLocaleString()}`}
-                        </div>
-                      </div>
-                    </Card>
-                  );
-                })}
-
-                {displayedTransactions.length === 0 && (
-                  <div className="p-8 text-center space-y-2 glass-card border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.02]">
-                    <Receipt className="w-10 h-10 text-slate-400 dark:text-muted-foreground mx-auto opacity-30" />
-                    <p className="text-xs uppercase font-bold text-slate-500 dark:text-muted-foreground">No transactions found</p>
+                    )}
                   </div>
-                )}
-              </div>
+
+                  {/* Collapse button at bottom */}
+                  {displayedTransactions.length > 5 && (
+                    <div className="text-center pt-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setIsTransactionsExpanded(false)}
+                        className="text-[10px] font-black uppercase tracking-wider h-8 px-4 border-slate-300 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10"
+                      >
+                        <ChevronUp className="w-3.5 h-3.5 mr-1" /> Collapse Transactions
+                      </Button>
+                    </div>
+                  )}
+                </motion.div>
+              )}
             </motion.div>
           )}
 
@@ -2525,94 +3631,187 @@ export const VendorDashboard: React.FC = () => {
                 </Card>
               </div>
 
-              {/* Payouts History */}
-              <div className="space-y-3">
-                <h4 className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">
-                  Withdrawal History ({payouts.length})
-                </h4>
+              {/* Payouts History (Collapsible) */}
+              <div className="space-y-4">
+                {/* Accordion / Dropdown Toggle Bar */}
+                <div className="glass-card p-4 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center text-orange-600 dark:text-orange-400 shrink-0">
+                      <Banknote className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white">
+                          Withdrawal Settlement History
+                        </h4>
+                        <Badge variant="outline" className="text-[9px] font-black border-orange-500/30 text-orange-700 dark:text-orange-400 bg-orange-500/10">
+                          {payouts.length} {payouts.length === 1 ? 'Request' : 'Requests'}
+                        </Badge>
+                      </div>
+                      <p className="text-[10px] text-slate-500 dark:text-muted-foreground font-medium mt-0.5">
+                        {isPayoutHistoryExpanded 
+                          ? 'History is currently expanded. Showing all withdrawal disbursements.' 
+                          : 'History is collapsed by default. Click to expand and view past disbursements.'}
+                      </p>
+                    </div>
+                  </div>
 
-                <div className="glass-card overflow-hidden border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm hidden md:block">
-                  <div className="p-4 overflow-x-auto">
-                    <table className="w-full border-collapse text-left">
-                      <thead>
-                        <tr className="border-b border-slate-200 dark:border-white/10 text-[9px] uppercase font-black text-slate-500 dark:text-muted-foreground tracking-widest bg-slate-50/50 dark:bg-transparent">
-                          <th className="py-3 px-4">Request ID</th>
-                          <th className="py-3 px-4">Requested Amount</th>
-                          <th className="py-3 px-4">Fee (0%)</th>
-                          <th className="py-3 px-4">Net Payout</th>
-                          <th className="py-3 px-4">Bank Destination</th>
-                          <th className="py-3 px-4">Date</th>
-                          <th className="py-3 px-4 text-right">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                        {payouts.map(p => (
-                          <tr key={p.id} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.01] text-xs font-bold uppercase tracking-tight">
-                            <td className="py-3.5 px-4 font-mono text-[10px] text-slate-500 dark:text-muted-foreground">{p.id.substring(0, 10)}...</td>
-                            <td className="py-3.5 px-4 font-black text-slate-900 dark:text-white">₦{p.amount.toLocaleString()}</td>
-                            <td className="py-3.5 px-4 text-slate-500 dark:text-muted-foreground font-mono text-[11px]">₦{(p.fee_amount !== undefined ? p.fee_amount : (p.type === 'vendor' ? 0 : p.amount * 0.05)).toLocaleString()}</td>
-                            <td className="py-3.5 px-4 font-black text-emerald-600 dark:text-emerald-400">₦{(p.payout_amount !== undefined ? p.payout_amount : (p.type === 'vendor' ? p.amount : p.amount * 0.95)).toLocaleString()}</td>
-                            <td className="py-3.5 px-4 text-slate-500 dark:text-muted-foreground text-[11px]">
-                              {p.bank_name} • {p.account_number}
-                            </td>
-                            <td className="py-3.5 px-4 text-slate-500 dark:text-muted-foreground text-[10px] font-mono">
-                              {p.created_at?.toDate ? p.created_at.toDate().toLocaleString() : 'Recent'}
-                            </td>
-                            <td className="py-3.5 px-4 text-right">
-                              <Badge 
-                                variant={p.status === 'completed' || p.status === 'approved' ? 'default' : p.status === 'pending' ? 'secondary' : 'destructive'} 
-                                className="text-[8px] font-black uppercase"
-                              >
-                                {p.status}
-                              </Badge>
-                            </td>
-                          </tr>
-                        ))}
-                        {payouts.length === 0 && (
-                          <tr>
-                            <td colSpan={7} className="py-12 text-center text-slate-500 dark:text-muted-foreground italic">
-                              No withdrawal requests submitted yet.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <Button
+                      type="button"
+                      onClick={() => setIsPayoutHistoryExpanded(prev => !prev)}
+                      className={`flex-1 sm:flex-initial text-[10px] font-black uppercase tracking-wider h-9 px-4 rounded-xl transition-all flex items-center justify-center gap-2 ${
+                        isPayoutHistoryExpanded 
+                          ? 'bg-slate-200 dark:bg-white/10 text-slate-800 dark:text-white border border-slate-300 dark:border-white/10 hover:bg-slate-300 dark:hover:bg-white/15'
+                          : 'gradient-bg text-slate-950 shadow-md hover:brightness-110'
+                      }`}
+                    >
+                      {isPayoutHistoryExpanded ? (
+                        <>
+                          <ChevronUp className="w-4 h-4 text-slate-700 dark:text-white" />
+                          <span>Collapse History</span>
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="w-4 h-4 text-slate-950" />
+                          <span>Expand History ({payouts.length})</span>
+                        </>
+                      )}
+                    </Button>
                   </div>
                 </div>
 
-                <div className="space-y-3 md:hidden">
-                  {payouts.map(p => (
-                    <Card key={p.id} className="glass-card p-4 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm space-y-2 text-left">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-mono text-slate-500 dark:text-muted-foreground">ID: {p.id.substring(0, 10)}...</span>
-                        <Badge 
-                          variant={p.status === 'completed' || p.status === 'approved' ? 'default' : p.status === 'pending' ? 'secondary' : 'destructive'} 
-                          className="text-[8px] font-black uppercase"
+                {/* Collapsed State Banner */}
+                {!isPayoutHistoryExpanded && (
+                  <div 
+                    onClick={() => setIsPayoutHistoryExpanded(true)}
+                    className="glass-card p-6 sm:p-8 rounded-2xl border border-dashed border-orange-500/30 hover:border-orange-500/60 bg-orange-500/5 hover:bg-orange-500/10 text-center cursor-pointer transition-all space-y-3 group"
+                  >
+                    <div className="w-12 h-12 rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center mx-auto text-orange-600 dark:text-orange-400 group-hover:scale-110 transition-transform shadow-xs">
+                      <Banknote className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <h5 className="text-xs sm:text-sm font-black uppercase text-slate-900 dark:text-white flex items-center justify-center gap-1.5">
+                        <span>Withdrawal Settlement History Collapsed ({payouts.length} Records)</span>
+                        <ChevronDown className="w-4 h-4 text-orange-500 group-hover:translate-y-0.5 transition-transform" />
+                      </h5>
+                      <p className="text-[10px] text-slate-500 dark:text-muted-foreground max-w-md mx-auto">
+                        Click here or tap the button above to view complete transaction IDs, bank destination accounts, dates, and approval statuses.
+                      </p>
+                    </div>
+                    <div className="pt-1">
+                      <span className="inline-flex items-center gap-1.5 text-[9px] uppercase font-black px-3 py-1.5 rounded-xl gradient-bg text-slate-950 shadow-sm group-hover:brightness-110">
+                        <ChevronDown className="w-3 h-3" /> Expand Withdrawal Log
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Expanded Content: Desktop Table & Mobile Feed */}
+                {isPayoutHistoryExpanded && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="space-y-4"
+                  >
+                    <div className="glass-card overflow-hidden border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm hidden md:block">
+                      <div className="p-4 overflow-x-auto">
+                        <table className="w-full border-collapse text-left">
+                          <thead>
+                            <tr className="border-b border-slate-200 dark:border-white/10 text-[9px] uppercase font-black text-slate-500 dark:text-muted-foreground tracking-widest bg-slate-50/50 dark:bg-transparent">
+                              <th className="py-3 px-4">Request ID</th>
+                              <th className="py-3 px-4">Requested Amount</th>
+                              <th className="py-3 px-4">Fee (0%)</th>
+                              <th className="py-3 px-4">Net Payout</th>
+                              <th className="py-3 px-4">Bank Destination</th>
+                              <th className="py-3 px-4">Date</th>
+                              <th className="py-3 px-4 text-right">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                            {payouts.map(p => (
+                              <tr key={p.id} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.01] text-xs font-bold uppercase tracking-tight">
+                                <td className="py-3.5 px-4 font-mono text-[10px] text-slate-500 dark:text-muted-foreground">{p.id.substring(0, 10)}...</td>
+                                <td className="py-3.5 px-4 font-black text-slate-900 dark:text-white">₦{p.amount.toLocaleString()}</td>
+                                <td className="py-3.5 px-4 text-slate-500 dark:text-muted-foreground font-mono text-[11px]">₦{(p.fee_amount !== undefined ? p.fee_amount : (p.type === 'vendor' ? 0 : p.amount * 0.05)).toLocaleString()}</td>
+                                <td className="py-3.5 px-4 font-black text-emerald-600 dark:text-emerald-400">₦{(p.payout_amount !== undefined ? p.payout_amount : (p.type === 'vendor' ? p.amount : p.amount * 0.95)).toLocaleString()}</td>
+                                <td className="py-3.5 px-4 text-slate-500 dark:text-muted-foreground text-[11px]">
+                                  {p.bank_name} • {p.account_number}
+                                </td>
+                                <td className="py-3.5 px-4 text-slate-500 dark:text-muted-foreground text-[10px] font-mono">
+                                  {p.created_at?.toDate ? p.created_at.toDate().toLocaleString() : 'Recent'}
+                                </td>
+                                <td className="py-3.5 px-4 text-right">
+                                  <Badge 
+                                    variant={p.status === 'completed' || p.status === 'approved' ? 'default' : p.status === 'pending' ? 'secondary' : 'destructive'} 
+                                    className="text-[8px] font-black uppercase"
+                                  >
+                                    {p.status}
+                                  </Badge>
+                                </td>
+                              </tr>
+                            ))}
+                            {payouts.length === 0 && (
+                              <tr>
+                                <td colSpan={7} className="py-12 text-center text-slate-500 dark:text-muted-foreground italic">
+                                  No withdrawal requests submitted yet.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 md:hidden">
+                      {payouts.map(p => (
+                        <Card key={p.id} className="glass-card p-4 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm space-y-2 text-left">
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] font-mono text-slate-500 dark:text-muted-foreground">ID: {p.id.substring(0, 10)}...</span>
+                            <Badge 
+                              variant={p.status === 'completed' || p.status === 'approved' ? 'default' : p.status === 'pending' ? 'secondary' : 'destructive'} 
+                              className="text-[8px] font-black uppercase"
+                            >
+                              {p.status}
+                            </Badge>
+                          </div>
+                          <div className="flex justify-between items-end">
+                            <div>
+                              <p className="text-xs font-bold text-slate-900 dark:text-white uppercase">{p.bank_name}</p>
+                              <p className="text-[10px] text-slate-500 dark:text-muted-foreground font-mono">No. {p.account_number}</p>
+                              <p className="text-[9px] text-slate-500 dark:text-muted-foreground font-mono mt-1">
+                                {p.created_at?.toDate ? p.created_at.toDate().toLocaleString() : 'Recent'}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-black text-emerald-600 dark:text-emerald-400 font-mono">₦{p.amount.toLocaleString()}</p>
+                              <p className="text-[8px] text-slate-500 dark:text-muted-foreground">Fee: ₦{(p.fee_amount !== undefined ? p.fee_amount : (p.type === 'vendor' ? 0 : p.amount * 0.05)).toLocaleString()}</p>
+                            </div>
+                          </div>
+                        </Card>
+                      ))}
+                      {payouts.length === 0 && (
+                        <p className="text-xs text-slate-500 dark:text-muted-foreground italic text-center py-6">
+                          No withdrawal requests submitted yet.
+                        </p>
+                      )}
+                    </div>
+
+                    {payouts.length > 5 && (
+                      <div className="text-center pt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setIsPayoutHistoryExpanded(false)}
+                          className="text-[10px] font-black uppercase tracking-wider h-8 px-4 border-slate-300 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10"
                         >
-                          {p.status}
-                        </Badge>
+                          <ChevronUp className="w-3.5 h-3.5 mr-1" /> Collapse History
+                        </Button>
                       </div>
-                      <div className="flex justify-between items-end">
-                        <div>
-                          <p className="text-xs font-bold text-slate-900 dark:text-white uppercase">{p.bank_name}</p>
-                          <p className="text-[10px] text-slate-500 dark:text-muted-foreground font-mono">No. {p.account_number}</p>
-                          <p className="text-[9px] text-slate-500 dark:text-muted-foreground font-mono mt-1">
-                            {p.created_at?.toDate ? p.created_at.toDate().toLocaleString() : 'Recent'}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-black text-emerald-600 dark:text-emerald-400 font-mono">₦{p.amount.toLocaleString()}</p>
-                          <p className="text-[8px] text-slate-500 dark:text-muted-foreground">Fee: ₦{(p.fee_amount !== undefined ? p.fee_amount : (p.type === 'vendor' ? 0 : p.amount * 0.05)).toLocaleString()}</p>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
-                  {payouts.length === 0 && (
-                    <p className="text-xs text-slate-500 dark:text-muted-foreground italic text-center py-6">
-                      No withdrawal requests submitted yet.
-                    </p>
-                  )}
-                </div>
+                    )}
+                  </motion.div>
+                )}
               </div>
             </motion.div>
           )}
@@ -2623,107 +3822,328 @@ export const VendorDashboard: React.FC = () => {
       <AnimatePresence>
         {isProductModalOpen && (
           <div 
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[999] flex items-center justify-center p-4"
+            className="fixed inset-0 bg-black/70 backdrop-blur-md z-[999] flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
             onClick={closeProductModal}
           >
             <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/15 p-4 sm:p-6 space-y-4 sm:space-y-6 max-h-[90vh] overflow-y-auto custom-scrollbar shadow-2xl rounded-2xl sm:rounded-3xl text-slate-900 dark:text-white"
+              initial={{ scale: 0.94, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.94, opacity: 0, y: 15 }}
+              transition={{ duration: 0.2 }}
+              className="w-full max-w-xl bg-white dark:bg-[#0f1422] border border-slate-200 dark:border-white/15 p-5 sm:p-7 space-y-5 max-h-[92vh] overflow-y-auto custom-scrollbar shadow-2xl rounded-3xl text-slate-900 dark:text-white"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex justify-between items-center border-b border-slate-200 dark:border-white/10 pb-3 sm:pb-4">
-                <h3 className="text-sm sm:text-base font-black uppercase tracking-widest text-slate-900 dark:text-white">
-                  {editingProduct ? 'Edit Product details' : 'Upload New Product'}
-                </h3>
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-white/10 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-500 flex items-center justify-center shrink-0">
+                    {editingProduct ? <Edit3 className="w-5 h-5" /> : <PackagePlus className="w-5 h-5" />}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base sm:text-lg font-black tracking-tight text-slate-900 dark:text-white">
+                        {editingProduct ? 'Edit Store Item' : 'Upload New Product'}
+                      </h3>
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                        editingProduct 
+                          ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                          : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                      }`}>
+                        {editingProduct ? 'Editing' : 'New Item'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-muted-foreground mt-0.5">
+                      {editingProduct 
+                        ? 'Update pricing, badges, stock availability, or product image' 
+                        : 'Add a fresh item to your Crave Aura brand store catalog'}
+                    </p>
+                  </div>
+                </div>
                 <button 
                   onClick={closeProductModal} 
-                  className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-400 hover:text-slate-700 dark:text-muted-foreground dark:hover:text-white transition-colors"
+                  className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-white/10 text-slate-400 hover:text-slate-700 dark:text-muted-foreground dark:hover:text-white transition-colors"
+                  title="Close modal"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleSaveProduct} className="space-y-3 sm:space-y-4 text-left">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">Product Name</label>
-                    <input 
-                      required
-                      type="text"
-                      placeholder="e.g. Caramel Popcorn"
-                      className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-primary/50 transition-colors"
-                      value={productForm.name}
-                      onChange={e => setProductForm({ ...productForm, name: e.target.value })}
-                    />
+              <form onSubmit={handleSaveProduct} className="space-y-5 text-left">
+                {/* 1. Item Details */}
+                <div className="p-4 rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-white/[0.02] space-y-3.5">
+                  <div className="flex items-center gap-2">
+                    <Tag className="w-4 h-4 text-amber-500" />
+                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                      1. Product Information
+                    </span>
                   </div>
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">Category</label>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                      {[
-                        { id: 'snack', label: '🍿 Popcorn & Snacks' },
-                        { id: 'drink', label: '🥤 Chilled Drinks' },
-                        { id: 'combo', label: '🍱 Combo Deals' },
-                        { id: 'candy', label: '🍬 Sweets & Candies' }
-                      ].map(cat => (
-                        <button
-                          key={cat.id}
-                          type="button"
-                          onClick={() => setProductForm({ ...productForm, category: cat.id })}
-                          className={`p-2 sm:p-2.5 rounded-xl text-[10px] sm:text-[11px] font-bold text-center transition-all border ${
-                            productForm.category === cat.id
-                              ? 'bg-primary/15 text-primary border-primary/40 shadow-sm font-black ring-1 ring-primary/30'
-                              : 'bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10'
-                          }`}
-                        >
-                          {cat.label}
-                        </button>
-                      ))}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1 sm:col-span-2">
+                      <label className="text-[10px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">
+                        Product Name <span className="text-rose-500">*</span>
+                      </label>
+                      <input 
+                        required
+                        type="text"
+                        placeholder="e.g. Suya Special, Popcorn Deluxe, Chilled Zobo 500ml"
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/40 transition-all font-medium"
+                        value={productForm.name}
+                        onChange={e => setProductForm({ ...productForm, name: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="space-y-1 sm:col-span-2">
+                      <label className="text-[10px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">
+                        Specialty / Product Category <span className="text-rose-500">*</span>
+                      </label>
+                      <CustomPlatformDropdown
+                        value={productForm.category || STORE_CATEGORIES[3]}
+                        onChange={(val) => setProductForm(prev => ({ ...prev, category: val }))}
+                        options={STORE_CATEGORIES as unknown as string[]}
+                        variant="gold"
+                      />
+                    </div>
+
+                    <div className="space-y-1 sm:col-span-2">
+                      <label className="text-[10px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">
+                        Product Description
+                      </label>
+                      <textarea 
+                        placeholder="Describe packaging size, flavor profile, ingredients, or serving suggestions..."
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/40 h-20 resize-none transition-all"
+                        value={productForm.description}
+                        onChange={e => setProductForm({ ...productForm, description: e.target.value })}
+                      />
                     </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">Price (₦)</label>
-                    <input 
-                      required
-                      type="number"
-                      placeholder="e.g. 2500"
-                      className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-primary/50 transition-colors"
-                      value={productForm.price}
-                      onChange={e => setProductForm({ ...productForm, price: e.target.value })}
-                    />
+                {/* 2. Pricing & Live Earnings Calculator */}
+                <div className="p-4 rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-white/[0.02] space-y-3.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="w-4 h-4 text-emerald-500" />
+                      <span className="text-[11px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                        2. Pricing & Net Earnings
+                      </span>
+                    </div>
+                    <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">
+                      80% Vendor Net Payout
+                    </span>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">Slash Price (₦ - Optional)</label>
-                    <input 
-                      type="number"
-                      placeholder="e.g. 3500"
-                      className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-primary/50 transition-colors"
-                      value={productForm.slashPrice}
-                      onChange={e => setProductForm({ ...productForm, slashPrice: e.target.value })}
-                    />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">
+                        Selling Price (₦) <span className="text-rose-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">₦</span>
+                        <input 
+                          required
+                          type="number"
+                          placeholder="e.g. 2500"
+                          className="w-full pl-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/40 transition-all font-mono font-bold"
+                          value={productForm.price}
+                          onChange={e => setProductForm({ ...productForm, price: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">
+                        Slash Price (₦ - Optional)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">₦</span>
+                        <input 
+                          type="number"
+                          placeholder="e.g. 3500 (Strike-through)"
+                          className="w-full pl-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/40 transition-all font-mono"
+                          value={productForm.slashPrice}
+                          onChange={e => setProductForm({ ...productForm, slashPrice: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Live Earnings & Discount Preview Card */}
+                  {(() => {
+                    const priceNum = parseFloat(productForm.price) || 0;
+                    const slashPriceNum = parseFloat(productForm.slashPrice) || 0;
+                    const discountPercent = (slashPriceNum > priceNum && priceNum > 0)
+                      ? Math.round(((slashPriceNum - priceNum) / slashPriceNum) * 100)
+                      : 0;
+                    const takeHome = Math.round(priceNum * 0.80);
+                    const platformFee = Math.round(priceNum * 0.20);
+
+                    return (
+                      <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+                            Vendor Payout Breakdown:
+                          </span>
+                          {discountPercent > 0 && (
+                            <span className="px-2 py-0.5 rounded-md bg-rose-500 text-white text-[9px] font-black uppercase tracking-wider">
+                              {discountPercent}% OFF Customer Deal
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-left pt-1">
+                          <div className="bg-white/80 dark:bg-black/30 p-2 rounded-lg border border-emerald-500/20">
+                            <p className="text-[9px] uppercase font-bold text-slate-500 dark:text-muted-foreground">You Earn (80% Take-Home)</p>
+                            <p className="text-sm font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                              ₦{takeHome.toLocaleString()}
+                            </p>
+                          </div>
+                          <div className="bg-white/80 dark:bg-black/30 p-2 rounded-lg border border-slate-200 dark:border-white/5">
+                            <p className="text-[9px] uppercase font-bold text-slate-500 dark:text-muted-foreground">Platform Fee (20%)</p>
+                            <p className="text-sm font-black text-slate-600 dark:text-slate-400 font-mono">
+                              ₦{platformFee.toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+
+                        {priceNum === 0 && (
+                          <p className="text-[9px] text-slate-500 dark:text-muted-foreground italic">
+                            Enter selling price above to see your net take-home earnings per unit.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* 3. Storefront Sorting & Spotlight Badges */}
+                <div className="p-4 rounded-2xl border border-amber-500/25 bg-amber-500/5 dark:bg-white/[0.02] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-amber-500" />
+                      3. Spotlight & Customer Badges
+                    </label>
+                    <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400">
+                      Boosts customer sort ranking
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                    {/* Featured */}
+                    <button
+                      type="button"
+                      onClick={() => setProductForm(prev => ({ ...prev, isFeatured: !prev.isFeatured }))}
+                      className={`p-3 rounded-xl border text-left flex items-start gap-2.5 transition-all cursor-pointer ${
+                        productForm.isFeatured
+                          ? 'bg-amber-500/15 border-amber-500 text-amber-700 dark:text-amber-300 shadow-sm ring-1 ring-amber-500/30'
+                          : 'bg-white dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                      }`}
+                    >
+                      <span className="text-lg">⭐</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-black uppercase">Featured Pick</p>
+                          <span className={`w-4 h-4 rounded-md flex items-center justify-center text-[9px] font-bold ${
+                            productForm.isFeatured ? 'bg-amber-500 text-white' : 'bg-slate-200 dark:bg-white/10 text-transparent'
+                          }`}>✓</span>
+                        </div>
+                        <p className="text-[9px] opacity-80 mt-0.5">Top recommendation</p>
+                      </div>
+                    </button>
+
+                    {/* Best Seller */}
+                    <button
+                      type="button"
+                      onClick={() => setProductForm(prev => ({ ...prev, isBestSeller: !prev.isBestSeller }))}
+                      className={`p-3 rounded-xl border text-left flex items-start gap-2.5 transition-all cursor-pointer ${
+                        productForm.isBestSeller
+                          ? 'bg-rose-500/15 border-rose-500 text-rose-700 dark:text-rose-300 shadow-sm ring-1 ring-rose-500/30'
+                          : 'bg-white dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                      }`}
+                    >
+                      <span className="text-lg">🔥</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-black uppercase">Best Seller</p>
+                          <span className={`w-4 h-4 rounded-md flex items-center justify-center text-[9px] font-bold ${
+                            productForm.isBestSeller ? 'bg-rose-500 text-white' : 'bg-slate-200 dark:bg-white/10 text-transparent'
+                          }`}>✓</span>
+                        </div>
+                        <p className="text-[9px] opacity-80 mt-0.5">High demand item</p>
+                      </div>
+                    </button>
+
+                    {/* New Arrival */}
+                    <button
+                      type="button"
+                      onClick={() => setProductForm(prev => ({ ...prev, isNewArrival: !prev.isNewArrival }))}
+                      className={`p-3 rounded-xl border text-left flex items-start gap-2.5 transition-all cursor-pointer ${
+                        productForm.isNewArrival
+                          ? 'bg-emerald-500/15 border-emerald-500 text-emerald-700 dark:text-emerald-300 shadow-sm ring-1 ring-emerald-500/30'
+                          : 'bg-white dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                      }`}
+                    >
+                      <span className="text-lg">🆕</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-black uppercase">New Arrival</p>
+                          <span className={`w-4 h-4 rounded-md flex items-center justify-center text-[9px] font-bold ${
+                            productForm.isNewArrival ? 'bg-emerald-500 text-white' : 'bg-slate-200 dark:bg-white/10 text-transparent'
+                          }`}>✓</span>
+                        </div>
+                        <p className="text-[9px] opacity-80 mt-0.5">Freshly added badge</p>
+                      </div>
+                    </button>
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">Product Description</label>
-                  <textarea 
-                    placeholder="Provide short details about packaging, size, flavor..."
-                    className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-primary/50 h-20 resize-none transition-colors"
-                    value={productForm.description}
-                    onChange={e => setProductForm({ ...productForm, description: e.target.value })}
+                {/* 4. Estimated Delivery Time */}
+                <div className="p-4 rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-white/[0.02] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-amber-500" />
+                      4. Preparation & Delivery ETA
+                    </label>
+                    <span className="text-[9px] text-amber-600 dark:text-amber-400 font-bold uppercase">
+                      {productForm.deliveryTime || 'Default: 5-10 mins'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                    {['5-10 mins', '10-15 mins', '15-20 mins', '20-30 mins'].map(timePreset => (
+                      <button
+                        key={timePreset}
+                        type="button"
+                        onClick={() => setProductForm({ ...productForm, deliveryTime: timePreset })}
+                        className={`p-2.5 rounded-xl text-[10px] font-bold text-center transition-all border ${
+                          productForm.deliveryTime === timePreset
+                            ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/40 ring-1 ring-amber-500/30 font-black shadow-xs'
+                            : 'bg-white dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10'
+                        }`}
+                      >
+                        {timePreset}
+                      </button>
+                    ))}
+                  </div>
+
+                  <input 
+                    type="text"
+                    placeholder="Enter custom delivery time, e.g. 15 mins, 25-35 mins..."
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/40 transition-colors"
+                    value={productForm.deliveryTime}
+                    onChange={e => setProductForm({ ...productForm, deliveryTime: e.target.value })}
                   />
                 </div>
 
-                {/* Cover Image Upload & Remove */}
-                <div className="space-y-2">
+                {/* 5. Product Cover Image */}
+                <div className="p-4 rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-white/[0.02] space-y-3">
                   <div className="flex items-center justify-between">
-                    <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">
-                      Product Picture / Image
-                    </label>
+                    <div className="flex items-center gap-2">
+                      <ImageIcon className="w-4 h-4 text-amber-500" />
+                      <span className="text-[11px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                        5. Product Photo
+                      </span>
+                    </div>
                     {productForm.image && (
                       <button
                         type="button"
@@ -2736,8 +4156,8 @@ export const VendorDashboard: React.FC = () => {
                   </div>
 
                   {productForm.image ? (
-                    <div className="relative rounded-2xl border border-slate-200 dark:border-white/10 overflow-hidden bg-slate-50 dark:bg-black/40 p-2.5 flex items-center gap-3.5 group">
-                      <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-slate-200 dark:bg-black/60 border border-slate-200 dark:border-white/10 flex-shrink-0">
+                    <div className="relative rounded-2xl border border-slate-200 dark:border-white/10 overflow-hidden bg-white dark:bg-black/40 p-3 flex items-center gap-3.5 group">
+                      <div className="relative w-20 h-20 rounded-xl overflow-hidden bg-slate-200 dark:bg-black/60 border border-slate-200 dark:border-white/10 shrink-0 shadow-sm">
                         <img 
                           src={productForm.image} 
                           alt="Product preview" 
@@ -2755,18 +4175,18 @@ export const VendorDashboard: React.FC = () => {
 
                       <div className="flex-1 min-w-0 space-y-1.5">
                         <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 text-[10px] font-black uppercase tracking-wider">
-                          <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
-                          <span>Image Attached</span>
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                          <span>Photo Attached & Optimized</span>
                         </div>
                         <p className="text-[10px] text-slate-500 dark:text-muted-foreground truncate font-mono">
                           {productForm.image.split('/').pop() || 'product_image.jpg'}
                         </p>
                         <div className="flex items-center gap-2 pt-0.5">
                           <label 
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-200/80 dark:bg-white/10 hover:bg-slate-300/80 dark:hover:bg-white/15 text-slate-700 dark:text-white text-[10px] font-black uppercase tracking-wider cursor-pointer border border-slate-300 dark:border-white/10 transition-all active:scale-95"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/15 text-slate-700 dark:text-white text-[10px] font-black uppercase tracking-wider cursor-pointer border border-slate-200 dark:border-white/10 transition-all active:scale-95"
                           >
                             <Upload className="w-3 h-3" />
-                            <span>Change Picture</span>
+                            <span>Replace Photo</span>
                             <input 
                               ref={productImageInputRef}
                               type="file" 
@@ -2787,21 +4207,21 @@ export const VendorDashboard: React.FC = () => {
                       </div>
                     </div>
                   ) : (
-                    <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-300 dark:border-white/10 hover:border-primary/50 rounded-2xl cursor-pointer bg-slate-50/50 hover:bg-slate-50 dark:bg-transparent dark:hover:bg-white/[0.02] transition-all group">
+                    <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-300 dark:border-white/15 hover:border-amber-500/50 rounded-2xl cursor-pointer bg-white/60 hover:bg-white dark:bg-transparent dark:hover:bg-white/[0.02] transition-all group">
                       <div className="flex flex-col items-center justify-center text-center space-y-2">
                         {isUploadingImage ? (
                           <div className="flex flex-col items-center gap-2 py-2">
-                            <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                            <span className="text-[9px] font-black uppercase tracking-widest text-primary">Uploading Image...</span>
+                            <Loader2 className="w-6 h-6 text-amber-500 animate-spin" />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-amber-500">Uploading to Cloudflare...</span>
                           </div>
                         ) : (
                           <>
-                            <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/5 group-hover:bg-primary/10 text-slate-500 dark:text-muted-foreground group-hover:text-primary flex items-center justify-center border border-slate-200 dark:border-white/10 transition-colors">
-                              <Upload className="w-5 h-5" />
+                            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 group-hover:bg-amber-500/20 text-amber-500 flex items-center justify-center border border-amber-500/20 transition-all group-hover:scale-105">
+                              <Upload className="w-6 h-6" />
                             </div>
                             <div>
-                              <p className="text-xs font-black uppercase tracking-wide text-slate-900 dark:text-white">Click to upload product image</p>
-                              <p className="text-[9px] text-slate-500 dark:text-muted-foreground mt-0.5">Supports PNG, JPG, WEBP (Max 5MB)</p>
+                              <p className="text-xs font-black uppercase tracking-wide text-slate-900 dark:text-white">Click or drag to upload product picture</p>
+                              <p className="text-[10px] text-slate-500 dark:text-muted-foreground mt-0.5">Supports PNG, JPG, WEBP (Max 5MB)</p>
                             </div>
                           </>
                         )}
@@ -2818,35 +4238,47 @@ export const VendorDashboard: React.FC = () => {
                   )}
                 </div>
 
-                <div className="space-y-1.5 py-1">
-                  <label className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground tracking-widest ml-1">Stock Status</label>
+                {/* 6. Inventory & Stock Status */}
+                <div className="p-4 rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-white/[0.02] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                      6. Inventory & Availability
+                    </label>
+                    <span className="text-[9px] font-bold text-slate-500 dark:text-muted-foreground">
+                      Controls order availability
+                    </span>
+                  </div>
+
                   <div className="grid grid-cols-3 gap-2">
                     {[
-                      { id: 'in_stock', label: 'In Stock', activeClass: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/40 ring-1 ring-emerald-500/30' },
-                      { id: 'restocking', label: 'Restocking', activeClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-300 border-amber-500/40 ring-1 ring-amber-500/30' },
-                      { id: 'out_of_stock', label: 'Out of Stock', activeClass: 'bg-red-500/15 text-red-600 dark:text-red-300 border-red-500/40 ring-1 ring-red-500/30' }
+                      { id: 'in_stock', label: 'In Stock', icon: '🟢', activeClass: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/40 ring-1 ring-emerald-500/30' },
+                      { id: 'restocking', label: 'Restocking', icon: '🟡', activeClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-300 border-amber-500/40 ring-1 ring-amber-500/30' },
+                      { id: 'out_of_stock', label: 'Out of Stock', icon: '🔴', activeClass: 'bg-rose-500/15 text-rose-600 dark:text-rose-300 border-rose-500/40 ring-1 ring-rose-500/30' }
                     ].map(st => (
                       <button
                         key={st.id}
                         type="button"
                         onClick={() => setProductForm({ ...productForm, stockStatus: st.id as any })}
-                        className={`py-2.5 px-2 rounded-xl text-[10px] font-black uppercase tracking-wider text-center transition-all border ${
+                        className={`py-3 px-2 rounded-xl text-[10px] font-black uppercase tracking-wider text-center transition-all border flex items-center justify-center gap-1.5 cursor-pointer ${
                           productForm.stockStatus === st.id
-                            ? `${st.activeClass} shadow-md`
-                            : 'bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10'
+                            ? `${st.activeClass} shadow-sm font-black`
+                            : 'bg-white dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10'
                         }`}
                       >
-                        {st.label}
+                        <span>{st.icon}</span>
+                        <span>{st.label}</span>
                       </button>
                     ))}
                   </div>
                 </div>
 
-                <div className="flex gap-3 pt-3 sm:pt-4 border-t border-slate-200 dark:border-white/10">
+                {/* Modal Footer Actions */}
+                <div className="flex gap-3 pt-2">
                   <Button 
                     type="button" 
                     variant="outline" 
-                    className="flex-1 h-10 sm:h-12 rounded-xl text-[10px] sm:text-xs font-black uppercase border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5"
+                    className="flex-1 h-11 sm:h-12 rounded-2xl text-[10px] sm:text-xs font-black uppercase border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5"
                     onClick={closeProductModal}
                   >
                     Cancel
@@ -2854,9 +4286,24 @@ export const VendorDashboard: React.FC = () => {
                   <Button 
                     type="submit" 
                     disabled={isSavingProduct || isUploadingImage}
-                    className="flex-1 h-10 sm:h-12 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest gradient-bg shadow-md"
+                    className="flex-1 h-11 sm:h-12 rounded-2xl text-[10px] sm:text-xs font-black uppercase tracking-widest gradient-bg shadow-lg shadow-amber-500/20 hover:opacity-95 transition-all flex items-center justify-center gap-2"
                   >
-                    {isSavingProduct ? <Loader2 className="w-4.5 h-4.5 animate-spin mx-auto" /> : editingProduct ? 'Save' : 'Upload'}
+                    {isSavingProduct ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Saving...</span>
+                      </>
+                    ) : editingProduct ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Save Product Changes</span>
+                      </>
+                    ) : (
+                      <>
+                        <PackagePlus className="w-4 h-4" />
+                        <span>Upload to Store</span>
+                      </>
+                    )}
                   </Button>
                 </div>
               </form>
@@ -3129,7 +4576,7 @@ export const VendorDashboard: React.FC = () => {
                   Delete Product
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-muted-foreground leading-relaxed">
-                  Are you sure you want to permanently delete <span className="font-bold text-slate-900 dark:text-white">"{deleteModalState.productName}"</span>? This will remove it from the Cinema Snack Store and Cloudflare storage.
+                  Are you sure you want to permanently delete <span className="font-bold text-slate-900 dark:text-white">"{deleteModalState.productName}"</span>? This will remove it from the Crave Aura Store and Cloudflare storage.
                 </p>
               </div>
 
@@ -3422,6 +4869,65 @@ export const VendorDashboard: React.FC = () => {
               >
                 Close Receipt
               </Button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* In-App Delete Confirmation Modal for Fulfilled Orders & Transactions */}
+      <AnimatePresence>
+        {deleteRecordModal.isOpen && (
+          <div 
+            className="fixed inset-0 bg-black/80 backdrop-blur-md z-[1000] flex items-center justify-center p-4"
+            onClick={() => !isDeletingRecord && setDeleteRecordModal(prev => ({ ...prev, isOpen: false }))}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/15 p-5 sm:p-6 space-y-5 text-center shadow-2xl rounded-2xl sm:rounded-3xl text-slate-900 dark:text-white"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mx-auto text-rose-600 dark:text-rose-400 shadow-xs">
+                <Trash2 className="w-6 h-6" />
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-base sm:text-lg font-black uppercase text-slate-900 dark:text-white tracking-wide">
+                  {deleteRecordModal.title}
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-muted-foreground leading-relaxed">
+                  {deleteRecordModal.description}
+                </p>
+              </div>
+
+              {/* Safety guarantee banner */}
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-left flex items-start gap-2">
+                <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-[9px] text-amber-800 dark:text-amber-300 font-bold uppercase leading-tight">
+                  Only fulfilled / completed items are removed. Active orders remain protected.
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  disabled={isDeletingRecord}
+                  className="flex-1 h-10 sm:h-11 rounded-xl text-[10px] sm:text-xs font-black uppercase border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5"
+                  onClick={() => setDeleteRecordModal(prev => ({ ...prev, isOpen: false }))}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  type="button" 
+                  disabled={isDeletingRecord}
+                  onClick={handleConfirmDeleteRecord}
+                  className="flex-1 h-10 sm:h-11 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider bg-rose-600 hover:bg-rose-700 text-white font-black shadow-md"
+                >
+                  {isDeletingRecord ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Confirm Delete'}
+                </Button>
+              </div>
             </motion.div>
           </div>
         )}

@@ -16,7 +16,6 @@ import {
   Clock,
   ShieldAlert,
   Video,
-  ShoppingBag,
   ChevronDown,
   Share2,
   Check,
@@ -25,7 +24,8 @@ import {
   Wallet as WalletIcon,
   DoorOpen,
   Clapperboard,
-  ArrowRight
+  ArrowRight,
+  Popcorn
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -1058,9 +1058,9 @@ const CinemaRoom: React.FC = () => {
           <p className="text-[10px] md:text-xs text-muted-foreground font-bold uppercase tracking-widest opacity-70">Experience movies together in virtual luxury.</p>
         </div>
         <div className="flex flex-wrap justify-center items-center gap-2 md:gap-3">
-          <Button variant="outline" onClick={handleBuySnacks} className="flex-1 md:flex-none h-10 gap-2 border-slate-200 dark:border-white/10 bg-slate-50 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors shadow-2xs">
-            <ShoppingBag className="w-3.5 h-3.5" />
-            Buy Snacks
+          <Button variant="outline" onClick={handleBuySnacks} className="flex-1 md:flex-none h-10 gap-2 border-slate-200 dark:border-white/10 bg-slate-50 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors shadow-2xs">
+            <Popcorn className="w-3.5 h-3.5 text-amber-500" />
+            Crave Aura
           </Button>
           <Button variant="outline" onClick={handleMyTickets} className="flex-1 md:flex-none h-10 gap-2 border-slate-200 dark:border-white/10 bg-slate-50 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors shadow-2xs">
             <Ticket className="w-3.5 h-3.5" />
@@ -1634,9 +1634,9 @@ const CinemaRoom: React.FC = () => {
                   </div>
 
                   <div className="px-6 py-2 flex justify-end">
-                     <Button type="button" variant="outline" onClick={handleBuySnacks} className="gap-2 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 h-8 text-[10px] font-black uppercase">
-                        <ShoppingBag className="w-3 h-3" />
-                        Buy Snacks for Room
+                     <Button type="button" variant="outline" onClick={handleBuySnacks} className="gap-2 border-amber-500/30 text-amber-400 hover:bg-amber-500/10 h-8 text-[10px] font-black uppercase">
+                        <Popcorn className="w-3 h-3 text-amber-500" />
+                        Crave Aura for Room
                      </Button>
                   </div>
 

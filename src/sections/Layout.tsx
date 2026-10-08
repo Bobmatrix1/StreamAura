@@ -66,7 +66,7 @@ const tabs: Tab[] = [
   { id: 'music', label: 'Music', icon: Music, color: 'orange' },
   { id: 'movie', label: 'Movies', icon: Film, color: 'cyan' },
   { id: 'cinema', label: 'Cinema Room', icon: Tv, color: 'purple' },
-  { id: 'snacks', label: 'Cinema Snacks Store', icon: Popcorn, color: 'amber' },
+  { id: 'snacks', label: 'Crave Aura', icon: Popcorn, color: 'amber' },
   { id: 'games', label: 'Game Room', icon: Gamepad2, color: 'yellow' },
   { id: 'wallet', label: 'Wallet', icon: Wallet, color: 'emerald' },
   { id: 'referral', label: 'Refer & Earn', icon: Share2, color: 'orange' },
