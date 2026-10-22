@@ -346,7 +346,9 @@ async def create_game_room(request: CreateGameRequest, user: dict = Depends(get_
         raise HTTPException(status_code=400, detail="Room name is required.")
         
     entry_fee = max(0.0, round(float(request.entryFee), 2))
+    entry_type = (request.entryType or "cash").lower()
     prize_amount = max(0.0, round(float(request.prizePerRound), 2))
+    prize_type = (request.prizeType or "cash").lower()
     rounds_count = max(1, min(20, int(request.numberOfRounds))) if request.isMultipleRounds else 1
     total_prize_cost = round(prize_amount * rounds_count, 2)
     game_id = f"game_{uuid.uuid4().hex[:12]}"
@@ -376,7 +378,7 @@ async def create_game_room(request: CreateGameRequest, user: dict = Depends(get_
         "hostEarningsRate": 1.0 if is_admin else 0.80
     }
 
-    # Deduct from host wallet (AuraCoins or Game Wallet) via atomic transaction
+    # Deduct from host wallet (AuraCoins, Game Wallet, or Referral Balance) via atomic transaction
     if total_prize_cost > 0:
         transaction = db.transaction()
 
@@ -398,7 +400,7 @@ async def create_game_room(request: CreateGameRequest, user: dict = Depends(get_
                     "type": "create_room_prize",
                     "currency": "auracoin",
                     "amount": total_prize_cost,
-                    "desc": f"Funded Game Prize: {request.roomName} ({coins_display:,} AuraCoins)",
+                    "desc": f"Funded Game Prize: {clean_room_name} ({coins_display:,} AuraCoins)",
                     "timestamp": firestore.SERVER_TIMESTAMP
                 })
                 transaction.set(game_room_ref, payload)
@@ -406,21 +408,29 @@ async def create_game_room(request: CreateGameRequest, user: dict = Depends(get_
 
             return transactional_create(transaction)
         else:
-            wallet_ref = db.collection("game_wallets").document(uid)
-            activity_ref = wallet_ref.collection("activity").document()
+            payment_wallet = getattr(request, 'payment_wallet', 'normal') or 'normal'
+            if payment_wallet == 'referral':
+                source_ref = user_ref
+                source_field = "referralBalance"
+            else:
+                source_ref = db.collection("game_wallets").document(uid)
+                source_field = "balance"
+
+            activity_ref = db.collection("game_wallets").document(uid).collection("activity").document()
 
             @firestore.transactional
             def transactional_create(transaction):
-                wallet_doc = wallet_ref.get(transaction=transaction)
-                if not wallet_doc.exists or float(wallet_doc.to_dict().get("balance", 0) or 0) < total_prize_cost:
-                    raise HTTPException(status_code=400, detail="Insufficient game wallet balance to fund the prize.")
+                source_doc = source_ref.get(transaction=transaction)
+                if not source_doc.exists or float(source_doc.to_dict().get(source_field, 0) or 0) < total_prize_cost:
+                    wallet_name = "referral balance" if payment_wallet == 'referral' else "game wallet balance"
+                    raise HTTPException(status_code=400, detail=f"Insufficient {wallet_name} to fund the prize.")
                     
-                transaction.update(wallet_ref, {"balance": firestore.Increment(-total_prize_cost)})
+                transaction.update(source_ref, {source_field: firestore.Increment(-total_prize_cost)})
                 transaction.set(activity_ref, {
                     "type": "create_room_prize",
                     "currency": "cash",
                     "amount": total_prize_cost,
-                    "desc": f"Funded Game Prize: {request.roomName}",
+                    "desc": f"Funded Game Prize: {clean_room_name}",
                     "timestamp": firestore.SERVER_TIMESTAMP
                 })
                 transaction.set(game_room_ref, payload)

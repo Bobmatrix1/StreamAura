@@ -25,7 +25,7 @@ import { Badge } from '../components/ui/badge';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { db, auth } from '../lib/firebase';
-import { collection, doc, getDoc, query, onSnapshot } from 'firebase/firestore';
+import { collection, doc, getDoc, query, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
 import { API_BASE_URL } from '../api/mediaApi';
 import { AuraCoinIcon } from '../components/AuraCoinIcon';
 
@@ -432,7 +432,7 @@ export default function Games() {
   const handleCreateGame = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!roomName.trim() || !entryFee || !prizePerRound) {
+    if (!roomName.trim() || entryFee === '' || prizePerRound === '') {
       showError('Please enter a room name, entry fee, and prize per round.');
       return;
     }
@@ -471,35 +471,64 @@ export default function Games() {
     setIsSubmitting(true);
     try {
       const payload = {
-        roomName,
-        entryFee: parseFloat(entryFee),
+        roomName: roomName.trim(),
+        entryFee: parseFloat(entryFee) || 0,
         entryType,
-        prizePerRound: parseFloat(prizePerRound),
+        prizePerRound: parseFloat(prizePerRound) || 0,
         prizeType,
         isMultipleRounds,
-        numberOfRounds: isMultipleRounds ? parseInt(numberOfRounds) : 1,
+        numberOfRounds: isMultipleRounds ? (parseInt(numberOfRounds) || 1) : 1,
         startCondition,
-        autoStartUsers: startCondition === 'auto' ? (isMultipleRounds ? parseInt(numberOfRounds) * 2 : 2) : null,
+        autoStartUsers: startCondition === 'auto' ? (isMultipleRounds ? (parseInt(numberOfRounds) || 1) * 2 : 2) : null,
         isManualPairing,
-        playerAId,
-        playerBId,
+        playerAId: (isManualPairing && playerAId) ? playerAId.trim() : null,
+        playerBId: (isManualPairing && playerBId) ? playerBId.trim() : null,
         payment_wallet: paymentWallet
       };
 
-      const token = await auth.currentUser?.getIdToken();
-      const response = await fetch(`${API_BASE_URL}/api/games/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(payload)
-      });
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        const response = await fetch(`${API_BASE_URL}/api/games/create`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify(payload)
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to create game room.');
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || errorData.error || 'Failed to create game room.');
+        }
+
+        showSuccess('Game Room created successfully!');
+        closeCreateModal();
+        return;
+      } catch (apiErr: any) {
+        // If backend server is offline/unreachable and user is admin, allow direct Firestore creation
+        const isNetworkErr = apiErr.message?.includes('fetch') || apiErr.message?.includes('network') || apiErr.message?.includes('Failed to fetch');
+        if (isNetworkErr && isAdmin && user) {
+          const gameId = `game_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+          await setDoc(doc(db, 'game_rooms', gameId), {
+            ...payload,
+            gameType: 'split_or_steal',
+            hostUid: user.uid,
+            hostName: user.displayName || user.email?.split('@')[0] || 'Host',
+            currentRound: 1,
+            status: 'waiting',
+            createdAt: serverTimestamp(),
+            participants: [],
+            playedUsers: [],
+            hostEarningsRate: 1.0
+          });
+
+          showSuccess('Game Room created successfully!');
+          closeCreateModal();
+          return;
+        }
+        throw apiErr;
       }
-
-      showSuccess('Game Room created successfully!');
-      closeCreateModal();
     } catch (err: any) {
       showError(err.message || 'Failed to create game room.');
     } finally {
