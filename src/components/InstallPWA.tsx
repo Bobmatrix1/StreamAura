@@ -1,176 +1,456 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, X, Share, PlusSquare, ShieldCheck, Zap, CheckCircle2 } from 'lucide-react';
+import { 
+  Download, 
+  X, 
+  Share, 
+  PlusSquare, 
+  ShieldCheck, 
+  Zap, 
+  CheckCircle2, 
+  Flame, 
+  Copy, 
+  Check, 
+  Smartphone, 
+  Laptop, 
+  ExternalLink,
+  MoreVertical
+} from 'lucide-react';
+
+import { useIsAppInstalled, checkIsAppInstalled } from '../hooks/useAppInstalled';
+
+/**
+ * Global trigger to open the StreamAura App Install modal from anywhere in the application.
+ */
+export const triggerInstallPWA = () => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('open_install_pwa'));
+  }
+};
 
 const InstallPWA: React.FC = () => {
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [showInstallBanner, setShowInstallBanner] = useState(false);
-  const [platform, setPlatform] = useState<'android' | 'ios' | 'other'>('android');
+  const isInstalled = useIsAppInstalled();
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(() => {
+    if (typeof window !== 'undefined') {
+      return (window as any).__AURA_DEFERRED_PROMPT__ || null;
+    }
+    return null;
+  });
+  
+  const [showFloatingBanner, setShowFloatingBanner] = useState(false);
+  const [showInstallModal, setShowInstallModal] = useState(false);
+  const [platform, setPlatform] = useState<'ios' | 'android' | 'desktop'>('android');
   const [isStandalone, setIsStandalone] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [isInAppBrowser, setIsInAppBrowser] = useState(false);
+
+  const isAppActiveOrInstalled = isStandalone || isInstalled;
 
   useEffect(() => {
-    // Check if already installed or standalone mode
-    if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone) {
-      setIsStandalone(true);
-      return;
+    if (typeof window === 'undefined') return;
+
+    // Detect standalone mode
+    const standaloneMode = 
+      window.matchMedia('(display-mode: standalone)').matches || 
+      (window.navigator as any).standalone === true ||
+      document.referrer.includes('android-app://') ||
+      checkIsAppInstalled();
+    
+    setIsStandalone(standaloneMode);
+
+    // Detect device platform
+    const ua = window.navigator.userAgent.toLowerCase();
+    const isIOS = /iphone|ipad|ipod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isAndroid = /android/.test(ua);
+
+    if (isIOS) {
+      setPlatform('ios');
+    } else if (isAndroid) {
+      setPlatform('android');
+    } else {
+      setPlatform('desktop');
     }
 
-    // Check localStorage if user recently dismissed
-    const dismissedAt = localStorage.getItem('aura_pwa_dismissed');
-    if (dismissedAt) {
-      const daysSinceDismiss = (Date.now() - parseInt(dismissedAt, 10)) / (1000 * 60 * 60 * 24);
-      if (daysSinceDismiss < 2) {
-        return; // Don't prompt again if dismissed within 2 days
+    // Detect in-app webviews (Instagram, Facebook, Twitter, WhatsApp, TikTok, etc.)
+    const isWebview = /(fban|fbav|instagram|twitter|tiktok|whatsapp|line|micromessenger|snapchat)/i.test(ua);
+    setIsInAppBrowser(isWebview);
+
+    // Capture prompt if already present globally
+    if ((window as any).__AURA_DEFERRED_PROMPT__) {
+      setDeferredPrompt((window as any).__AURA_DEFERRED_PROMPT__);
+    }
+
+    // Event listener for native beforeinstallprompt
+    const onBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      (window as any).__AURA_DEFERRED_PROMPT__ = e;
+      setDeferredPrompt(e);
+      // Only show banner if app is not standalone or already installed
+      if (!standaloneMode && !checkIsAppInstalled()) {
+        setShowFloatingBanner(true);
+      }
+    };
+
+    // Global custom triggers
+    const onPromptReady = () => {
+      if ((window as any).__AURA_DEFERRED_PROMPT__) {
+        setDeferredPrompt((window as any).__AURA_DEFERRED_PROMPT__);
+      }
+    };
+
+    const onAppInstalled = () => {
+      setIsStandalone(true);
+      setShowFloatingBanner(false);
+      setShowInstallModal(false);
+      (window as any).__AURA_DEFERRED_PROMPT__ = null;
+      try {
+        localStorage.setItem('aura_app_installed', 'true');
+        window.dispatchEvent(new CustomEvent('aura_app_installed_status_changed', { detail: { isInstalled: true } }));
+      } catch {}
+    };
+
+    const onOpenManual = () => {
+      setShowInstallModal(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt);
+    window.addEventListener('aura_pwa_prompt_ready', onPromptReady);
+    window.addEventListener('appinstalled', onAppInstalled);
+    window.addEventListener('aura_pwa_installed', onAppInstalled);
+    window.addEventListener('open_install_pwa', onOpenManual);
+
+    // Auto-show floating banner logic (non-intrusive)
+    if (!standaloneMode && !checkIsAppInstalled()) {
+      const dismissedAt = localStorage.getItem('aura_pwa_dismissed');
+      let shouldAutoShow = true;
+      if (dismissedAt) {
+        const hoursSince = (Date.now() - parseInt(dismissedAt, 10)) / (1000 * 60 * 60);
+        if (hoursSince < 12) {
+          shouldAutoShow = false; // Graceful 12h snooze for auto-banner, manual button remains active
+        }
+      }
+
+      if (shouldAutoShow) {
+        const timer = setTimeout(() => {
+          setShowFloatingBanner(true);
+        }, 3500);
+        return () => {
+          clearTimeout(timer);
+          window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt);
+          window.removeEventListener('aura_pwa_prompt_ready', onPromptReady);
+          window.removeEventListener('appinstalled', onAppInstalled);
+          window.removeEventListener('aura_pwa_installed', onAppInstalled);
+          window.removeEventListener('open_install_pwa', onOpenManual);
+        };
       }
     }
 
-    // Detect platform
-    const ua = window.navigator.userAgent.toLowerCase();
-    if (/iphone|ipad|ipod/.test(ua)) {
-      setPlatform('ios');
-    } else if (/android/.test(ua)) {
-      setPlatform('android');
-    }
-
-    // Listen for Android/Chrome install prompt
-    const handler = (e: any) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      // Wait 2 seconds before showing for smoother initial render
-      setTimeout(() => setShowInstallBanner(true), 2000);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt);
+      window.removeEventListener('aura_pwa_prompt_ready', onPromptReady);
+      window.removeEventListener('appinstalled', onAppInstalled);
+      window.removeEventListener('aura_pwa_installed', onAppInstalled);
+      window.removeEventListener('open_install_pwa', onOpenManual);
     };
-
-    window.addEventListener('beforeinstallprompt', handler);
-
-    // For iOS, we show the banner manually after a short delay
-    if (/iphone|ipad|ipod/.test(ua) && !(window.navigator as any).standalone) {
-      const timer = setTimeout(() => {
-        setShowInstallBanner(true);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-
-    return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
   const handleInstallClick = async () => {
-    if (platform === 'ios') return;
-    if (!deferredPrompt) return;
-
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    
-    if (outcome === 'accepted') {
-      setDeferredPrompt(null);
-      setShowInstallBanner(false);
+    if (deferredPrompt) {
+      try {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+          setDeferredPrompt(null);
+          (window as any).__AURA_DEFERRED_PROMPT__ = null;
+          setShowFloatingBanner(false);
+          setShowInstallModal(false);
+          setIsStandalone(true);
+          try {
+            localStorage.setItem('aura_app_installed', 'true');
+            window.dispatchEvent(new CustomEvent('aura_pwa_installed'));
+            window.dispatchEvent(new CustomEvent('aura_app_installed_status_changed', { detail: { isInstalled: true } }));
+          } catch {}
+        }
+      } catch (err) {
+        console.warn('Install prompt error:', err);
+        setShowInstallModal(true);
+      }
+    } else {
+      // If native prompt isn't directly dispatchable (e.g. iOS or manual browser), open guided modal
+      setShowInstallModal(true);
     }
   };
 
-  const dismissBanner = () => {
-    setShowInstallBanner(false);
+  const dismissFloatingBanner = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setShowFloatingBanner(false);
     try {
       localStorage.setItem('aura_pwa_dismissed', Date.now().toString());
     } catch {}
   };
 
-  if (isStandalone || !showInstallBanner) return null;
+  const copyAppUrl = () => {
+    try {
+      navigator.clipboard.writeText(window.location.origin);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    } catch {}
+  };
 
   return (
-    <AnimatePresence>
-      {showInstallBanner && (
-        <div className="fixed inset-0 z-[1000] flex items-end justify-center sm:items-center sm:justify-end p-3 sm:p-4 md:p-6 pointer-events-none pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
-          {/* Backdrop (Close on click) */}
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={dismissBanner}
-            className="fixed inset-0 bg-black/40 backdrop-blur-[2px] pointer-events-auto"
-          />
-
+    <>
+      {/* 1. NON-INTRUSIVE FLOATING BOTTOM BANNER (No screen-blocking backdrop) */}
+      <AnimatePresence>
+        {!isAppActiveOrInstalled && showFloatingBanner && !showInstallModal && (
           <motion.div
-            initial={{ y: 60, opacity: 0, scale: 0.95 }}
+            initial={{ y: 80, opacity: 0, scale: 0.95 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 60, opacity: 0, scale: 0.95 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="relative w-full max-w-[390px] mx-auto sm:mx-0 pointer-events-auto z-10"
+            exit={{ y: 80, opacity: 0, scale: 0.95 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 280 }}
+            className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:bottom-6 z-[200] max-w-sm pointer-events-auto"
           >
-            <div className="glass-card p-4 sm:p-5 border-white/15 bg-zinc-950/95 backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.7)] relative overflow-hidden rounded-3xl group">
-              {/* Animated Glow Effect */}
-              <div className="absolute -top-20 -left-20 w-40 h-40 bg-primary/20 rounded-full blur-[80px] pointer-events-none" />
-              <div className="absolute -bottom-20 -right-20 w-40 h-40 bg-indigo-500/10 rounded-full blur-[80px] pointer-events-none" />
-              
-              <button 
-                onClick={dismissBanner}
-                aria-label="Dismiss install banner"
-                className="absolute top-3 right-3 sm:top-4 sm:right-4 p-1.5 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-all z-20"
+            <div className="glass-card p-4 rounded-3xl bg-zinc-950/95 border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-2xl relative overflow-hidden group">
+              {/* Animated Glow */}
+              <div className="absolute -top-16 -right-16 w-32 h-32 bg-primary/25 rounded-full blur-[60px] pointer-events-none" />
+              <div className="absolute -bottom-16 -left-16 w-32 h-32 bg-indigo-500/20 rounded-full blur-[60px] pointer-events-none" />
+
+              <button
+                onClick={dismissFloatingBanner}
+                aria-label="Dismiss banner"
+                className="absolute top-2.5 right-2.5 p-1.5 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-all z-20"
               >
                 <X className="w-4 h-4" />
               </button>
 
-              <div className="flex items-start gap-3.5 sm:gap-4 relative z-10 pr-6">
-                {/* App Logo */}
-                <div className="relative shrink-0">
-                  <div className="w-[52px] h-[52px] sm:w-[60px] sm:h-[60px] rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center p-2 shadow-xl overflow-hidden relative">
-                    <img src="/logo.png" alt="StreamAura" className="w-full h-full object-contain" />
-                  </div>
-                  <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-emerald-500 rounded-full border-2 border-zinc-950 flex items-center justify-center shadow-md">
-                    <ShieldCheck className="w-3 h-3 text-white" />
+              <div className="flex items-center gap-3 pr-6">
+                <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center p-1.5 shadow-xl relative shrink-0">
+                  <img src="/logo.png" alt="StreamAura" className="w-full h-full object-contain" />
+                  <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full border-2 border-zinc-950 flex items-center justify-center shadow">
+                    <ShieldCheck className="w-2.5 h-2.5 text-white" />
                   </div>
                 </div>
-                
-                <div className="flex-1 min-w-0 space-y-0.5">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <h3 className="font-black text-white uppercase tracking-tight text-base sm:text-lg leading-tight">StreamAura</h3>
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400/10 shrink-0" />
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <h4 className="font-black text-white text-sm uppercase tracking-tight">StreamAura App</h4>
+                    <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">Free</span>
                   </div>
-                  <p className="text-[11px] sm:text-xs text-zinc-400 font-medium leading-relaxed line-clamp-2">
-                    {platform === 'ios' 
-                      ? 'Install StreamAura on your home screen for fast fullscreen streaming.' 
-                      : 'Install native app for instant loading, fullscreen cinema, and offline streaming.'}
-                  </p>
+                  <p className="text-[11px] text-zinc-400 line-clamp-1">Fast fullscreen cinema & high-speed streaming</p>
                 </div>
               </div>
 
-              <div className="mt-4 sm:mt-5 space-y-3 relative z-10">
-                {platform === 'ios' ? (
-                  <div className="space-y-2 bg-white/5 p-3 rounded-2xl border border-white/5 shadow-inner">
-                    <div className="flex items-center gap-3 text-[11px] font-bold text-zinc-300">
-                      <div className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center border border-white/10 shrink-0">
-                        <Share className="w-3.5 h-3.5 text-white" />
-                      </div>
-                      <span>1. Tap <span className="text-white font-black">Share</span> in Safari menu</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-[11px] font-bold text-zinc-300">
-                      <div className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center border border-white/10 shrink-0">
-                        <PlusSquare className="w-3.5 h-3.5 text-white" />
-                      </div>
-                      <span>2. Select <span className="text-white font-black">Add to Home Screen</span></span>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    onClick={handleInstallClick}
-                    className="w-full h-11 sm:h-12 rounded-xl bg-gradient-to-r from-primary to-indigo-600 text-white text-[11px] sm:text-xs font-black uppercase tracking-[0.15em] shadow-lg shadow-primary/25 hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group"
-                  >
-                    <Download className="w-4 h-4 group-hover:animate-bounce" />
-                    Install App
-                  </button>
-                )}
-                
-                <div className="flex items-center justify-between px-1 text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                  <div className="flex items-center gap-1.5">
-                    <Zap className="w-3 h-3 text-amber-500 fill-current" />
-                    <span>Lite & Fast</span>
-                  </div>
-                  <span className="text-zinc-600">v1.2.0 • Verified PWA</span>
-                </div>
+              <div className="mt-3.5 flex items-center gap-2">
+                <button
+                  onClick={handleInstallClick}
+                  className="flex-1 h-9 rounded-xl bg-gradient-to-r from-primary to-indigo-600 text-white text-[11px] font-black uppercase tracking-wider shadow-md hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download App</span>
+                </button>
+                <button
+                  onClick={dismissFloatingBanner}
+                  className="px-3 h-9 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white text-[11px] font-bold transition-colors"
+                >
+                  Later
+                </button>
               </div>
             </div>
           </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
+        )}
+      </AnimatePresence>
+
+      {/* 2. COMPREHENSIVE INTERACTIVE INSTALL MODAL */}
+      <AnimatePresence>
+        {showInstallModal && (
+          <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowInstallModal(false)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-md"
+            />
+
+            {/* Modal Card */}
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.92, opacity: 0, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="relative w-full max-w-md glass-card rounded-3xl bg-zinc-950/95 border border-white/15 p-6 shadow-2xl overflow-hidden z-10"
+            >
+              {/* Glow Accent */}
+              <div className="absolute top-0 right-0 w-64 h-64 bg-primary/20 rounded-full blur-[90px] pointer-events-none" />
+              <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-500/15 rounded-full blur-[90px] pointer-events-none" />
+
+              <button
+                onClick={() => setShowInstallModal(false)}
+                className="absolute top-4 right-4 p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all z-20"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              {/* Header */}
+              <div className="text-center mb-5">
+                <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center p-2.5 mx-auto mb-3 shadow-2xl relative">
+                  <img src="/logo.png" alt="StreamAura" className="w-full h-full object-contain" />
+                  <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-emerald-500 rounded-full border-2 border-zinc-950 flex items-center justify-center shadow">
+                    <ShieldCheck className="w-3 h-3 text-white" />
+                  </div>
+                </div>
+
+                <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-primary/15 border border-primary/30 text-primary text-[10px] font-black uppercase tracking-widest mb-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-primary" />
+                  <span>Official StreamAura App</span>
+                </div>
+
+                <h3 className="text-xl font-black text-white uppercase tracking-tight">
+                  {isAppActiveOrInstalled ? 'App Already Installed' : 'Install StreamAura App'}
+                </h3>
+                <p className="text-xs text-zinc-400 font-medium mt-1">
+                  {isAppActiveOrInstalled 
+                    ? 'StreamAura is already installed on this device. You can launch it directly anytime!'
+                    : 'Download the app for instant fullscreen streaming, high-speed downloads, and instant updates.'}
+                </p>
+              </div>
+
+              {/* In-App Browser Warning (e.g. opened in Instagram, WhatsApp, Facebook) */}
+              {isInAppBrowser && !isAppActiveOrInstalled && (
+                <div className="mb-4 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs space-y-2">
+                  <div className="flex items-center gap-2 font-bold">
+                    <ExternalLink className="w-4 h-4 shrink-0 text-amber-400" />
+                    <span>In-App Browser Detected</span>
+                  </div>
+                  <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                    Social apps (like Instagram or WhatsApp) block direct app installs. Tap the menu at the top-right and choose <span className="font-bold underline text-white">Open in Chrome / Safari</span> for full 1-tap install.
+                  </p>
+                  <button
+                    onClick={copyAppUrl}
+                    className="w-full py-1.5 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedLink ? 'Link Copied! Open in Browser' : 'Copy Website Link'}</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Already Installed State */}
+              {isAppActiveOrInstalled ? (
+                <div className="space-y-4 my-4">
+                  <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-center space-y-1">
+                    <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-1" />
+                    <p className="text-xs font-black text-white uppercase tracking-wider">You're All Set!</p>
+                    <p className="text-[11px] text-emerald-200/80">StreamAura is already installed on your device. You can launch it directly from your home screen or app drawer anytime.</p>
+                  </div>
+                  <button
+                    onClick={() => setShowInstallModal(false)}
+                    className="w-full py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-black uppercase tracking-wider transition-all"
+                  >
+                    Close
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Option 1: Native Prompt (Chrome, Edge, Samsung Internet) */}
+                  {deferredPrompt ? (
+                    <div className="space-y-3">
+                      <button
+                        onClick={handleInstallClick}
+                        className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-primary via-indigo-600 to-primary text-white text-xs font-black uppercase tracking-[0.15em] shadow-xl shadow-primary/30 hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group animate-pulse"
+                      >
+                        <Download className="w-4 h-4 group-hover:animate-bounce" />
+                        <span>Install App Now</span>
+                      </button>
+                      <p className="text-center text-[10px] text-zinc-500 font-medium">
+                        Instant install • No Google Play or App Store needed
+                      </p>
+                    </div>
+                  ) : (
+                    /* Option 2: Step-by-Step Guided Instructions */
+                    <div className="space-y-3">
+                      {platform === 'ios' ? (
+                        <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3 text-xs">
+                          <p className="font-bold text-white text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                            <Smartphone className="w-4 h-4 text-primary" />
+                            <span>Quick 2-Step Install on iOS (Safari):</span>
+                          </p>
+                          <div className="flex items-start gap-3 text-zinc-300">
+                            <div className="w-6 h-6 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 font-black text-[10px]">1</div>
+                            <div className="space-y-0.5">
+                              <p className="text-[11px] font-semibold text-white">Tap the <span className="inline-flex items-center text-blue-400 font-black"><Share className="w-3.5 h-3.5 inline mx-1" /> Share</span> button</p>
+                              <p className="text-[10px] text-zinc-400">Found at the bottom of Safari's toolbar</p>
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-3 text-zinc-300">
+                            <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 font-black text-[10px]">2</div>
+                            <div className="space-y-0.5">
+                              <p className="text-[11px] font-semibold text-white">Tap <span className="inline-flex items-center text-emerald-400 font-black"><PlusSquare className="w-3.5 h-3.5 inline mx-1" /> Add to Home Screen</span></p>
+                              <p className="text-[10px] text-zinc-400">Scroll down slightly in the share menu and tap Add</p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : platform === 'android' ? (
+                        <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3 text-xs">
+                          <p className="font-bold text-white text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                            <Smartphone className="w-4 h-4 text-emerald-400" />
+                            <span>Quick Install on Android:</span>
+                          </p>
+                          <div className="flex items-start gap-3 text-zinc-300">
+                            <div className="w-6 h-6 rounded-lg bg-primary/20 text-primary flex items-center justify-center shrink-0 font-black text-[10px]">1</div>
+                            <div className="space-y-0.5">
+                              <p className="text-[11px] font-semibold text-white">Tap the browser menu <MoreVertical className="w-3.5 h-3.5 inline text-primary" /></p>
+                              <p className="text-[10px] text-zinc-400">Tap the three vertical dots at the top-right</p>
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-3 text-zinc-300">
+                            <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 font-black text-[10px]">2</div>
+                            <div className="space-y-0.5">
+                              <p className="text-[11px] font-semibold text-white">Select <span className="text-emerald-400 font-black">Install app</span> or <span className="text-emerald-400 font-black">Add to Home screen</span></p>
+                              <p className="text-[10px] text-zinc-400">StreamAura will appear on your phone home screen</p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3 text-xs">
+                          <p className="font-bold text-white text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                            <Laptop className="w-4 h-4 text-indigo-400" />
+                            <span>Install on Computer (Desktop App):</span>
+                          </p>
+                          <p className="text-[11px] text-zinc-300">
+                            Look for the <Download className="w-3.5 h-3.5 inline text-primary mx-1" /> install icon in the address bar (next to the bookmark star), or open browser menu ⋮ and click <span className="font-bold text-white">"Install StreamAura"</span>.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* App Benefits */}
+                  <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/10 text-[10px] font-semibold text-zinc-400">
+                    <div className="flex items-center gap-1.5">
+                      <Zap className="w-3 h-3 text-amber-400 fill-current" />
+                      <span>Instant Fast Loading</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                      <span>100% Free & Verified</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <ShieldCheck className="w-3 h-3 text-blue-400" />
+                      <span>No App Store Needed</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Flame className="w-3 h-3 text-rose-400 fill-rose-400/20" />
+                      <span>Ultra HD Streaming</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </>
   );
 };
 

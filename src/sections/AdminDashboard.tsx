@@ -37,7 +37,9 @@ import {
   Flame,
   Coins,
   Sparkles,
-
+  Wrench,
+  RefreshCw,
+  Layers,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -60,9 +62,10 @@ import {
   type UserFinancials,
   type UserActivitySummary
 } from '../lib/firebase';
-import { collection, getDocs, query, orderBy, onSnapshot, doc } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, onSnapshot, doc, setDoc } from 'firebase/firestore';
 import { API_BASE_URL } from '../api/mediaApi';
-import type { User, GlobalHistoryItem } from '../types';
+import type { User, GlobalHistoryItem, AppUpdateData, AppUpdateHighlight } from '../types';
+import { AppUpdateModal } from '../components/AppUpdateModal';
 import {
   Table,
   TableBody,
@@ -136,11 +139,40 @@ const AdminDashboard: React.FC = () => {
   const { user: currentUser } = useAuth();
   const { showSuccess, showError } = useToast();
   
-  const [activeTab, setActiveTab] = useState<'users' | 'history' | 'financials' | 'preorders' | 'traffic' | 'insights' | 'messages' | 'store' | 'cinema' | 'payouts' | 'partners' | 'ads'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'history' | 'financials' | 'preorders' | 'traffic' | 'insights' | 'messages' | 'store' | 'cinema' | 'payouts' | 'partners' | 'ads' | 'updates'>('users');
   const [financials, setFinancials] = useState<PlatformFinancials | null>(null);
   const [isFinLoading, setIsFinLoading] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [history, setHistory] = useState<GlobalHistoryItem[]>([]);
+  
+  // App Update Management State
+  const [updateVersion, setUpdateVersion] = useState('v2.5.2');
+  const [updateTitle, setUpdateTitle] = useState('StreamAura Upgraded!');
+  const [updateDescription, setUpdateDescription] = useState('A fresh build is available with performance improvements, bug fixes, and new features.');
+  const [updateHighlights, setUpdateHighlights] = useState<AppUpdateHighlight[]>([
+    {
+      id: 'h1',
+      type: 'added',
+      title: 'Direct Referral Routing',
+      description: 'Referral invitation links now lead straight to registration with bonus active.'
+    },
+    {
+      id: 'h2',
+      type: 'improved',
+      title: 'Turbocharged Streaming & Engine Boost',
+      description: 'Faster media extraction, smoother video playback, and instant seeking.'
+    },
+    {
+      id: 'h3',
+      type: 'fixed',
+      title: 'Cinema Room Sync & Store Reliability',
+      description: 'Enhanced theater room syncing, seamless refreshment orders, and back navigation.'
+    }
+  ]);
+  const [updateForcePopup, setUpdateForcePopup] = useState(true);
+  const [isPublishingUpdate, setIsPublishingUpdate] = useState(false);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+  const [liveUpdateData, setLiveUpdateData] = useState<AppUpdateData | null>(null);
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [isUsersCollapsed, setIsUsersCollapsed] = useState(true);
@@ -151,7 +183,7 @@ const AdminDashboard: React.FC = () => {
   const loadWithdrawals = () => {
     const q = query(collection(db, 'withdrawals'), orderBy('created_at', 'desc'));
     const unsubscribe = onSnapshot(q, (snap) => {
-      setWithdrawals(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setWithdrawals(snap.docs.map(d => ({ ...d.data(), id: d.id })));
       setIsLoading(false);
     }, (err) => {
       console.error('Failed to stream withdrawals', err);
@@ -439,6 +471,86 @@ const AdminDashboard: React.FC = () => {
         }
       }
     });
+  };
+
+  // App Update Firestore Sync
+  useEffect(() => {
+    try {
+      const unsub = onSnapshot(doc(db, 'app_updates', 'latest'), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as AppUpdateData;
+          setLiveUpdateData(data);
+          if (data.version) setUpdateVersion(data.version);
+          if (data.title) setUpdateTitle(data.title);
+          if (data.description) setUpdateDescription(data.description);
+          if (Array.isArray(data.highlights) && data.highlights.length > 0) {
+            setUpdateHighlights(data.highlights);
+          }
+          if (data.forcePopup !== undefined) {
+            setUpdateForcePopup(data.forcePopup);
+          }
+        }
+      }, (err) => {
+        console.warn('Admin app update sync error:', err);
+      });
+      return () => unsub();
+    } catch (e) {
+      console.warn('Admin app update setup error:', e);
+    }
+  }, []);
+
+  const handlePublishAppUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!updateTitle.trim() || !updateVersion.trim()) {
+      showError("Please enter an update version and title.");
+      return;
+    }
+
+    setIsPublishingUpdate(true);
+    try {
+      const updateId = `build_${Date.now()}`;
+      const payload: AppUpdateData = {
+        id: updateId,
+        version: updateVersion.trim(),
+        title: updateTitle.trim(),
+        description: updateDescription.trim(),
+        highlights: updateHighlights,
+        releasedAt: Date.now(),
+        forcePopup: updateForcePopup,
+        authorEmail: currentUser?.email || 'admin@streamaura.site'
+      };
+
+      // 1. Save to latest document for active users
+      await setDoc(doc(db, 'app_updates', 'latest'), payload);
+
+      // 2. Save archival record
+      await setDoc(doc(db, 'app_updates', updateId), payload);
+
+      showSuccess(`App update ${payload.version} published! All active users will see the update notes.`);
+    } catch (err: any) {
+      console.error('Failed to publish app update:', err);
+      showError(err.message || "Failed to publish app update");
+    } finally {
+      setIsPublishingUpdate(false);
+    }
+  };
+
+  const handleAddHighlight = (type: 'added' | 'fixed' | 'improved' = 'added') => {
+    const newItem: AppUpdateHighlight = {
+      id: `h_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      type,
+      title: type === 'added' ? 'New Feature' : type === 'fixed' ? 'Bug Fix' : 'Performance Optimization',
+      description: ''
+    };
+    setUpdateHighlights(prev => [...prev, newItem]);
+  };
+
+  const handleRemoveHighlight = (id: string) => {
+    setUpdateHighlights(prev => prev.filter(item => item.id !== id));
+  };
+
+  const handleUpdateHighlight = (id: string, field: keyof AppUpdateHighlight, value: any) => {
+    setUpdateHighlights(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
 
   const handleToggleAdminAction = (uid: string, name: string, isAdmin: boolean) => {
@@ -1724,6 +1836,7 @@ const AdminDashboard: React.FC = () => {
             <button onClick={() => setActiveTab('traffic')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'traffic' ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Globe className="w-4 h-4" />Traffic</button>
             <button onClick={() => setActiveTab('insights')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'insights' ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/25' : 'text-muted-foreground hover:text-foreground'}`}><LineChart className="w-4 h-4" />Insights</button>
             <button onClick={() => setActiveTab('messages')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'messages' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Send className="w-4 h-4" />Messages</button>
+            <button onClick={() => setActiveTab('updates')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'updates' ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/25' : 'text-muted-foreground hover:text-foreground'}`}><RefreshCw className="w-4 h-4" />App Updates</button>
             <button onClick={() => setActiveTab('store')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'store' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Store className="w-4 h-4" />Store</button>
             <button onClick={() => setActiveTab('cinema')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'cinema' ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Film className="w-4 h-4" />Cinema</button>
             <button onClick={() => setActiveTab('payouts')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'payouts' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25' : 'text-muted-foreground hover:text-foreground'}`}><Banknote className="w-4 h-4" />Payouts</button>
@@ -3578,6 +3691,297 @@ const AdminDashboard: React.FC = () => {
                 </p>
               </div>
             </div>
+          ) : activeTab === 'updates' ? (
+            <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto space-y-8">
+              {/* Header Banner */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-3xl bg-gradient-to-r from-cyan-500/10 via-primary/10 to-purple-500/10 border border-cyan-500/20 shadow-xl">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-2xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
+                    <RefreshCw className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-white flex items-center gap-2">
+                      App Update & Release Notes Manager
+                    </h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Configure what users see when an update is deployed or pushed. Write exact changes, bug fixes, and new features.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsPreviewModalOpen(true)}
+                    className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer shadow-md"
+                  >
+                    <Eye className="w-4 h-4 text-cyan-400" /> Preview Modal
+                  </button>
+                  {liveUpdateData && (
+                    <div className="px-3 py-1.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-right">
+                      <p className="text-[9px] uppercase font-black text-white/50 tracking-wider">Live Version</p>
+                      <p className="text-xs font-black text-cyan-300">{liveUpdateData.version || 'v2.5.0'}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Main Content Grid: Form (2 cols) & Live Preview (1 col) */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Left: The Form */}
+                <form onSubmit={handlePublishAppUpdate} className="lg:col-span-2 space-y-6">
+                  {/* Basic Details Card */}
+                  <div className="p-6 rounded-3xl glass-card border-white/10 space-y-5">
+                    <h3 className="text-xs font-black uppercase tracking-widest text-white/60 flex items-center gap-2">
+                      <Layers className="w-4 h-4 text-cyan-400" /> Release Information
+                    </h3>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="text-[11px] font-black uppercase text-muted-foreground tracking-wider block mb-1.5">
+                          Version Tag
+                        </label>
+                        <input
+                          type="text"
+                          value={updateVersion}
+                          onChange={(e) => setUpdateVersion(e.target.value)}
+                          placeholder="e.g. v2.6.0"
+                          className="w-full glass-input p-3 text-xs rounded-xl focus:ring-2 focus:ring-cyan-500/50 outline-none font-bold"
+                          required
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="text-[11px] font-black uppercase text-muted-foreground tracking-wider block mb-1.5">
+                          Modal Headline / Title
+                        </label>
+                        <input
+                          type="text"
+                          value={updateTitle}
+                          onChange={(e) => setUpdateTitle(e.target.value)}
+                          placeholder="e.g. StreamAura Upgraded!"
+                          className="w-full glass-input p-3 text-xs rounded-xl focus:ring-2 focus:ring-cyan-500/50 outline-none font-bold"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-black uppercase text-muted-foreground tracking-wider block mb-1.5">
+                        Summary Description
+                      </label>
+                      <textarea
+                        value={updateDescription}
+                        onChange={(e) => setUpdateDescription(e.target.value)}
+                        placeholder="Briefly explain what's new in this build..."
+                        rows={3}
+                        className="w-full glass-input p-3 text-xs rounded-xl focus:ring-2 focus:ring-cyan-500/50 outline-none resize-none leading-relaxed"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {/* Highlights (Added / Fixed / Improved) Manager */}
+                  <div className="p-6 rounded-3xl glass-card border-white/10 space-y-5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-xs font-black uppercase tracking-widest text-white/60 flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" /> What Was Added or Fixed
+                        </h3>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          These items show inside the update modal for users to read.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => handleAddHighlight('added')}
+                          className="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25 text-emerald-400 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer"
+                        >
+                          <Plus className="w-3 h-3" /> Add Feature
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleAddHighlight('fixed')}
+                          className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/25 text-amber-400 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer"
+                        >
+                          <Wrench className="w-3 h-3" /> Add Bug Fix
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleAddHighlight('improved')}
+                          className="px-2.5 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/25 text-cyan-400 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer"
+                        >
+                          <Zap className="w-3 h-3" /> Add Improvement
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {updateHighlights.map((item, idx) => (
+                        <div 
+                          key={item.id || idx}
+                          className="p-4 rounded-2xl bg-white/[0.02] border border-white/10 hover:border-white/20 transition-all space-y-3"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-black text-white/40">#{idx + 1}</span>
+                              <select
+                                value={item.type}
+                                onChange={(e) => handleUpdateHighlight(item.id, 'type', e.target.value as any)}
+                                className="bg-[#0e1424] border border-white/10 text-white rounded-lg px-2.5 py-1 text-xs font-bold outline-none focus:border-cyan-500"
+                              >
+                                <option value="added">🟢 ADDED (New Feature)</option>
+                                <option value="fixed">🟡 FIXED (Bug Fix)</option>
+                                <option value="improved">🔵 IMPROVED (Optimization)</option>
+                              </select>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveHighlight(item.id)}
+                              className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors cursor-pointer"
+                              title="Delete Item"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div>
+                              <input
+                                type="text"
+                                value={item.title}
+                                onChange={(e) => handleUpdateHighlight(item.id, 'title', e.target.value)}
+                                placeholder="Short Item Title..."
+                                className="w-full glass-input p-2.5 text-xs rounded-xl focus:ring-2 focus:ring-cyan-500/50 outline-none font-bold"
+                                required
+                              />
+                            </div>
+                            <div className="sm:col-span-2">
+                              <input
+                                type="text"
+                                value={item.description || ''}
+                                onChange={(e) => handleUpdateHighlight(item.id, 'description', e.target.value)}
+                                placeholder="Detailed description of what was added or fixed..."
+                                className="w-full glass-input p-2.5 text-xs rounded-xl focus:ring-2 focus:ring-cyan-500/50 outline-none"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+
+                      {updateHighlights.length === 0 && (
+                        <div className="p-8 text-center rounded-2xl border border-dashed border-white/10 text-muted-foreground space-y-2">
+                          <p className="text-xs font-bold">No update items added yet.</p>
+                          <p className="text-[11px] opacity-70">Click "Add Feature", "Add Bug Fix", or "Add Improvement" above to create items.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Push Settings & Publish Button */}
+                  <div className="p-6 rounded-3xl glass-card border-white/10 space-y-4">
+                    <label className="flex items-center gap-3 p-3 rounded-2xl bg-white/[0.02] border border-white/5 cursor-pointer hover:bg-white/[0.04] transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={updateForcePopup}
+                        onChange={(e) => setUpdateForcePopup(e.target.checked)}
+                        className="w-4 h-4 rounded text-cyan-500 focus:ring-cyan-500/50 cursor-pointer"
+                      />
+                      <div>
+                        <p className="text-xs font-bold text-white">Broadcast Modal to All Active Users Now</p>
+                        <p className="text-[11px] text-muted-foreground">Pops up the update modal immediately for currently active users on next page focus or reload.</p>
+                      </div>
+                    </label>
+
+                    <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsPreviewModalOpen(true)}
+                        className="sm:w-1/3 py-4 rounded-2xl bg-white/10 hover:bg-white/15 text-white font-black uppercase tracking-wider text-xs flex items-center justify-center gap-2 transition-all cursor-pointer border border-white/10"
+                      >
+                        <Eye className="w-4 h-4 text-cyan-400" /> Preview Modal
+                      </button>
+
+                      <button
+                        type="submit"
+                        disabled={isPublishingUpdate || !updateTitle || !updateVersion}
+                        className="sm:w-2/3 py-4 rounded-2xl bg-gradient-to-r from-cyan-500 via-primary to-purple-600 text-white font-black uppercase tracking-widest text-xs shadow-xl shadow-cyan-500/25 flex items-center justify-center gap-2 hover:brightness-110 active:scale-[0.99] transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        {isPublishingUpdate ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Publishing Update...</span>
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-4 h-4" />
+                            <span>Publish & Push Update to Users</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+
+                {/* Right: Live Miniature Simulator / Preview */}
+                <div className="space-y-4">
+                  <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-white/60">Live Modal Simulator</span>
+                    <span className="text-[9px] font-bold uppercase text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-md border border-cyan-500/20">Real-time</span>
+                  </div>
+
+                  {/* Simulator Card */}
+                  <div className="p-5 rounded-3xl bg-[#0a0e1a] border border-cyan-500/30 shadow-2xl space-y-4 relative overflow-hidden">
+                    <div className="h-1 w-full bg-gradient-to-r from-cyan-400 via-primary to-purple-500 rounded-full" />
+                    
+                    <div className="text-center space-y-2">
+                      <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mx-auto">
+                        <Layers className="w-5 h-5" />
+                      </div>
+                      <span className="inline-block px-2.5 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/25 text-cyan-300 text-[9px] font-black uppercase tracking-wider">
+                        UPDATE AVAILABLE • {updateVersion || 'v2.5.0'}
+                      </span>
+                      <h4 className="text-base font-black text-white">{updateTitle || 'StreamAura Upgraded!'}</h4>
+                      <p className="text-[11px] text-muted-foreground line-clamp-2">{updateDescription}</p>
+                    </div>
+
+                    <div className="space-y-2 max-h-56 overflow-y-auto no-scrollbar">
+                      {updateHighlights.map((item, i) => (
+                        <div key={i} className="p-2.5 rounded-xl bg-white/[0.03] border border-white/5 space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded border ${
+                              item.type === 'added' ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400' :
+                              item.type === 'fixed' ? 'bg-amber-500/15 border-amber-500/30 text-amber-400' :
+                              'bg-cyan-500/15 border-cyan-500/30 text-cyan-400'
+                            }`}>
+                              {item.type}
+                            </span>
+                            <span className="text-xs font-bold text-white truncate">{item.title}</span>
+                          </div>
+                          {item.description && (
+                            <p className="text-[10px] text-muted-foreground line-clamp-1">{item.description}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="space-y-1.5 pt-2 border-t border-white/5">
+                      <div className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-600 text-white font-black text-center text-[11px] uppercase tracking-wider shadow-lg shadow-cyan-500/20">
+                        Update & Reload Now
+                      </div>
+                      <p className="text-[9px] text-center text-white/40">Continue (Update Later)</p>
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] text-muted-foreground text-center font-bold uppercase tracking-wider">
+                    Click "Preview Modal" to view the full modal overlay.
+                  </p>
+                </div>
+              </div>
+            </div>
           ) : (
             <div className="space-y-4 p-4">
               {/* 1. Top Engaged Users */}
@@ -3752,6 +4156,18 @@ const AdminDashboard: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Admin Live App Update Modal Preview */}
+      <AppUpdateModal 
+        forceOpen={isPreviewModalOpen} 
+        onClose={() => setIsPreviewModalOpen(false)} 
+        previewData={{
+          version: updateVersion,
+          title: updateTitle,
+          description: updateDescription,
+          highlights: updateHighlights
+        }}
+      />
     </div>
   );
 };

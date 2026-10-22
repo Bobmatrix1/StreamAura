@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { Lock, Globe, ExternalLink, ChevronRight, Check } from 'lucide-react';
+import { Lock, Globe, ExternalLink, ChevronRight, Check, Download } from 'lucide-react';
 import { OFFICIAL_SOCIALS } from './SocialLogos';
+import { triggerInstallPWA } from './InstallPWA';
+import { useIsAppInstalled } from '../hooks/useAppInstalled';
 import type { ViewType } from '../types';
 
 interface FooterProps {
@@ -9,6 +11,7 @@ interface FooterProps {
 }
 
 export const Footer: React.FC<FooterProps> = ({ onNavigate, className = '' }) => {
+  const isAppInstalled = useIsAppInstalled();
   const [email, setEmail] = useState('');
   const [subscribed, setSubscribed] = useState(false);
 
@@ -81,6 +84,17 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, className = '' }) =>
             Features
           </h4>
           <ul className="space-y-2.5 text-xs font-semibold text-muted-foreground">
+            {!isAppInstalled && (
+              <li>
+                <button 
+                  onClick={triggerInstallPWA} 
+                  className="text-primary hover:text-primary/80 transition-colors text-left flex items-center gap-1.5 font-bold group"
+                >
+                  <Download className="w-3.5 h-3.5 group-hover:animate-bounce" />
+                  <span>Download App (Free)</span>
+                </button>
+              </li>
+            )}
             <li>
               <button onClick={() => handleNav('video')} className="hover:text-primary transition-colors text-left flex items-center gap-1.5 group">
                 <span className="w-1.5 h-1.5 rounded-full bg-primary/40 group-hover:bg-primary transition-colors" />

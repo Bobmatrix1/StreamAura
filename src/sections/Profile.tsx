@@ -17,7 +17,8 @@ import {
   X,
   Gamepad2,
   Tv,
-  Film
+  Film,
+  Download
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -31,6 +32,8 @@ import { fetchBanks, resolveBankAccount } from '../api/paymentApi';
 import { API_BASE_URL } from '../api/mediaApi';
 import { LoginRequired } from '../components/LoginRequired';
 import { AuraCoinIcon } from '../components/AuraCoinIcon';
+import { triggerInstallPWA } from '../components/InstallPWA';
+import { useIsAppInstalled } from '../hooks/useAppInstalled';
 import type { ViewType } from '../types';
 
 interface Bank {
@@ -46,6 +49,7 @@ interface ProfileProps {
 const Profile: React.FC<ProfileProps> = ({ onNavigate }) => {
   const { user, isAuthenticated, logout, resetPassword } = useAuth();
   const { showSuccess, showError } = useToast();
+  const isAppInstalled = useIsAppInstalled();
 
   if (!isAuthenticated) {
     return (
@@ -474,7 +478,17 @@ const Profile: React.FC<ProfileProps> = ({ onNavigate }) => {
     <div className="max-w-4xl mx-auto space-y-8 pb-20">
       {/* Header Profile Section */}
       <div className="relative p-8 rounded-3xl bg-gradient-to-br from-blue-600/10 via-purple-600/10 to-indigo-600/10 dark:from-blue-600/20 dark:to-purple-600/20 border border-slate-200 dark:border-white/10 overflow-hidden shadow-2xl">
-         <div className="absolute top-0 right-0 p-4">
+         <div className="absolute top-0 right-0 p-4 flex items-center gap-2">
+            {!isAppInstalled && (
+              <button
+                onClick={triggerInstallPWA}
+                className="px-3 py-1.5 rounded-full bg-primary/20 hover:bg-primary/30 border border-primary/40 text-primary text-[9px] font-black uppercase tracking-[0.15em] shadow-lg shadow-primary/20 backdrop-blur-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                title="Download StreamAura App"
+              >
+                <Download className="w-3 h-3 animate-bounce" />
+                <span>Download App</span>
+              </button>
+            )}
             <Badge className="bg-gradient-to-r from-emerald-500/20 via-teal-500/20 to-cyan-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-3.5 py-1.5 text-[9px] font-black uppercase tracking-[0.15em] shadow-lg shadow-emerald-500/10 backdrop-blur-md flex items-center gap-1.5 rounded-full">
                <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400 animate-pulse" />
                Active Member

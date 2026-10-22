@@ -126,8 +126,10 @@ const Referral: React.FC = () => {
 
   useEffect(() => {
     if (user?.uid) {
-      const baseUrl = window.location.origin;
-      setReferralLink(`${baseUrl}/?ref=${user.uid}`);
+      const origin = typeof window !== 'undefined' && !window.location.origin.includes('api.streamaura.site')
+        ? window.location.origin
+        : 'https://streamaura.site';
+      setReferralLink(`${origin}/?ref=${user.uid}`);
     }
   }, [user?.uid]);
 
@@ -198,6 +200,31 @@ const Referral: React.FC = () => {
       setIsLoadingReferrals(false);
     };
 
+    // Real-time referrals listener
+    let unsubReferrals: (() => void) | null = null;
+    if (user?.uid) {
+      try {
+        const q = query(collection(db, 'users'), where('referredBy', '==', user.uid));
+        unsubReferrals = onSnapshot(q, (snap) => {
+          const list = snap.docs.map(d => ({
+            uid: d.id,
+            displayName: d.data().displayName || 'Anonymous',
+            photoURL: d.data().photoURL || null,
+            createdAt: d.data().createdAt || null
+          }));
+          setReferrals(list);
+          setIsLoadingReferrals(false);
+        }, (err) => {
+          console.warn('Referrals real-time listener note, falling back to API:', err);
+          fetchReferrals();
+        });
+      } catch (e) {
+        fetchReferrals();
+      }
+    } else {
+      setIsLoadingReferrals(false);
+    }
+
     let unsubHistory: (() => void) | null = null;
     if (user?.uid) {
       try {
@@ -205,7 +232,7 @@ const Referral: React.FC = () => {
         const q = query(activityRef, orderBy('timestamp', 'desc'), limit(100));
         unsubHistory = onSnapshot(q, (snap) => {
           const referralItems = snap.docs
-            .map(d => ({ id: d.id, ...d.data() } as any))
+            .map(d => ({ ...d.data(), id: d.id } as any))
             .filter(item => item.type === 'referral_earning' || item.type === 'referral_reward' || item.type === 'referral_bonus');
           setHistory(referralItems);
           setIsLoadingHistory(false);
@@ -222,7 +249,7 @@ const Referral: React.FC = () => {
       if (!user?.uid) return;
       const q = query(collection(db, 'withdrawals'), where('user_uid', '==', user.uid), orderBy('created_at', 'desc'), limit(20));
       const unsubscribe = onSnapshot(q, (snap) => {
-        setWithdrawals(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setWithdrawals(snap.docs.map(d => ({ ...d.data(), id: d.id })));
         setIsLoadingWithdrawals(false);
       }, (err) => {
         console.error('Failed to stream withdrawals', err);
@@ -231,10 +258,10 @@ const Referral: React.FC = () => {
       return unsubscribe;
     };
 
-    fetchReferrals();
     const unsubscribeWithdrawals = fetchWithdrawals();
 
     return () => {
+      if (unsubReferrals) unsubReferrals();
       if (unsubHistory) unsubHistory();
       if (unsubscribeWithdrawals) unsubscribeWithdrawals();
     };
@@ -402,7 +429,7 @@ const Referral: React.FC = () => {
   );
 
   const stats = {
-    totalReferred: user?.referredCount || 0,
+    totalReferred: Math.max(user?.referredCount || 0, referrals.length),
     balance: user?.referralBalance || 0,
     auraCoins: user?.auraCoins ?? user?.auraCoin ?? user?.bonusBalance ?? 0
   };
@@ -691,7 +718,7 @@ const Referral: React.FC = () => {
         <Card className="glass-card border-white/10 flex flex-col overflow-hidden">
            <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
               <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60 flex items-center gap-2"><Users className="w-3 h-3" /> Active Referrals</h3>
-              <Badge variant="outline" className="text-[8px] h-4 font-black border-white/10">{referrals.length}</Badge>
+              <Badge variant="outline" className="text-[8px] h-4 font-black border-white/10">{stats.totalReferred}</Badge>
            </div>
            <div className="flex-1 max-h-[350px] overflow-y-auto custom-scrollbar no-scrollbar">
               {isLoadingReferrals ? (

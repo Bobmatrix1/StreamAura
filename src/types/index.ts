@@ -16,6 +16,8 @@ export interface User {
   walletBalance?: number; // Main Room Wallet balance (₦)
   gameWalletBalance?: number; // Game Wallet balance (₦)
   vendorWalletBalance?: number; // Vendor Wallet balance (₦)
+  selectedDeliveryLocation?: string; // Default delivery location in Lagos
+  lastActive?: any;
 }
 
 // Media download types
@@ -230,6 +232,8 @@ export interface Vendor {
   ratingCount?: number;
   totalRatingPoints?: number;
   slug?: string;
+  deliveryCoverageType?: 'all' | 'specific';
+  deliveryLocations?: string[];
 }
 
 export const STORE_CATEGORIES = [
@@ -265,6 +269,7 @@ export interface Product {
   rating?: number;
   reviewCount?: number;
   deliveryTime?: string;
+  deliveryLocations?: string[];
   isFeatured?: boolean;
   isBestSeller?: boolean;
   isNewArrival?: boolean;
@@ -300,6 +305,7 @@ export interface Order {
   userEmail: string;
   userPhone: string;
   deliveryAddress: string;
+  deliveryLocationZone?: string;
   items: {
     productId: string;
     name: string;
@@ -407,4 +413,22 @@ export interface AdTelemetryDelta {
   clicksBySource?: Partial<Record<AdInteractionSource, number>>;
   impressionsBySource?: Partial<Record<AdInteractionSource, number>>;
   closesByMethod?: Partial<Record<AdDismissMethod, number>>;
+}
+
+export interface AppUpdateHighlight {
+  id: string;
+  type: 'added' | 'fixed' | 'improved';
+  title: string;
+  description?: string;
+}
+
+export interface AppUpdateData {
+  id: string;
+  version: string;
+  title: string;
+  description: string;
+  highlights: AppUpdateHighlight[];
+  releasedAt: number;
+  forcePopup?: boolean;
+  authorEmail?: string;
 }

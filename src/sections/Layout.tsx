@@ -34,13 +34,16 @@ import {
   ArrowUp,
   ArrowLeft,
   Store,
-  Popcorn
+  Popcorn,
+  Download
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useDownload } from '../contexts/DownloadContext';
 import { useIsMobile } from '../hooks/use-mobile';
 import { listenToNotifications } from '../lib/firebase';
+import { triggerInstallPWA } from '../components/InstallPWA';
+import { useIsAppInstalled } from '../hooks/useAppInstalled';
 import type { ViewType } from '@/types';
 
 interface LayoutProps {
@@ -91,6 +94,7 @@ const Layout: React.FC<LayoutProps> = ({
   const { theme, toggleTheme } = useTheme();
   const { queue, activeDownloads } = useDownload();
   const isMobile = useIsMobile();
+  const isAppInstalled = useIsAppInstalled();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -203,6 +207,16 @@ const Layout: React.FC<LayoutProps> = ({
           <span className="font-bold gradient-text">StreamAura</span>
         </div>
         <div className="flex items-center gap-2">
+          {!isAppInstalled && (
+            <button
+              onClick={triggerInstallPWA}
+              className="px-2.5 py-1.5 rounded-xl bg-primary/15 hover:bg-primary/25 border border-primary/30 text-primary transition-all flex items-center gap-1.5 active:scale-95 shadow-sm"
+              title="Download App"
+            >
+              <Download className="w-4 h-4 animate-bounce" />
+              <span className="text-[10px] font-black uppercase tracking-wider">App</span>
+            </button>
+          )}
           {activeTab !== 'notifications' && (
             <button 
               onClick={() => onTabChange('notifications')}
@@ -272,12 +286,38 @@ const Layout: React.FC<LayoutProps> = ({
           </button>
         </div>
 
-        {/* Mobile-only logo */}
-        <div className="p-6 md:hidden flex items-center gap-3 flex-shrink-0 border-b border-white/5">
-          <div className="w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center p-1 bg-white/5 shadow-xl border border-white/10">
-            <img src="/logo.png" alt="StreamAura" className="w-full h-full object-contain" />
+        {/* Mobile-only logo & Download App banner */}
+        <div className="p-6 md:hidden flex flex-col gap-4 flex-shrink-0 border-b border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center p-1 bg-white/5 shadow-xl border border-white/10">
+              <img src="/logo.png" alt="StreamAura" className="w-full h-full object-contain" />
+            </div>
+            <div>
+              <span className="font-bold text-xl gradient-text">StreamAura</span>
+              <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">Cinema & Downloads</p>
+            </div>
           </div>
-          <span className="font-bold text-xl gradient-text">StreamAura</span>
+
+          {!isAppInstalled && (
+            <button
+              onClick={() => {
+                triggerInstallPWA();
+                setIsMobileMenuOpen(false);
+              }}
+              className="w-full p-2.5 rounded-2xl bg-gradient-to-r from-primary/20 via-indigo-600/20 to-primary/10 border border-primary/30 flex items-center gap-3 text-left group active:scale-[0.98] transition-all"
+            >
+              <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center text-white shrink-0 shadow-md">
+                <Download className="w-4 h-4 group-hover:animate-bounce" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-black text-white uppercase tracking-wider">Download App</span>
+                  <span className="text-[8px] font-black uppercase px-1 py-0.2 rounded bg-amber-400 text-black">Fast</span>
+                </div>
+                <p className="text-[10px] text-zinc-400 truncate">Fullscreen mode & high-speed streaming</p>
+              </div>
+            </button>
+          )}
         </div>
 
         {/* Navigation - Scrollable Area */}
@@ -361,6 +401,25 @@ const Layout: React.FC<LayoutProps> = ({
             </div>
           )}
 
+          {/* Download App Action */}
+          {!isAppInstalled && (
+            <button
+              onClick={triggerInstallPWA}
+              title="Download StreamAura App"
+              className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2.5' : 'gap-3 px-3.5'} py-2.5 rounded-xl bg-gradient-to-r from-primary/15 via-indigo-500/10 to-transparent hover:from-primary/25 hover:to-indigo-500/20 text-primary border border-primary/25 transition-all duration-300 group`}
+            >
+              <Download className="w-5 h-5 flex-shrink-0 text-primary group-hover:scale-110 transition-transform" />
+              {!isCollapsed && (
+                <>
+                  <span className="font-bold text-sm truncate">Download App</span>
+                  <span className="ml-auto text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-primary text-white shadow-sm">
+                    Free
+                  </span>
+                </>
+              )}
+            </button>
+          )}
+
           {/* Theme Toggle */}
           <button
             onClick={toggleTheme}
@@ -420,6 +479,19 @@ const Layout: React.FC<LayoutProps> = ({
                   exit={{ opacity: 0, y: -10 }}
                   className={`absolute ${isCollapsed ? 'bottom-0 left-full ml-3 w-48' : 'bottom-full left-0 right-0 mb-2'} glass-card overflow-hidden z-50 bg-background/95 border border-white/10 shadow-2xl`}
                 >
+                  {!isAppInstalled && (
+                    <button
+                      onClick={() => {
+                        triggerInstallPWA();
+                        setIsUserMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-primary hover:bg-primary/10 transition-colors border-b border-white/5 font-semibold text-sm"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Download App</span>
+                    </button>
+                  )}
+
                   {isAuthenticated ? (
                     <button
                       onClick={handleLogout}

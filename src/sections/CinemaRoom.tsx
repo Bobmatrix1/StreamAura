@@ -363,7 +363,7 @@ const CinemaRoom: React.FC = () => {
         setCinemaActive(null);
         return;
       }
-      const roomData: any = { id: roomDoc.id, ...roomDoc.data() };
+      const roomData: any = { ...roomDoc.data(), id: roomDoc.id };
       
       // If free, join immediately
       if (roomData.room_type === 'free') {
@@ -469,12 +469,12 @@ const CinemaRoom: React.FC = () => {
       if (!active) return;
 
       unsubCarousel = onSnapshot(query(collection(db, 'cinema_carousel'), orderBy('createdAt', 'desc')), (snap) => {
-        if (active) setSlides(snap.docs.map(d => ({ id: d.id, ...d.data() } as CinemaSlide)));
+        if (active) setSlides(snap.docs.map(d => ({ ...d.data(), id: d.id } as CinemaSlide)));
       }, (err) => console.error('Carousel Sync Error:', err));
 
       unsubTrailers = onSnapshot(collection(db, 'cinema_trailers'), (snap) => {
         if (active) {
-          const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          const list = snap.docs.map(d => ({ ...d.data(), id: d.id }));
           list.sort((a: any, b: any) => {
             const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (typeof a.createdAt === 'number' ? a.createdAt : 0);
             const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (typeof b.createdAt === 'number' ? b.createdAt : 0);
@@ -485,7 +485,7 @@ const CinemaRoom: React.FC = () => {
       }, (err) => console.error('Trailers Sync Error:', err));
 
       unsubUpcoming = onSnapshot(query(collection(db, 'cinema_upcoming'), orderBy('createdAt', 'desc')), (snap) => {
-        if (active) setUpcoming(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        if (active) setUpcoming(snap.docs.map(d => ({ ...d.data(), id: d.id })));
       }, (err) => console.error('Upcoming Sync Error:', err));
     }, 100);
 
@@ -685,18 +685,21 @@ const CinemaRoom: React.FC = () => {
   useEffect(() => {
     const q = query(collection(db, 'cinema_rooms'), orderBy('created_at', 'desc'), limit(12));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setRooms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setRooms(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })));
     });
     return () => unsubscribe();
   }, []);
 
   const handleShareRoom = (room: any) => {
-    const shareUrl = `${API_BASE_URL}/share?title=${encodeURIComponent(`Live Cinema: ${room.room_name}`)}&desc=${encodeURIComponent(`Watching ${room.movie_title} with ${room.active_viewers || 0} others. Join now!`)}&img=${encodeURIComponent(room.movie_cover_image)}&target=${encodeURIComponent(`/?tab=cinema&room=${room.id}`)}`;
+    const origin = typeof window !== 'undefined' && window.location.origin.includes('streamaura')
+      ? window.location.origin
+      : 'https://streamaura.site';
+    const shareUrl = `${origin}/?tab=cinema&room=${room.id}`;
     
     if (navigator.share) {
       navigator.share({
         title: `Join StreamAura Cinema - ${room.room_name}`,
-        text: `🍿 I'm watching ${room.movie_title} on StreamAura! Come join the room.`,
+        text: `🍿 I'm watching ${room.movie_title} on StreamAura! Come join the cinema room:`,
         url: shareUrl
       }).catch(console.error);
     } else {
@@ -1382,9 +1385,9 @@ const CinemaRoom: React.FC = () => {
           </motion.div>
         ))}
 
-        {activeTab === 'trailers' && trailers.map(trailer => (
+        {activeTab === 'trailers' && trailers.map((trailer, trIdx) => (
           <motion.div
-            key={trailer.id}
+            key={trailer.id || `trailer-${trIdx}`}
             whileHover={{ y: -4, scale: 1.02 }}
             transition={{ type: "spring", stiffness: 350, damping: 22 }}
             className="group relative flex flex-col"
@@ -1486,9 +1489,9 @@ const CinemaRoom: React.FC = () => {
           </motion.div>
         ))}
 
-        {activeTab === 'schedule' && upcoming.map(item => (
+        {activeTab === 'schedule' && upcoming.map((item, upIdx) => (
           <motion.div
-            key={item.id}
+            key={item.id || `upcoming-${upIdx}`}
             whileHover={{ y: -4, scale: 1.02 }}
             transition={{ type: "spring", stiffness: 350, damping: 22 }}
             className="group relative flex flex-col"

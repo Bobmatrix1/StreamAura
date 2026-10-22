@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -31,7 +31,10 @@ import {
   Share2,
   Copy,
   ChefHat,
-  ArrowUpRight
+  ArrowUpRight,
+  ChevronDown,
+  Globe,
+  AlertCircle
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
@@ -49,7 +52,12 @@ import {
 } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE_URL } from '../api/mediaApi';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { 
+  LAGOS_LOCATION_CATEGORIES, 
+  searchLagosLocations, 
+  isVendorDeliveringToLocation
+} from '../lib/locations';
 
 export type StoreSortOption = 
   | 'featured' 
@@ -87,6 +95,67 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
   // Dedicated Vendor Store View State
   const [selectedVendorStore, setSelectedVendorStore] = useState<Vendor | null>(null);
 
+  // Scroll Container Ref for Loading Views From Top
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const topAnchorRef = useRef<HTMLDivElement>(null);
+
+  const scrollStoreToTop = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'instant' });
+    }
+    if (topAnchorRef.current) {
+      topAnchorRef.current.scrollIntoView({ behavior: 'instant', block: 'start' });
+    }
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  };
+
+  const handleStoreBack = () => {
+    // 1. If viewing product detail, return to vendor store or snacks menu
+    if (selectedProduct) {
+      setSelectedProduct(null);
+      scrollStoreToTop();
+      return;
+    }
+    // 2. If in checkout, return to cart
+    if (activeTab === 'checkout') {
+      setActiveTab('cart');
+      scrollStoreToTop();
+      return;
+    }
+    // 3. If in cart, return to store
+    if (activeTab === 'cart') {
+      setActiveTab('store');
+      scrollStoreToTop();
+      return;
+    }
+    // 4. If viewing dedicated vendor brand store, return to all Crave Aura brands directory
+    if (selectedVendorStore) {
+      setSelectedVendorStore(null);
+      setSelectedCategory('all');
+      setSearchQuery('');
+      scrollStoreToTop();
+      return;
+    }
+    // 5. At root of Crave Aura, exit/close store
+    onClose();
+  };
+
+  // User Selected Delivery Location State (Lagos)
+  const [userLocation, setUserLocation] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('crave_user_location') || '';
+    }
+    return '';
+  });
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+  const [onlyShowDeliverable, setOnlyShowDeliverable] = useState(false);
+  const [locationSearchTerm, setLocationSearchTerm] = useState('');
+  const [locationCategoryFilter, setLocationCategoryFilter] = useState('all');
+  const [customLocationInput, setCustomLocationInput] = useState('');
+
   // Product Detail Page State
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [productReviews, setProductReviews] = useState<ProductReview[]>([]);
@@ -108,13 +177,121 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Automatically scroll to the top whenever user enters a vendor store
+  useEffect(() => {
+    if (selectedVendorStore) {
+      scrollStoreToTop();
+      const rId = requestAnimationFrame(() => {
+        scrollStoreToTop();
+      });
+      const tId = setTimeout(() => {
+        scrollStoreToTop();
+      }, 50);
+      return () => {
+        cancelAnimationFrame(rId);
+        clearTimeout(tId);
+      };
+    }
+  }, [selectedVendorStore?.id]);
+
+  // Also scroll to top on tab switch or product view
+  useEffect(() => {
+    scrollStoreToTop();
+  }, [activeTab, selectedProduct?.id]);
+
+
+  // Sync location from user profile if available
+  useEffect(() => {
+    if (user?.selectedDeliveryLocation && !userLocation) {
+      setUserLocation(user.selectedDeliveryLocation);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('crave_user_location', user.selectedDeliveryLocation);
+      }
+    }
+  }, [user?.selectedDeliveryLocation]);
+
+  const handleSelectLocation = async (locName: string) => {
+    const trimmed = locName.trim();
+    setUserLocation(trimmed);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('crave_user_location', trimmed);
+    }
+    if (user?.uid) {
+      try {
+        await updateDoc(doc(db, 'users', user.uid), {
+          selectedDeliveryLocation: trimmed
+        });
+      } catch (e) {
+        console.warn('Failed to update user selectedDeliveryLocation:', e);
+      }
+    }
+    setDeliveryInfo(prev => ({
+      ...prev,
+      address: prev.address ? prev.address : trimmed
+    }));
+    setIsLocationModalOpen(false);
+    toast.success(`📍 Delivery area set to: ${trimmed}`);
+  };
+
+  const handleClearUserLocation = async () => {
+    setUserLocation('');
+    setOnlyShowDeliverable(false);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('crave_user_location');
+    }
+    if (user?.uid) {
+      try {
+        await updateDoc(doc(db, 'users', user.uid), {
+          selectedDeliveryLocation: ''
+        });
+      } catch {}
+    }
+    setIsLocationModalOpen(false);
+    toast.info('Delivery location cleared. Showing all Lagos stores.');
+  };
+
+  const handleAddCustomLocation = () => {
+    const trimmed = customLocationInput.trim();
+    if (!trimmed) return;
+    handleSelectLocation(trimmed);
+    setCustomLocationInput('');
+  };
 
   // Scroll Lock Effect & Reset on Close
   useEffect(() => {
+    const handleScrollLock = (locked: boolean) => {
+      if (typeof document === 'undefined') return;
+      const html = document.documentElement;
+      const body = document.body;
+      const mainEl = document.querySelector('main');
+
+      if (locked) {
+        body.classList.add('modal-open');
+        html.classList.add('modal-open');
+        body.style.overflow = 'hidden';
+        html.style.overflow = 'hidden';
+        body.style.overscrollBehavior = 'none';
+        html.style.overscrollBehavior = 'none';
+        if (mainEl) {
+          (mainEl as HTMLElement).style.overflow = 'hidden';
+        }
+      } else {
+        body.classList.remove('modal-open');
+        html.classList.remove('modal-open');
+        body.style.overflow = '';
+        html.style.overflow = '';
+        body.style.overscrollBehavior = '';
+        html.style.overscrollBehavior = '';
+        if (mainEl) {
+          (mainEl as HTMLElement).style.overflow = '';
+        }
+      }
+    };
+
     if (isOpen) {
-      document.body.style.overflow = 'hidden';
+      handleScrollLock(true);
     } else {
-      document.body.style.overflow = '';
+      handleScrollLock(false);
       setActiveTab('store');
       setSelectedProduct(null);
       setSelectedVendorStore(null);
@@ -122,16 +299,12 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
       setSelectedCategory('all');
       setSearchQuery('');
       setSortBy('featured');
-      setDeliveryInfo({
-        address: '',
-        phone: '',
-        email: user?.email || '',
-        name: user?.displayName || ''
-      });
       setIsSubmitting(false);
     }
-    return () => { document.body.style.overflow = ''; };
-  }, [isOpen, user]);
+    return () => {
+      handleScrollLock(false);
+    };
+  }, [isOpen]);
 
   // Keep selected product in sync with products list
   useEffect(() => {
@@ -190,11 +363,11 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
     });
 
     const unsubPartners = onSnapshot(collection(db, 'partners'), (snap) => {
-      setPartners(snap.docs.map(d => ({ id: d.id, ...d.data() } as Partner)));
+      setPartners(snap.docs.map(d => ({ ...d.data(), id: d.id } as Partner)));
     }, (err) => console.error('Failed to listen to partners:', err));
 
     const unsubVendors = onSnapshot(collection(db, 'vendors'), (snap) => {
-      setVendors(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vendor)));
+      setVendors(snap.docs.map(d => ({ ...d.data(), id: d.id } as Vendor)));
     }, (err) => console.error('Failed to listen to vendors:', err));
 
     return () => {
@@ -260,12 +433,32 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
         return acc;
       }, {} as Record<string, typeof cart>);
 
+      // Check delivery coverage against destination
+      const destinationArea = userLocation || deliveryInfo.address;
+      const undeliverableVendors: string[] = [];
+      Object.keys(vendorGroups).forEach(vId => {
+        const v = vendors.find(item => item.id === vId);
+        if (v && destinationArea) {
+          const check = isVendorDeliveringToLocation(v.deliveryCoverageType, v.deliveryLocations, destinationArea);
+          if (!check.isCovered) {
+            undeliverableVendors.push(v.name || 'Vendor');
+          }
+        }
+      });
+
+      if (undeliverableVendors.length > 0) {
+        toast.error(`Cannot deliver to "${destinationArea}": Items from ${undeliverableVendors.join(', ')} do not deliver to this location. Please update your delivery location or remove those items.`);
+        setIsSubmitting(false);
+        return;
+      }
+
       const token = await auth.currentUser?.getIdToken();
       const payload = {
         customerName: deliveryInfo.name,
         customerEmail: deliveryInfo.email || user.email || '',
         customerPhone: deliveryInfo.phone,
         customerAddress: deliveryInfo.address,
+        deliveryLocationZone: destinationArea,
         vendorGroups: Object.entries(vendorGroups).map(([vendorId, items]) => {
           const vendor = vendors.find(v => v.id === vendorId);
           const itemDeliveryTime = items.find(it => it.product.deliveryTime)?.product.deliveryTime || '5-10 mins';
@@ -458,7 +651,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
         productCount: unassignedProds.length,
         inStockCount: unassignedProds.filter(p => p.inStock !== false).length,
         sampleImage: unassignedProds[0]?.image || '',
-        description: 'Official Crave Aura fresh popcorn, cinema treats, and refreshments delivered straight to your seat.'
+        description: 'Official Crave Aura fresh popcorn, cinema treats, and refreshments delivered straight to your location.'
       } as any);
     }
 
@@ -489,12 +682,14 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
         if (matched) {
           setSelectedVendorStore(matched);
           setActiveTab('store');
+          scrollStoreToTop();
           sessionStorage.removeItem('aura_initial_vendor_store');
         } else if (targetId === 'cravecinema-official' || targetId === 'admin-store') {
           const official = activeBrands.find(b => b.id === 'cravecinema-official');
           if (official) {
             setSelectedVendorStore(official);
             setActiveTab('store');
+            scrollStoreToTop();
             sessionStorage.removeItem('aura_initial_vendor_store');
           }
         } else if (vendors.length > 0 || products.length > 0) {
@@ -508,6 +703,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
           };
           setSelectedVendorStore(fallbackVendor);
           setActiveTab('store');
+          scrollStoreToTop();
           sessionStorage.removeItem('aura_initial_vendor_store');
         }
       }
@@ -531,9 +727,13 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
         (brand.tagline && brand.tagline.toLowerCase().includes(query)) ||
         (brand.category && brand.category.toLowerCase().includes(query)) ||
         (brand.description && brand.description.toLowerCase().includes(query));
-      return matchesCategory && matchesSearch;
+
+      const matchesDeliverability = !onlyShowDeliverable || !userLocation ||
+        isVendorDeliveringToLocation(brand.deliveryCoverageType, brand.deliveryLocations, userLocation).isCovered;
+
+      return matchesCategory && matchesSearch && matchesDeliverability;
     });
-  }, [activeBrands, selectedCategory, searchQuery]);
+  }, [activeBrands, selectedCategory, searchQuery, onlyShowDeliverable, userLocation]);
 
   // Filtered & Sorted Products for Dedicated Vendor View
   const vendorScopedProducts = useMemo(() => {
@@ -586,19 +786,35 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
     return { avg, total, breakdown };
   };
 
+  const filteredModalLocations = useMemo(() => {
+    return searchLagosLocations(locationSearchTerm, locationCategoryFilter);
+  }, [locationSearchTerm, locationCategoryFilter]);
+
+  const undeliverableCartItems = useMemo(() => {
+    if (!userLocation) return [];
+    return cart.filter(item => {
+      const v = vendors.find(vend => vend.id === item.product.vendorId);
+      const cov = isVendorDeliveringToLocation(v?.deliveryCoverageType, v?.deliveryLocations, userLocation);
+      return !cov.isCovered;
+    });
+  }, [cart, userLocation, vendors]);
+
+  const hasUndeliverableCartItems = undeliverableCartItems.length > 0;
+  const canGoBack = Boolean(selectedProduct || selectedVendorStore || activeTab === 'checkout' || activeTab === 'cart');
+
   if (typeof document === 'undefined') return null;
 
   return createPortal(
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[3000] flex items-center justify-center p-2.5 sm:p-4 md:p-6 overflow-hidden">
+        <div key="crave-aura-modal-portal-root" className="fixed inset-0 z-[3000] flex items-center justify-center p-2.5 sm:p-4 md:p-6 overflow-hidden overscroll-none">
           {/* Backdrop with Luxury Blur */}
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="absolute inset-0 bg-black/85 backdrop-blur-2xl"
+            className="absolute inset-0 bg-black/85 backdrop-blur-2xl touch-none overscroll-none"
           />
           
           {/* Main Modal Surface */}
@@ -607,26 +823,45 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 15 }}
             transition={{ type: 'spring', damping: 26, stiffness: 280 }}
-            className="crave-aura-store-modal relative w-full max-w-5xl max-h-[92vh] bg-slate-50 dark:bg-[#070b14] border border-slate-200 dark:border-white/10 flex flex-col overflow-hidden z-[3001] shadow-2xl rounded-2xl sm:rounded-3xl text-slate-900 dark:text-white"
+            className="crave-aura-store-modal relative w-full max-w-5xl max-h-[92vh] bg-slate-50 dark:bg-[#070b14] border border-slate-200 dark:border-white/10 flex flex-col overflow-hidden z-[3001] shadow-2xl rounded-2xl sm:rounded-3xl text-slate-900 dark:text-white overscroll-contain"
           >
             {/* 1. Header Bar */}
             <div className="p-3.5 sm:p-5 border-b border-slate-200 dark:border-white/10 flex items-center justify-between bg-gradient-to-r from-amber-500/10 via-rose-500/5 to-purple-500/10 dark:from-amber-500/15 dark:via-purple-900/20 dark:to-black/40 backdrop-blur-md">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
                 <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-rose-500 flex items-center justify-center text-white shadow-lg shadow-amber-500/25 border border-white/20 shrink-0">
                   <Popcorn className="w-5 h-5 sm:w-6 sm:h-6" />
                 </div>
-                <div>
+
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <h2 className="text-lg sm:text-2xl font-black uppercase tracking-tight bg-gradient-to-r from-amber-500 via-rose-500 to-purple-500 bg-clip-text text-transparent">
-                      Welcome to Crave Aura
+                    <h2 className="text-base sm:text-2xl font-black uppercase tracking-tight bg-gradient-to-r from-amber-500 via-rose-500 to-purple-500 bg-clip-text text-transparent truncate">
+                      {selectedProduct
+                        ? selectedProduct.name
+                        : selectedVendorStore
+                        ? selectedVendorStore.name
+                        : activeTab === 'cart'
+                        ? 'Your Crave Bag'
+                        : activeTab === 'checkout'
+                        ? 'Order Checkout'
+                        : 'Welcome to Crave Aura'}
                     </h2>
-                    <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-[9px] font-black uppercase tracking-wider">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      Live Store
-                    </span>
+                    {selectedVendorStore && !selectedProduct && (
+                      <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-[9px] font-black uppercase tracking-wider shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Live Store
+                      </span>
+                    )}
                   </div>
-                  <p className="text-[10px] sm:text-xs text-slate-600 dark:text-slate-300 font-bold tracking-wide">
-                    Fresh cinema snacks & drinks delivered right to your seat
+                  <p className="text-[10px] sm:text-xs text-slate-600 dark:text-slate-300 font-bold tracking-wide truncate">
+                    {selectedProduct
+                      ? (selectedVendorStore ? `${selectedVendorStore.name} • ${selectedProduct.category}` : selectedProduct.category)
+                      : selectedVendorStore
+                      ? (selectedVendorStore.tagline || 'Official Brand Store on Crave Aura')
+                      : activeTab === 'cart'
+                      ? 'Review your selected cinema snacks & refreshments'
+                      : activeTab === 'checkout'
+                      ? 'Confirm delivery details & secure checkout'
+                      : 'Fresh cinema snacks & drinks delivered right to your location'}
                   </p>
                 </div>
               </div>
@@ -662,7 +897,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
 
             {/* 2. Navigation Tabs Header */}
             <div className="px-3.5 sm:px-6 pt-2.5 pb-2 border-b border-slate-200 dark:border-white/10 bg-slate-100/90 dark:bg-black/30 backdrop-blur-sm">
-              <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 overflow-x-auto no-scrollbar shadow-xs">
+              <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 overflow-x-auto no-scrollbar shadow-xs overscroll-contain">
                 <button 
                   type="button"
                   onClick={() => {
@@ -721,38 +956,112 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
               </div>
             </div>
 
-            {/* 3. Scrollable Body Area */}
-            <div className="flex-1 overflow-y-auto p-3.5 sm:p-6 custom-scrollbar space-y-6">
-              <AnimatePresence mode="wait">
-                {/* TAB 1: CRAVE AURA STORE */}
-                {activeTab === 'store' && (
+            {/* Delivery Location Selection Bar */}
+            <div className="px-3.5 sm:px-6 py-2 bg-gradient-to-r from-amber-500/10 via-slate-100 to-amber-500/5 dark:from-amber-500/10 dark:via-black/20 dark:to-transparent border-b border-slate-200 dark:border-white/10 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div 
+                onClick={() => setIsLocationModalOpen(true)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white dark:bg-white/10 border border-amber-500/30 hover:border-amber-500 text-slate-900 dark:text-white cursor-pointer transition-all shadow-xs group"
+              >
+                <MapPin className="w-3.5 h-3.5 text-amber-500 shrink-0 group-hover:scale-110 transition-transform" />
+                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  Deliver to:
+                </span>
+                <span className="font-black text-xs text-amber-600 dark:text-amber-400 truncate max-w-[200px] sm:max-w-[320px]">
+                  {userLocation || 'Select Lagos Location / Campus 📍'}
+                </span>
+                <ChevronDown className="w-3 h-3 text-slate-400 group-hover:text-amber-500 transition-colors shrink-0" />
+              </div>
+
+              <div className="flex items-center gap-2">
+                {userLocation ? (
                   <>
-                    {/* A. PRODUCT DETAIL VIEW */}
-                    {selectedProduct ? (
-                      <motion.div
-                        key={`crave-product-detail-${selectedProduct.id}`}
-                        initial={{ opacity: 0, y: 15 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -15 }}
-                        className="space-y-6"
-                      >
-                        {/* Navigation & Breadcrumb */}
-                        <div className="flex items-center justify-between gap-3">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedProduct(null)}
-                            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white dark:bg-white/10 hover:bg-slate-100 dark:hover:bg-white/20 text-xs font-black uppercase tracking-wider text-slate-800 dark:text-white transition-all border border-slate-200 dark:border-white/10 shadow-xs cursor-pointer active:scale-95"
-                          >
-                            <ArrowLeft className="w-4 h-4 text-amber-500" /> {selectedVendorStore ? `Back to ${selectedVendorStore.name}` : 'Back to Snacks Menu'}
-                          </button>
-                          
-                          <div className="hidden sm:flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
-                            <span>{selectedVendorStore ? selectedVendorStore.name : 'Crave Aura'}</span>
-                            <span>/</span>
-                            <span className="text-amber-600 dark:text-amber-400 font-black">{selectedProduct.category}</span>
-                            <span>/</span>
-                            <span className="text-slate-900 dark:text-white font-black truncate max-w-[180px]">{selectedProduct.name}</span>
-                          </div>
+                    <button
+                      type="button"
+                      onClick={() => setOnlyShowDeliverable(!onlyShowDeliverable)}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer ${
+                        onlyShowDeliverable
+                          ? 'bg-emerald-500 text-white shadow-xs'
+                          : 'bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10'
+                      }`}
+                    >
+                      <CheckCircle2 className={`w-3 h-3 ${onlyShowDeliverable ? 'text-white' : 'text-slate-400'}`} />
+                      <span>Only deliverable to me</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearUserLocation}
+                      className="text-[10px] font-bold text-slate-400 hover:text-rose-500 uppercase tracking-wider transition-colors p-1"
+                      title="Clear location"
+                    >
+                      Clear
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsLocationModalOpen(true)}
+                    className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-wider hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>Set Location for Accurate Menus</span>
+                    <ChevronRight className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 3. Scrollable Body Area */}
+            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-3.5 sm:p-6 custom-scrollbar space-y-6 overscroll-contain">
+              <div ref={topAnchorRef} className="h-0 w-0 -mt-6 pointer-events-none" aria-hidden="true" />
+
+              {/* Standard Back Button Bar (Matches Layout.tsx) */}
+              <AnimatePresence>
+                {canGoBack && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="flex items-center justify-between gap-3 pb-2 border-b border-slate-200 dark:border-white/5"
+                  >
+                    <button
+                      type="button"
+                      onClick={handleStoreBack}
+                      className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.08] dark:hover:bg-white/[0.15] backdrop-blur-md border border-slate-200 dark:border-white/10 active:scale-95 shadow-sm text-slate-800 dark:text-white text-xs font-black uppercase tracking-widest transition-all duration-200 group cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5 text-slate-800 dark:text-white group-hover:-translate-x-0.5 transition-transform" />
+                      <span>Back</span>
+                    </button>
+                    <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                      {selectedProduct
+                        ? (selectedVendorStore ? selectedVendorStore.name : 'Snacks Menu')
+                        : selectedVendorStore
+                        ? selectedVendorStore.name
+                        : activeTab === 'checkout'
+                        ? 'Checkout'
+                        : activeTab === 'cart'
+                        ? 'Crave Bag'
+                        : 'Crave Aura'}
+                    </span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <AnimatePresence mode="wait">
+                {/* 1. PRODUCT DETAIL VIEW */}
+                {activeTab === 'store' && selectedProduct && (
+                  <motion.div
+                    key={`crave-product-detail-${selectedProduct.id || 'curr'}`}
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -15 }}
+                    className="space-y-6"
+                  >
+                        {/* Breadcrumb */}
+                        <div className="flex items-center justify-end gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                          <span>{selectedVendorStore ? selectedVendorStore.name : 'Crave Aura'}</span>
+                          <span>/</span>
+                          <span className="text-amber-600 dark:text-amber-400 font-black">{selectedProduct.category}</span>
+                          <span>/</span>
+                          <span className="text-slate-900 dark:text-white font-black truncate max-w-[220px]">{selectedProduct.name}</span>
                         </div>
 
                         {/* Product Detail Layout: 2 Columns */}
@@ -782,7 +1091,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                               <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-[11px] font-black uppercase text-white bg-black/80 backdrop-blur-md p-3 rounded-2xl border border-white/20 shadow-lg">
                                 <div className="flex items-center gap-2">
                                   <Truck className="w-4 h-4 text-amber-400" />
-                                  <span>Seat Delivery</span>
+                                  <span>Express Delivery</span>
                                 </div>
                                 <div className="flex items-center gap-1.5 text-emerald-400">
                                   <ShieldCheck className="w-4 h-4" />
@@ -887,6 +1196,59 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                                 <Clock className="w-3.5 h-3.5 text-amber-500" /> {selectedProduct.deliveryTime || '5-10 mins'}
                               </Badge>
                             </div>
+
+                            {/* Delivery Coverage & Availability Card */}
+                            {(() => {
+                              const vendorObj = vendors.find(v => v.id === selectedProduct.vendorId);
+                              const coverage = userLocation
+                                ? isVendorDeliveringToLocation(vendorObj?.deliveryCoverageType, vendorObj?.deliveryLocations, userLocation)
+                                : { isCovered: true };
+
+                              return (
+                                <div className="p-3.5 rounded-2xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 space-y-2 shadow-xs">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5 text-xs font-black uppercase text-slate-700 dark:text-slate-200">
+                                      <MapPin className="w-3.5 h-3.5 text-amber-500" />
+                                      <span>Delivery Coverage (Lagos)</span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setIsLocationModalOpen(true)}
+                                      className="text-[10px] font-black uppercase text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+                                    >
+                                      <span>{userLocation ? 'Change Area' : 'Set Location'}</span>
+                                      <ChevronRight className="w-3 h-3" />
+                                    </button>
+                                  </div>
+
+                                  {userLocation ? (
+                                    coverage.isCovered ? (
+                                      <div className="flex items-center gap-2 p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs font-bold">
+                                        <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
+                                        <span>Delivers to <strong>{userLocation}</strong> (ETA: {selectedProduct.deliveryTime || vendorObj?.deliveryTime || '5-10 mins'})</span>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-start gap-2 p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-400 text-xs font-bold">
+                                        <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
+                                        <div>
+                                          <p>This store does not deliver to <strong>{userLocation}</strong>.</p>
+                                          <p className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">Delivers to: {vendorObj?.deliveryLocations && vendorObj.deliveryLocations.length > 0 ? vendorObj.deliveryLocations.slice(0, 3).join(', ') : 'Selected Lagos zones'}</p>
+                                        </div>
+                                      </div>
+                                    )
+                                  ) : (
+                                    <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 font-medium">
+                                      <Globe className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                      <span>
+                                        {vendorObj?.deliveryCoverageType === 'all' || !vendorObj?.deliveryCoverageType
+                                          ? 'Available across all Lagos locations & universities.'
+                                          : `Delivers to ${vendorObj.deliveryLocations?.length || 0} specific locations in Lagos.`}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
 
                             {/* Description */}
                             <div className="space-y-1.5">
@@ -1043,9 +1405,9 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                               </div>
                             ) : (
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {productReviews.map((rev) => (
+                                {productReviews.map((rev, revIdx) => (
                                   <div
-                                    key={rev.id}
+                                    key={rev.id || `rev-${revIdx}`}
                                     className="p-5 rounded-3xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 space-y-3 flex flex-col justify-between shadow-xs"
                                   >
                                     <div className="space-y-3">
@@ -1093,48 +1455,17 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                           </div>
                         </div>
                       </motion.div>
-                    ) : selectedVendorStore ? (
-                      /* B. DEDICATED VENDOR BRAND STORE VIEW */
-                      <motion.div
-                        key={`crave-vendor-store-${selectedVendorStore.id}`}
-                        initial={{ opacity: 0, y: 15 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -15 }}
-                        className="space-y-6"
-                      >
-                        {/* Navigation bar / Back */}
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedVendorStore(null);
-                              setSelectedCategory('all');
-                              setSearchQuery('');
-                            }}
-                            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white dark:bg-white/10 hover:bg-slate-100 dark:hover:bg-white/20 text-xs font-black uppercase tracking-wider text-slate-800 dark:text-white transition-all border border-slate-200 dark:border-white/10 shadow-xs cursor-pointer active:scale-95"
-                          >
-                            <ArrowLeft className="w-4 h-4 text-amber-500" /> All Crave Aura Brands & Snacks
-                          </button>
+                )}
 
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={(e) => handleCopyBrandStoreLink(selectedVendorStore.id, e)}
-                              className="px-3 py-2 rounded-xl bg-white dark:bg-white/10 hover:bg-slate-100 dark:hover:bg-white/20 text-xs font-black uppercase tracking-wider text-slate-800 dark:text-white transition-all border border-slate-200 dark:border-white/10 shadow-xs flex items-center gap-1.5 cursor-pointer"
-                              title="Copy Store Link"
-                            >
-                              <Copy className="w-3.5 h-3.5 text-amber-500" /> Copy Store Link
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => handleShareBrandStore(selectedVendorStore, e)}
-                              className="px-3.5 py-2 rounded-xl gradient-bg text-slate-950 text-xs font-black uppercase tracking-wider shadow-sm flex items-center gap-1.5 cursor-pointer active:scale-95"
-                              title="Share Store Link"
-                            >
-                              <Share2 className="w-3.5 h-3.5" /> Share Store
-                            </button>
-                          </div>
-                        </div>
+                {/* 2. DEDICATED VENDOR BRAND STORE VIEW */}
+                {activeTab === 'store' && !selectedProduct && selectedVendorStore && (
+                  <motion.div
+                    key={`crave-vendor-store-${selectedVendorStore.id || 'curr'}`}
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -15 }}
+                    className="space-y-6"
+                  >
 
                         {/* Dedicated Brand Hero Flyer Banner */}
                         <div className="relative overflow-hidden rounded-3xl bg-slate-900 border border-amber-500/30 shadow-2xl">
@@ -1151,15 +1482,31 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                             )}
                             <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
 
-                            {/* Top Badges */}
-                            <div className="absolute top-3 left-3 right-3 flex justify-between items-center pointer-events-none">
-                              <Badge className="bg-black/70 backdrop-blur-md text-amber-400 border border-amber-500/40 text-[10px] font-black uppercase tracking-wider px-2.5 py-1">
-                                {selectedVendorStore.category || 'Official Crave Aura Store'}
-                              </Badge>
+                            {/* Top Controls on Flyer */}
+                            <div className="absolute top-3 left-3 right-3 flex justify-end items-center z-10">
+
                               <div className="flex items-center gap-2">
-                                <span className="bg-black/70 backdrop-blur-md text-white border border-white/15 text-[10px] font-black uppercase px-2.5 py-1 rounded-full flex items-center gap-1">
-                                  <Clock className="w-3 h-3 text-amber-400" /> {selectedVendorStore.deliveryTime || '5-10 mins'}
-                                </span>
+                                <Badge className="bg-black/65 backdrop-blur-md text-amber-400 border border-amber-500/40 text-[10px] font-black uppercase tracking-wider px-2.5 py-1">
+                                  {selectedVendorStore.category || 'Official Crave Aura Store'}
+                                </Badge>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleCopyBrandStoreLink(selectedVendorStore.id, e)}
+                                  className="p-1.5 sm:px-2.5 sm:py-1 rounded-full bg-black/65 hover:bg-black/90 backdrop-blur-md text-white border border-white/20 text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shadow-md cursor-pointer active:scale-95"
+                                  title="Copy Store Link"
+                                >
+                                  <Copy className="w-3.5 h-3.5 text-amber-400" />
+                                  <span className="hidden sm:inline">Copy Link</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleShareBrandStore(selectedVendorStore, e)}
+                                  className="p-1.5 sm:px-2.5 sm:py-1 rounded-full gradient-bg text-slate-950 text-[10px] font-black uppercase tracking-wider shadow-md flex items-center gap-1 cursor-pointer active:scale-95"
+                                  title="Share Store"
+                                >
+                                  <Share2 className="w-3.5 h-3.5" />
+                                  <span className="hidden sm:inline">Share</span>
+                                </button>
                               </div>
                             </div>
                           </div>
@@ -1205,6 +1552,66 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                           </div>
                         </div>
 
+                        {/* Delivery Coverage Status & Alert Banner */}
+                        {(() => {
+                          const coverage = userLocation
+                            ? isVendorDeliveringToLocation(selectedVendorStore.deliveryCoverageType, selectedVendorStore.deliveryLocations, userLocation)
+                            : { isCovered: true };
+
+                          if (userLocation && !coverage.isCovered) {
+                            return (
+                              <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                                <div className="flex items-start sm:items-center gap-2.5 text-rose-700 dark:text-rose-300 text-xs font-bold">
+                                  <AlertCircle className="w-5 h-5 shrink-0 text-rose-500 mt-0.5 sm:mt-0" />
+                                  <div>
+                                    <p>This store currently does not deliver to <strong>{userLocation}</strong>.</p>
+                                    <p className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
+                                      Delivers to: {selectedVendorStore.deliveryLocations && selectedVendorStore.deliveryLocations.length > 0 ? selectedVendorStore.deliveryLocations.join(', ') : 'Selected Lagos zones'}
+                                    </p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setIsLocationModalOpen(true)}
+                                  className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-black uppercase tracking-wider transition-colors shrink-0 shadow-xs cursor-pointer active:scale-95"
+                                >
+                                  Change Delivery Area 📍
+                                </button>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="px-4 py-3 rounded-2xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 flex items-center justify-between gap-2 text-xs shadow-xs">
+                              <div className="flex items-center gap-2.5 text-slate-700 dark:text-slate-300 min-w-0">
+                                <div className="w-6 h-6 rounded-lg bg-amber-500/15 text-amber-500 flex items-center justify-center shrink-0">
+                                  <MapPin className="w-3.5 h-3.5" />
+                                </div>
+                                <div className="truncate">
+                                  {userLocation ? (
+                                    <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                      Delivering to <span className="text-emerald-600 dark:text-emerald-400 font-black">{userLocation}</span>
+                                    </p>
+                                  ) : (
+                                    <p className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate">
+                                      {selectedVendorStore.deliveryCoverageType === 'all' || !selectedVendorStore.deliveryCoverageType
+                                        ? 'Delivers Statewide across all Lagos Campuses & Areas'
+                                        : `Delivers to: ${selectedVendorStore.deliveryLocations?.slice(0, 3).join(', ')}${selectedVendorStore.deliveryLocations && selectedVendorStore.deliveryLocations.length > 3 ? ` +${selectedVendorStore.deliveryLocations.length - 3} more` : ''}`}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setIsLocationModalOpen(true)}
+                                className="text-[10px] font-black uppercase text-amber-600 dark:text-amber-400 hover:underline shrink-0 cursor-pointer"
+                              >
+                                {userLocation ? 'Change Area' : 'Set Location 📍'}
+                              </button>
+                            </div>
+                          );
+                        })()}
+
                         {/* Search & Sort for this vendor */}
                         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                           <div className="relative flex-1">
@@ -1240,12 +1647,12 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
 
                         {/* Vendor Category Filter Chips */}
                         {vendorCategories.length > 1 && (
-                          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
-                            {vendorCategories.map(cat => {
+                          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 overscroll-contain">
+                            {vendorCategories.map((cat, catIdx) => {
                               const isSelected = selectedCategory.toLowerCase() === cat.toLowerCase();
                               return (
                                 <button
-                                  key={cat}
+                                  key={cat || `vendor-cat-${catIdx}`}
                                   type="button"
                                   onClick={() => setSelectedCategory(cat)}
                                   className={`px-3.5 py-1.5 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-2 shrink-0 cursor-pointer shadow-xs ${
@@ -1288,11 +1695,11 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                           </div>
                         ) : (
                           <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5">
-                            {vendorScopedProducts.map((product) => {
+                            {vendorScopedProducts.map((product, prodIdx) => {
                               const inCart = cart.find(item => item.product.id === product.id);
                               return (
                                 <Card 
-                                  key={product.id}
+                                  key={product.id || `vend-prod-${prodIdx}`}
                                   onClick={() => setSelectedProduct(product)}
                                   className="group flex flex-col justify-between overflow-hidden rounded-3xl border border-slate-200 dark:border-white/10 bg-white/80 dark:bg-white/[0.03] backdrop-blur-md hover:border-amber-500/50 hover:shadow-xl hover:shadow-amber-500/10 transition-all duration-300 relative cursor-pointer"
                                 >
@@ -1395,15 +1802,17 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                           </div>
                         )}
                       </motion.div>
-                    ) : (
-                      /* C. STORE FLYERS DIRECTORY VIEW (2 ON A ROW) */
-                      <motion.div 
-                        key="crave-store-flyers-directory"
-                        initial={{ opacity: 0, x: -15 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: 15 }}
-                        className="space-y-6"
-                      >
+                )}
+
+                {/* 3. STORE FLYERS DIRECTORY VIEW (2 ON A ROW) */}
+                {activeTab === 'store' && !selectedProduct && !selectedVendorStore && (
+                  <motion.div 
+                    key="crave-store-flyers-directory"
+                    initial={{ opacity: 0, x: -15 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 15 }}
+                    className="space-y-6"
+                  >
                         {/* 1. Hero Promo Banner */}
                         <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-amber-500/15 via-rose-500/10 to-purple-600/15 border border-amber-500/30 dark:border-white/10 p-4 sm:p-6 shadow-xl">
                           <div className="absolute top-0 right-0 -mt-8 -mr-8 w-48 h-48 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
@@ -1417,7 +1826,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                                 Discover Cinema Brands & Stores
                               </h3>
                               <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">
-                                Browse authentic brand flyers, select your favorite vendor store, and order fresh snacks delivered right to your seat or watch party.
+                                Browse authentic brand flyers, select your favorite vendor store, and order fresh snacks delivered right to your location or watch party.
                               </p>
                             </div>
                             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -1432,7 +1841,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                                 <Truck className="w-4 h-4 text-emerald-500" />
                                 <div>
                                   <p className="text-[9px] font-black uppercase text-slate-500 dark:text-muted-foreground">Direct Delivery</p>
-                                  <p className="text-xs font-black text-emerald-600 dark:text-emerald-400">To your seat</p>
+                                  <p className="text-xs font-black text-emerald-600 dark:text-emerald-400">To your area</p>
                                 </div>
                               </div>
                               <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/80 dark:bg-black/40 backdrop-blur-md border border-slate-200 dark:border-white/10 shadow-xs">
@@ -1479,15 +1888,15 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
 
                         {/* 3. Brand Category / Specialty Filter Chips */}
                         {brandCategories.length > 1 && (
-                          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
-                            {brandCategories.map(cat => {
+                          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 overscroll-contain">
+                            {brandCategories.map((cat, catIdx) => {
                               const isSelected = selectedCategory.toLowerCase() === cat.toLowerCase();
                               const catCount = cat === 'all' 
                                 ? activeBrands.length 
                                 : activeBrands.filter(b => b.category?.toLowerCase() === cat.toLowerCase()).length;
                               return (
                                 <button
-                                  key={cat}
+                                  key={cat || `brand-cat-${catIdx}`}
                                   type="button"
                                   onClick={() => setSelectedCategory(cat)}
                                   className={`px-3.5 py-2 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-2 shrink-0 cursor-pointer shadow-xs ${
@@ -1530,13 +1939,14 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                           </div>
                         ) : (
                           <div className="grid grid-cols-2 gap-2.5 sm:gap-4 md:gap-5">
-                            {filteredBrands.map((brand) => (
+                            {filteredBrands.map((brand, brandIdx) => (
                               <Card
-                                key={brand.id}
+                                key={brand.id || `brand-${brandIdx}`}
                                 onClick={() => {
                                   setSelectedVendorStore(brand);
                                   setSelectedCategory('all');
                                   setSearchQuery('');
+                                  scrollStoreToTop();
                                 }}
                                 className="group overflow-hidden rounded-2xl sm:rounded-3xl border border-slate-200 dark:border-white/10 bg-white/90 dark:bg-slate-900/90 hover:border-amber-500/60 hover:shadow-2xl hover:shadow-amber-500/15 transition-all duration-300 cursor-pointer flex flex-col justify-between"
                               >
@@ -1566,6 +1976,40 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                                       <Clock className="w-2.5 h-2.5 text-amber-400" /> {brand.deliveryTime || '5-10m'}
                                     </span>
                                   </div>
+
+                                  {/* Overlay Delivery Coverage Pill on Flyer */}
+                                  {(() => {
+                                    const coverage = userLocation
+                                      ? isVendorDeliveringToLocation(brand.deliveryCoverageType, brand.deliveryLocations, userLocation)
+                                      : { isCovered: true };
+
+                                    return (
+                                      <div className="absolute bottom-1.5 left-1.5 right-1.5 pointer-events-none">
+                                        {userLocation ? (
+                                          coverage.isCovered ? (
+                                            <span className="inline-flex items-center gap-1 bg-emerald-600/90 backdrop-blur-md text-white text-[8px] sm:text-[9px] font-bold px-2 py-0.5 rounded-md shadow-xs truncate max-w-full">
+                                              <CheckCircle2 className="w-2.5 h-2.5 shrink-0" />
+                                              <span className="truncate">Delivers to {userLocation}</span>
+                                            </span>
+                                          ) : (
+                                            <span className="inline-flex items-center gap-1 bg-rose-600/90 backdrop-blur-md text-white text-[8px] sm:text-[9px] font-bold px-2 py-0.5 rounded-md shadow-xs truncate max-w-full">
+                                              <AlertCircle className="w-2.5 h-2.5 shrink-0" />
+                                              <span className="truncate">Unavailable in {userLocation}</span>
+                                            </span>
+                                          )
+                                        ) : (
+                                          <span className="inline-flex items-center gap-1 bg-black/75 backdrop-blur-md text-slate-200 text-[8px] sm:text-[9px] font-medium px-2 py-0.5 rounded-md border border-white/10 shadow-xs truncate max-w-full">
+                                            <MapPin className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                                            <span className="truncate">
+                                              {brand.deliveryCoverageType === 'all' || !brand.deliveryCoverageType
+                                                ? 'Delivers Across Lagos'
+                                                : `Delivers to: ${brand.deliveryLocations?.slice(0, 2).join(', ')}${brand.deliveryLocations && brand.deliveryLocations.length > 2 ? ` +${brand.deliveryLocations.length - 2}` : ''}`}
+                                            </span>
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
 
                                 {/* Brand Details Footer */}
@@ -1616,6 +2060,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                                         setSelectedVendorStore(brand);
                                         setSelectedCategory('all');
                                         setSearchQuery('');
+                                        scrollStoreToTop();
                                       }}
                                       className="h-6 sm:h-7.5 px-2 sm:px-3 rounded-lg sm:rounded-xl font-black uppercase text-[8px] sm:text-[10px] tracking-wider gradient-bg !text-white shadow-xs shadow-amber-500/20 group-hover:brightness-110 flex items-center gap-1 shrink-0"
                                     >
@@ -1636,8 +2081,8 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                               Verified Cinema Partners
                             </h4>
                             <div className="flex flex-wrap items-center gap-2.5">
-                              {partners.map(p => (
-                                <div key={p.id} className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-800 dark:text-white shadow-2xs">
+                              {partners.map((p, pIdx) => (
+                                <div key={p.id || `cinema-partner-${pIdx}`} className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-800 dark:text-white shadow-2xs">
                                   {p.logo ? (
                                     <img src={p.logo} alt={p.name} className="w-4 h-4 object-contain" />
                                   ) : (
@@ -1650,8 +2095,6 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                           </div>
                         )}
                       </motion.div>
-                    )}
-                  </>
                 )}
 
                 {/* TAB 2: CRAVE BAG (CART) */}
@@ -1671,7 +2114,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                         <div className="space-y-1.5">
                           <h3 className="font-black uppercase tracking-tight text-xl text-slate-900 dark:text-white">Your Crave Bag is Empty</h3>
                           <p className="text-xs text-slate-500 dark:text-muted-foreground font-semibold max-w-sm mx-auto">
-                            Add fresh cinema popcorn, cold sips, nachos, and sweet snacks delivered straight to your hall seat.
+                            Add fresh cinema popcorn, cold sips, nachos, and sweet snacks delivered straight to your location.
                           </p>
                         </div>
                         <Button 
@@ -1719,12 +2162,20 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                           {/* Left Column: Cart Items List */}
                           <div className="lg:col-span-7 xl:col-span-8 space-y-3">
-                            {cart.map((item) => {
+                            {cart.map((item, cartIdx) => {
                               const vendorObj = vendors.find(v => v.id === item.product.vendorId);
+                              const isItemUndeliverable = Boolean(
+                                userLocation && 
+                                !isVendorDeliveringToLocation(vendorObj?.deliveryCoverageType, vendorObj?.deliveryLocations, userLocation).isCovered
+                              );
                               return (
                                 <div 
-                                  key={item.product.id}
-                                  className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 hover:border-amber-500/30 transition-all shadow-xs space-y-3"
+                                  key={item.product.id || `cart-${cartIdx}`}
+                                  className={`p-4 sm:p-5 rounded-3xl bg-white dark:bg-white/5 border transition-all shadow-xs space-y-3 ${
+                                    isItemUndeliverable 
+                                      ? 'border-rose-500/40 bg-rose-500/[0.02]' 
+                                      : 'border-slate-200 dark:border-white/10 hover:border-amber-500/30'
+                                  }`}
                                 >
                                   <div className="flex items-start gap-3 sm:gap-4">
                                     {/* Product Image */}
@@ -1812,6 +2263,28 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                                       </div>
                                     </div>
                                   </div>
+
+                                  {/* Undeliverable Alert for this Cart Item */}
+                                  {isItemUndeliverable && (
+                                    <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-600 dark:text-rose-400 text-xs font-bold">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                                        <div className="min-w-0">
+                                          <p className="leading-tight truncate">Cannot deliver to <strong>{userLocation}</strong></p>
+                                          <p className="text-[9px] text-slate-500 dark:text-slate-400 font-normal truncate">
+                                            {vendorObj?.name || 'Store'} does not deliver to this area
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => setIsLocationModalOpen(true)}
+                                        className="px-2 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-700 dark:text-rose-300 text-[9px] font-black uppercase transition-colors shrink-0 cursor-pointer"
+                                      >
+                                        Change Area
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
@@ -1843,8 +2316,8 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                                 <h3 className="text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
                                   <Receipt className="w-4 h-4 text-amber-500" /> Crave Summary
                                 </h3>
-                                <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-[9px] font-black uppercase">
-                                  Free Seat Delivery
+                                <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 text-[9px] font-black uppercase">
+                                  Express Dispatch
                                 </Badge>
                               </div>
 
@@ -1852,10 +2325,6 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                                 <div className="flex justify-between items-center">
                                   <span className="text-slate-500 dark:text-muted-foreground">Items Subtotal</span>
                                   <span className="text-slate-900 dark:text-white font-black">₦{cartTotal.toLocaleString()}</span>
-                                </div>
-                                <div className="flex justify-between items-center">
-                                  <span className="text-slate-500 dark:text-muted-foreground">Delivery to Seat</span>
-                                  <span className="text-emerald-600 dark:text-emerald-400 font-black">FREE</span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                   <span className="text-slate-500 dark:text-muted-foreground">Prep & Delivery Time</span>
@@ -1866,20 +2335,40 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                               <div className="pt-4 border-t border-slate-200 dark:border-white/10 flex items-baseline justify-between">
                                 <div>
                                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground">Total to Pay</p>
-                                  <p className="text-xs text-slate-400 dark:text-muted-foreground font-semibold">StreamAura Wallet</p>
+                                  <p className="text-xs text-slate-400 dark:text-muted-foreground font-semibold">Transactpay</p>
                                 </div>
                                 <p className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">
                                   ₦{cartTotal.toLocaleString()}
                                 </p>
                               </div>
 
+                              {/* Undeliverable warning banner in summary */}
+                              {hasUndeliverableCartItems && (
+                                <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 space-y-2">
+                                  <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400 text-xs font-black uppercase">
+                                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" /> Delivery Notice
+                                  </div>
+                                  <p className="text-[11px] text-rose-700 dark:text-rose-300 font-semibold leading-relaxed">
+                                    {undeliverableCartItems.length} {undeliverableCartItems.length === 1 ? 'item in your bag cannot' : 'items in your bag cannot'} be delivered to <strong>{userLocation}</strong>.
+                                  </p>
+                                  <Button
+                                    size="sm"
+                                    type="button"
+                                    onClick={() => setIsLocationModalOpen(true)}
+                                    className="w-full h-8 text-[10px] font-black uppercase tracking-wider bg-rose-600 hover:bg-rose-700 text-white shadow-xs"
+                                  >
+                                    Change Delivery Area 📍
+                                  </Button>
+                                </div>
+                              )}
+
                               {/* Seat Delivery Guarantee Note */}
                               <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 space-y-1">
                                 <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-xs font-black uppercase">
-                                  <Truck className="w-4 h-4" /> Instant Seat Delivery
+                                  <Truck className="w-4 h-4" /> Instant Express Delivery
                                 </div>
                                 <p className="text-[10px] text-slate-700 dark:text-white/80 font-semibold leading-relaxed">
-                                  Your snacks will be prepared fresh and served directly to your cinema room or hall seat.
+                                  Your refreshments are freshly prepared and dispatched directly to your location.
                                 </p>
                               </div>
 
@@ -1924,15 +2413,38 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                     exit={{ opacity: 0, x: 15 }}
                     className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 items-start"
                   >
+
                     {/* Left: Delivery Details Form */}
                     <div className="space-y-5">
                       <div className="space-y-1">
                         <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 text-slate-900 dark:text-white">
-                          <MapPin className="w-4 h-4 text-amber-500" /> Delivery & Seat Details
+                          <MapPin className="w-4 h-4 text-amber-500" /> Delivery Details
                         </h3>
                         <p className="text-xs text-slate-500 dark:text-muted-foreground">
                           Where should we bring your fresh refreshments?
                         </p>
+                      </div>
+
+                      {/* Delivery Area Status Card */}
+                      <div className="p-3.5 rounded-2xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 flex items-center justify-between gap-3 shadow-xs">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center shrink-0">
+                            <MapPin className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[9px] font-black uppercase text-slate-400">Delivery Area / Lagos Zone</p>
+                            <p className="text-xs font-black text-slate-900 dark:text-white truncate">
+                              {userLocation || 'All Lagos Statewide (Default)'}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsLocationModalOpen(true)}
+                          className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-600 dark:text-amber-400 text-[10px] font-black uppercase tracking-wider transition-colors shrink-0 cursor-pointer"
+                        >
+                          Change Area 📍
+                        </button>
                       </div>
 
                       <form id="checkout-form" onSubmit={handleCheckout} className="space-y-3.5">
@@ -1955,7 +2467,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                               required
                               type="tel"
                               className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl py-3 pl-10 pr-4 text-xs outline-none focus:border-amber-500 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground font-semibold shadow-2xs" 
-                              placeholder="08012345678"
+                              placeholder="080123xxxxx"
                               value={deliveryInfo.phone}
                               onChange={e => setDeliveryInfo({...deliveryInfo, phone: e.target.value})}
                             />
@@ -1978,11 +2490,11 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                         </div>
 
                         <div className="space-y-1">
-                          <label className="text-[10px] font-black uppercase text-slate-700 dark:text-slate-300 ml-1">Seat Location / Hall Room Number</label>
+                          <label className="text-[10px] font-black uppercase text-slate-700 dark:text-slate-300 ml-1">Specific Room / Hostel / Street Address</label>
                           <textarea 
                             required
                             className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-3 text-xs outline-none focus:border-amber-500 h-24 resize-none text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground font-semibold shadow-2xs" 
-                            placeholder="e.g. Cinema Hall 2, Row F, Seat 14 (or Room #3)"
+                            placeholder="e.g. Moremi Hall Room 204, UNILAG OR 12 Admiralty Way, Lekki Phase 1"
                             value={deliveryInfo.address}
                             onChange={e => setDeliveryInfo({...deliveryInfo, address: e.target.value})}
                           />
@@ -2002,9 +2514,9 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                       </div>
 
                       <Card className="p-5 sm:p-6 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 space-y-4 rounded-3xl shadow-md">
-                        <div className="space-y-2 max-h-44 overflow-y-auto custom-scrollbar pr-2">
-                          {cart.map(item => (
-                            <div key={item.product.id} className="flex justify-between items-center text-xs font-bold uppercase tracking-tight text-slate-900 dark:text-white">
+                        <div className="space-y-2 max-h-44 overflow-y-auto custom-scrollbar pr-2 overscroll-contain">
+                          {cart.map((item, cartIdx) => (
+                            <div key={item.product.id || `checkout-cart-${cartIdx}`} className="flex justify-between items-center text-xs font-bold uppercase tracking-tight text-slate-900 dark:text-white">
                               <span className="text-slate-600 dark:text-slate-300 truncate max-w-[200px]">{item.quantity}x {item.product.name}</span>
                               <span className="text-slate-900 dark:text-white font-black">₦{(item.product.price * item.quantity).toLocaleString()}</span>
                             </div>
@@ -2017,11 +2529,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                             <span className="text-slate-900 dark:text-white font-black">₦{cartTotal.toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between text-xs font-bold uppercase text-slate-900 dark:text-white">
-                            <span className="text-slate-500 dark:text-muted-foreground">Seat Delivery</span>
-                            <span className="text-emerald-600 dark:text-emerald-400 font-black">FREE</span>
-                          </div>
-                          <div className="flex justify-between text-xs font-bold uppercase text-slate-900 dark:text-white">
-                            <span className="text-slate-500 dark:text-muted-foreground">Estimated Delivery</span>
+                            <span className="text-slate-500 dark:text-muted-foreground">Estimated Time</span>
                             <span className="text-amber-600 dark:text-amber-400 font-black">{cartDeliveryTime}</span>
                           </div>
                           <div className="flex justify-between text-lg font-black uppercase pt-2 border-t border-slate-200 dark:border-white/10 text-slate-900 dark:text-white">
@@ -2029,6 +2537,18 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                             <span className="text-emerald-600 dark:text-emerald-400 font-black">₦{cartTotal.toLocaleString()}</span>
                           </div>
                         </div>
+
+                        {/* Undeliverable items alert in checkout */}
+                        {hasUndeliverableCartItems && (
+                          <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30 space-y-1.5">
+                            <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400 text-xs font-black uppercase">
+                              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" /> Undeliverable Items
+                            </div>
+                            <p className="text-[11px] text-rose-700 dark:text-rose-300 font-semibold leading-relaxed">
+                              Some items in your cart cannot be delivered to <strong>{userLocation}</strong>. Please change your area or remove those items to place this order.
+                            </p>
+                          </div>
+                        )}
                         
                         <div className="pt-2 space-y-3">
                           <div className="flex items-center gap-2 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20">
@@ -2041,8 +2561,8 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                           <Button 
                             type="submit"
                             form="checkout-form"
-                            disabled={isSubmitting}
-                            className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-xl shadow-amber-500/25 hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+                            disabled={isSubmitting || hasUndeliverableCartItems}
+                            className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-xl shadow-amber-500/25 hover:brightness-110 active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {isSubmitting ? (
                               <div className="flex items-center gap-2">
@@ -2057,7 +2577,7 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
                             )}
                           </Button>
                           <p className="text-[8px] text-center text-slate-400 dark:text-muted-foreground uppercase font-black tracking-widest">
-                            Secured Payment via StreamAura Wallet
+                            Secured Payment via Transactpay
                           </p>
                         </div>
                       </Card>
@@ -2069,6 +2589,201 @@ export const CinemaStoreModal: React.FC<CinemaStoreModalProps> = ({ isOpen, onCl
           </motion.div>
         </div>
       )}
+
+      {/* Interactive Lagos Location Picker Modal */}
+      <AnimatePresence>
+        {isLocationModalOpen && (
+          <div key="lagos-location-modal-container" className="fixed inset-0 z-[3500] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/80 backdrop-blur-md touch-none overscroll-none">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl overflow-hidden overscroll-contain"
+            >
+              {/* Header */}
+              <div className="p-4 sm:p-6 border-b border-slate-200 dark:border-white/10 flex items-start justify-between gap-3 shrink-0">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-500 flex items-center justify-center">
+                      <MapPin className="w-4 h-4" />
+                    </div>
+                    <h3 className="text-base sm:text-lg font-black uppercase tracking-tight text-slate-900 dark:text-white">
+                      Select Your Lagos Delivery Area 📍
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-muted-foreground font-medium">
+                    Choose your university campus, estate, or area to see stores and snacks delivering to you.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsLocationModalOpen(false)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Current Selection Status Bar */}
+              {userLocation && (
+                <div className="px-4 sm:px-6 py-2.5 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between gap-3 shrink-0">
+                  <div className="flex items-center gap-2 text-xs font-bold text-amber-900 dark:text-amber-300 truncate">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span className="truncate">Current Area: <strong>{userLocation}</strong></span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleClearUserLocation}
+                    className="text-[10px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 hover:underline shrink-0 cursor-pointer"
+                  >
+                    Clear Area
+                  </button>
+                </div>
+              )}
+
+              {/* Search & Category Tabs */}
+              <div className="p-4 sm:px-6 pb-3 shrink-0 space-y-3">
+                <div className="relative">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={locationSearchTerm}
+                    onChange={(e) => setLocationSearchTerm(e.target.value)}
+                    placeholder="Search UNILAG, LASU, YABATECH, Lekki, Yaba, Ikeja, Surulere..."
+                    className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:border-amber-500 dark:focus:border-amber-500 rounded-2xl py-2.5 pl-10 pr-9 text-xs font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground outline-none transition-all"
+                  />
+                  {locationSearchTerm && (
+                    <button
+                      type="button"
+                      onClick={() => setLocationSearchTerm('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-white"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Category Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 overscroll-contain">
+                  {LAGOS_LOCATION_CATEGORIES.map((cat, catIdx) => (
+                    <button
+                      key={cat.id || `loc-cat-${catIdx}`}
+                      type="button"
+                      onClick={() => setLocationCategoryFilter(cat.id)}
+                      className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
+                        locationCategoryFilter === cat.id
+                          ? 'bg-amber-500 text-white shadow-xs'
+                          : 'bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-white/10'
+                      }`}
+                    >
+                      {cat.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Scrollable Locations Grid */}
+              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-2 space-y-2 custom-scrollbar overscroll-contain">
+                {/* Deliver Anywhere Option */}
+                <button
+                  type="button"
+                  onClick={() => handleSelectLocation('All Lagos Locations')}
+                  className={`w-full p-3 rounded-2xl border text-left transition-all flex items-center justify-between gap-3 cursor-pointer ${
+                    userLocation === 'All Lagos Locations'
+                      ? 'bg-emerald-500/15 border-emerald-500 text-emerald-700 dark:text-emerald-300 font-bold'
+                      : 'bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-white/10 hover:border-amber-500/50 text-slate-800 dark:text-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg">🌍</span>
+                    <div>
+                      <p className="text-xs font-black uppercase">All Lagos Statewide</p>
+                      <p className="text-[10px] text-slate-500 dark:text-muted-foreground font-normal">Show all vendors delivering anywhere in Lagos</p>
+                    </div>
+                  </div>
+                  {userLocation === 'All Lagos Locations' && (
+                    <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  )}
+                </button>
+
+                {filteredModalLocations.length === 0 ? (
+                  <div className="py-8 text-center space-y-2">
+                    <p className="text-xs text-slate-500 dark:text-muted-foreground">No predefined location matching "{locationSearchTerm}".</p>
+                    <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400">
+                      You can enter your exact location or hostel below!
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    {filteredModalLocations.map((loc, locIdx) => {
+                      const isSelected = userLocation.toLowerCase() === loc.name.toLowerCase();
+                      return (
+                        <button
+                          key={loc.id || `lagos-loc-${locIdx}`}
+                          type="button"
+                          onClick={() => handleSelectLocation(loc.name)}
+                          className={`p-3 rounded-2xl border text-left transition-all flex items-center justify-between gap-2.5 cursor-pointer ${
+                            isSelected
+                              ? 'bg-amber-500/15 border-amber-500 text-amber-900 dark:text-amber-200 shadow-xs'
+                              : 'bg-slate-50/80 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 border-slate-200 dark:border-white/10 text-slate-800 dark:text-slate-200'
+                          }`}
+                        >
+                          <div className="min-w-0 space-y-0.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs">
+                                {LAGOS_LOCATION_CATEGORIES.find(c => c.id === loc.category)?.icon || (loc.isSchool ? '🏫' : '📍')}
+                              </span>
+                              <p className="text-xs font-black uppercase truncate">{loc.name}</p>
+                            </div>
+                            <p className="text-[9px] text-slate-500 dark:text-muted-foreground truncate pl-4">
+                              {loc.subArea || 'Lagos Delivery Zone'}
+                            </p>
+                          </div>
+                          {isSelected && (
+                            <div className="w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                              <Check className="w-3 h-3 stroke-[3]" />
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Custom Location Input Footer */}
+              <div className="p-4 sm:p-5 bg-slate-50 dark:bg-black/40 border-t border-slate-200 dark:border-white/10 shrink-0 space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-700 dark:text-slate-300 block">
+                  Can't find your exact campus hostel / estate? Add custom spot:
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={customLocationInput}
+                    onChange={(e) => setCustomLocationInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddCustomLocation();
+                      }
+                    }}
+                    placeholder="e.g. UNILAG Moremi Hall, LASU Block C, Chevy View Estate..."
+                    className="flex-1 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:border-amber-500 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-900 dark:text-white outline-none"
+                  />
+                  <Button
+                    type="button"
+                    onClick={handleAddCustomLocation}
+                    disabled={!customLocationInput.trim()}
+                    className="px-4 h-9 rounded-xl gradient-bg !text-white text-xs font-black uppercase tracking-wider shadow-xs cursor-pointer active:scale-95 shrink-0"
+                  >
+                    Use Custom
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </AnimatePresence>,
     document.body
   );

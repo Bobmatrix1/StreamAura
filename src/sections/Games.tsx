@@ -276,7 +276,7 @@ export default function Games() {
       });
 
       const unsubActivity = onSnapshot(collection(db, 'game_wallets', user.uid, 'activity'), (snap) => {
-        const sorted = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        const sorted = snap.docs.map(d => ({ ...d.data(), id: d.id }))
           .sort((a: any, b: any) => {
             const getTs = (item: any) => {
               if (item.timestamp?.seconds) return item.timestamp.seconds * 1000;
@@ -550,7 +550,7 @@ export default function Games() {
     const q = query(collection(db, 'game_rooms'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const activeRooms = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() as any }))
+        .map(doc => ({ ...doc.data() as any, id: doc.id }))
         .filter(room => ['waiting', 'selecting', 'convincing', 'choosing', 'revealing', 'round_finished', 'finished'].includes(room.status));
       setRooms(activeRooms);
     });
@@ -740,7 +740,7 @@ export default function Games() {
       const docSnap = await getDoc(doc(db, 'game_rooms', gameId));
       if (docSnap.exists()) {
         setActiveGameId(gameId);
-        setActiveGameData({ id: docSnap.id, ...docSnap.data() });
+        setActiveGameData({ ...docSnap.data(), id: docSnap.id });
       } else {
         showError('Game room not found.');
       }

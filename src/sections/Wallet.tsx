@@ -308,7 +308,7 @@ const Wallet: React.FC = () => {
 
       const q = query(collection(db, 'cinema_rooms'), where('host_uid', '==', user.uid), orderBy('created_at', 'desc'), limit(10));
       const unsubRooms = onSnapshot(q, (snap) => {
-        setHostRooms(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setHostRooms(snap.docs.map(d => ({ ...d.data(), id: d.id })));
       });
 
       return () => { unsubWallet(); unsubRooms(); };
@@ -405,7 +405,10 @@ const Wallet: React.FC = () => {
   };
 
   const handleShareTicket = (ticket: TicketItem) => {
-    const shareUrl = `${API_BASE_URL}/share?title=${encodeURIComponent(`StreamAura Ticket: ${ticket.movie}`)}&desc=${encodeURIComponent(`Join me in ${ticket.room} for a premium movie experience!`)}&img=${encodeURIComponent(ticket.thumbnail)}&target=${encodeURIComponent(`/?tab=wallet&ticket=${ticket.id}`)}`;
+    const origin = typeof window !== 'undefined' && window.location.origin.includes('streamaura')
+      ? window.location.origin
+      : 'https://streamaura.site';
+    const shareUrl = `${origin}/?tab=wallet&ticket=${ticket.id}`;
     const shareText = `🎥 Join me for "${ticket.movie}" on StreamAura!\n🎟️ Room: ${ticket.room}\n🔗 Access Link:`;
     if (navigator.share) {
       navigator.share({ title: `StreamAura Ticket - ${ticket.movie}`, text: shareText, url: shareUrl }).catch(console.error);
@@ -490,7 +493,7 @@ const Wallet: React.FC = () => {
       {/* Confirmation Modal */}
       <AnimatePresence>
         {isConfirmModalOpen && (
-          <div className="fixed inset-0 z-[5000] flex items-center justify-center p-4">
+          <div key="wallet-confirm-payout-modal-container" className="fixed inset-0 z-[5000] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsConfirmModalOpen(false)} className="absolute inset-0 bg-black/90 backdrop-blur-md" />
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm glass-card p-6 border-white/10 shadow-2xl space-y-6">
                <div className="text-center space-y-2">

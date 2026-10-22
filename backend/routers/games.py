@@ -217,11 +217,33 @@ async def get_referred_users(user: dict = Depends(get_current_user)):
         # Return empty list with safe diagnostic rather than 500
         return {"success": True, "referrals": [], "warning": str(e)}
 
+@router.get("/referrer-info/{referrer_uid}")
+async def get_referrer_info(referrer_uid: str):
+    """
+    Public lookup for referrer's display name and avatar to show on invite/signup screens.
+    """
+    db = get_db()
+    clean_uid = referrer_uid.strip()
+    if not clean_uid or len(clean_uid) > 128:
+        return {"success": False, "message": "Invalid code"}
+    try:
+        user_doc = db.collection("users").document(clean_uid).get()
+        if not user_doc.exists:
+            return {"success": False, "message": "User not found"}
+        data = user_doc.to_dict() or {}
+        return {
+            "success": True,
+            "displayName": data.get("displayName") or "A friend",
+            "photoURL": data.get("photoURL")
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
 @router.post("/process-referral")
 async def process_referral_bonus(request: ProcessReferralRequest, user: dict = Depends(get_current_user)):
     """
     Process referral reward when a newly registered user attributes a referrer.
-    Credits referrer with 100 bonus / AuraCoins, increments referral count,
+    Credits referrer with 500 bonus / AuraCoins, increments referral count,
     sends a notification to the referrer, and records referral attribution.
     Uses Firestore atomic transaction to prevent race conditions or duplicate claims.
     """
@@ -245,6 +267,7 @@ async def process_referral_bonus(request: ProcessReferralRequest, user: dict = D
         @firestore.transactional
         def transactional_process(transaction):
             new_user_doc = new_user_ref.get(transaction=transaction)
+            new_user_data = {}
             if new_user_doc.exists:
                 new_user_data = new_user_doc.to_dict() or {}
                 if new_user_data.get("referredByProcessed"):
@@ -263,7 +286,7 @@ async def process_referral_bonus(request: ProcessReferralRequest, user: dict = D
             
             ref_wallet_ref = db.collection("game_wallets").document(referrer_uid)
             ref_act_ref = ref_wallet_ref.collection("activity").document()
-            user_display = user.get('name') or user.get('displayName') or 'A new user'
+            user_display = new_user_data.get('displayName') or user.get('name') or user.get('displayName') or 'A new user'
             transaction.set(ref_act_ref, {
                 "type": "referral_bonus",
                 "currency": "auracoin",
@@ -277,7 +300,7 @@ async def process_referral_bonus(request: ProcessReferralRequest, user: dict = D
                 "referredByProcessed": True
             }, merge=True)
             
-            return {"success": True, "message": "Referral processed successfully", "notify": True}
+            return {"success": True, "message": "Referral processed successfully", "notify": True, "user_display": user_display}
 
         res = transactional_process(transaction)
         if not res.get("success"):
@@ -286,7 +309,7 @@ async def process_referral_bonus(request: ProcessReferralRequest, user: dict = D
         if res.get("notify"):
             try:
                 notif_id = f"ref_{uuid.uuid4().hex[:12]}"
-                user_display = user.get('name') or user.get('displayName') or 'A new user'
+                user_display = res.get("user_display") or user.get('name') or user.get('displayName') or 'A new user'
                 notif_data = {
                     "id": notif_id,
                     "title": "New Referral Earned! 🎉",

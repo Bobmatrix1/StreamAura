@@ -10,7 +10,7 @@ import {
   db,
   type GoogleSignInResult
 } from '../lib/firebase';
-import { doc, setDoc, serverTimestamp, onSnapshot, deleteField } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, serverTimestamp, onSnapshot, deleteField } from 'firebase/firestore';
 
 const Login = React.lazy(() => import('../sections/Login'));
 const Signup = React.lazy(() => import('../sections/Signup'));
@@ -28,6 +28,9 @@ interface AuthContextType {
   error: string | null;
   clearError: () => void;
   requireAuth: (callback: () => void, initialView?: 'login' | 'signup') => void;
+  openAuthModal: (initialView?: 'login' | 'signup', customSubtitle?: string) => void;
+  closeAuthModal: () => void;
+  isAuthModalOpen: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -38,6 +41,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [error, setError] = useState<string | null>(null);
   const [authModal, setAuthModal] = useState<{ isOpen: boolean, action?: () => void }>({ isOpen: false });
   const [showLogin, setShowLogin] = useState(true);
+  const [customSubtitle, setCustomSubtitle] = useState<string | null>(null);
 
   // Use a more robust auth state observer with real-time Firestore sync
   useEffect(() => {
@@ -53,26 +57,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (firebaseUser) {
         const userRef = doc(db, 'users', firebaseUser.uid);
 
-        // ENSURE USER DOCUMENT EXISTS (Crucial for Notifications/Admin)
+        // Sync active state or photo if document already exists
         try {
-          const syncData: any = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            displayName: firebaseUser.displayName || 'Anonymous',
-            lastActive: serverTimestamp(),
-            createdAt: firebaseUser.createdAt || Date.now()
-          };
-          if (firebaseUser.photoURL) syncData.photoURL = firebaseUser.photoURL;
-          
-          // CRITICAL: Only sync isAdmin if it's explicitly present in firebaseUser 
-          // to prevent overwriting existing Admin status with 'false' during fetch delays.
-          if (firebaseUser.isAdmin !== undefined) {
-            syncData.isAdmin = firebaseUser.isAdmin;
+          const userDoc = await getDoc(userRef);
+          if (userDoc.exists()) {
+            const updates: any = { lastActive: serverTimestamp() };
+            if (firebaseUser.photoURL && userDoc.data()?.photoURL !== firebaseUser.photoURL) {
+              updates.photoURL = firebaseUser.photoURL;
+            }
+            if (firebaseUser.displayName && (!userDoc.data()?.displayName || userDoc.data()?.displayName === 'Anonymous')) {
+              updates.displayName = firebaseUser.displayName;
+            }
+            await updateDoc(userRef, updates).catch(() => {});
           }
-          
-          await setDoc(userRef, syncData, { merge: true });
         } catch (e) {
-          console.error("Profile sync failed", e);
+          console.error("Profile sync check failed", e);
         }
 
         // Establish real-time listener for Firestore changes
@@ -251,13 +250,26 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       callback();
     } else {
       setShowLogin(initialView === 'login');
+      setCustomSubtitle(null);
       setAuthModal({ isOpen: true, action: callback });
     }
+  };
+
+  const openAuthModal = (initialView: 'login' | 'signup' = 'signup', subtitle?: string) => {
+    setShowLogin(initialView === 'login');
+    setCustomSubtitle(subtitle || null);
+    setAuthModal({ isOpen: true });
+  };
+
+  const closeAuthModal = () => {
+    setAuthModal({ isOpen: false });
+    setCustomSubtitle(null);
   };
 
   useEffect(() => {
     if (user && authModal.isOpen) {
       setAuthModal({ isOpen: false });
+      setCustomSubtitle(null);
       if (authModal.action) authModal.action();
     }
   }, [user]);
@@ -274,7 +286,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     logout,
     error,
     clearError,
-    requireAuth
+    requireAuth,
+    openAuthModal,
+    closeAuthModal,
+    isAuthModalOpen: authModal.isOpen
   };
 
   return (
@@ -295,21 +310,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 {showLogin ? (
                   <Login 
                     onToggleView={() => setShowLogin(false)} 
-                    onBack={() => setAuthModal({ isOpen: false })}
+                    onBack={closeAuthModal}
                     isModal 
                   />
                 ) : (
                   <Signup 
                     onToggleView={() => setShowLogin(true)} 
-                    onBack={() => setAuthModal({ isOpen: false })}
+                    onBack={closeAuthModal}
                     isModal 
                   />
                 )}
               </React.Suspense>
             </div>
             
-            <p className="mt-4 text-center text-[10px] text-white/40 font-black uppercase tracking-widest">
-              Signin Required to access this feature
+            <p className="mt-4 text-center text-[10px] text-white/50 font-black uppercase tracking-widest">
+              {customSubtitle || (showLogin ? 'Signin Required to access this feature' : 'Create an account to start streaming & earn rewards')}
             </p>
           </div>
         </div>

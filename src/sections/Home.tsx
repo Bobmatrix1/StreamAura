@@ -72,7 +72,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
         const partnersRef = collection(db, 'partners');
         const q = query(partnersRef, where('active', '==', true));
         const querySnapshot = await getDocs(q);
-        const partnerData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const partnerData = querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
         setPartners(partnerData);
       } catch (err) {
         console.error("Error fetching partners:", err);
@@ -191,29 +191,6 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
              </div>
           </div>
         </motion.div>
-      </section>
-
-      {/* Partners Section */}
-      <section className="px-4">
-        <div className="max-w-6xl mx-auto py-12 border-y border-white/5">
-          <p className="text-center text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground mb-12">Trusted Partners</p>
-          <div className="flex flex-wrap items-center justify-center gap-12 md:gap-24 md:grayscale md:opacity-40 md:hover:grayscale-0 md:hover:opacity-100 transition-all duration-700">
-             {partners.length > 0 ? partners.map(partner => (
-               <div key={partner.id} className="flex flex-col items-center gap-3">
-                  <img src={partner.logo} alt={partner.name} className="h-8 md:h-12 object-contain" />
-                  <span className="text-[8px] font-black uppercase tracking-widest">{partner.name}</span>
-               </div>
-             )) : (
-               <>
-                 <div className="flex items-center gap-3"><img src="/icons/Cloudflare_Logo.png" className="h-6 w-auto" alt="Cloudflare" /><span className="font-black text-xl text-white">Cloudflare</span></div>
-                 <div className="flex items-center gap-3"><img src="/icons/agora logo.png" className="h-6 w-auto" alt="Agora" /></div>
-                 <div className="flex items-center gap-3"><img src="/icons/tmdb.svg" className="h-6 w-auto" alt="TMDB" /><span className="font-black text-xl text-white">TMDB</span></div>
-                 <div className="flex items-center gap-3"><img src="/icons/transactpay logo 1.png" className="h-6 w-auto" alt="TransactPay" /><span className="font-black text-xl text-white">TransactPay</span></div>
-                 <div className="flex items-center gap-3"><img src="/icons/termly.png" className="h-6 w-auto object-contain" alt="Termly" /></div>
-               </>
-             )}
-          </div>
-        </div>
       </section>
 
       {/* App Explorer (Page Explanations) */}
@@ -354,6 +331,29 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
                </div>
             </div>
          </div>
+      </section>
+
+      {/* Partners Section */}
+      <section className="px-4">
+        <div className="max-w-6xl mx-auto py-12 border-y border-white/5">
+          <p className="text-center text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground mb-12">Trusted Partners</p>
+          <div className="flex flex-wrap items-center justify-center gap-12 md:gap-24 md:grayscale md:opacity-40 md:hover:grayscale-0 md:hover:opacity-100 transition-all duration-700">
+             {partners.length > 0 ? partners.map((partner, idx) => (
+               <div key={partner.id || `partner-${idx}`} className="flex flex-col items-center gap-3">
+                  <img src={partner.logo} alt={partner.name} className="h-8 md:h-12 object-contain" />
+                  <span className="text-[8px] font-black uppercase tracking-widest">{partner.name}</span>
+               </div>
+             )) : (
+               <>
+                 <div className="flex items-center gap-3"><img src="/icons/Cloudflare_Logo.png" className="h-6 w-auto" alt="Cloudflare" /><span className="font-black text-xl text-white">Cloudflare</span></div>
+                 <div className="flex items-center gap-3"><img src="/icons/agora logo.png" className="h-6 w-auto" alt="Agora" /></div>
+                 <div className="flex items-center gap-3"><img src="/icons/tmdb.svg" className="h-6 w-auto" alt="TMDB" /><span className="font-black text-xl text-white">TMDB</span></div>
+                 <div className="flex items-center gap-3"><img src="/icons/transactpay logo 1.png" className="h-6 w-auto" alt="TransactPay" /><span className="font-black text-xl text-white">TransactPay</span></div>
+                 <div className="flex items-center gap-3"><img src="/icons/termly.png" className="h-6 w-auto object-contain" alt="Termly" /></div>
+               </>
+             )}
+          </div>
+        </div>
       </section>
 
       {/* Call to Action */}

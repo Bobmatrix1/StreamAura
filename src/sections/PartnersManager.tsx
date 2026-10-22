@@ -46,7 +46,7 @@ export const PartnersManager: React.FC = () => {
       const partnersRef = collection(db, 'partners');
       const q = query(partnersRef, orderBy('createdAt', 'desc'));
       const querySnapshot = await getDocs(q);
-      const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Partner));
+      const data = querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Partner));
       setPartners(data);
     } catch (err) {
       showError("Failed to load partners");
@@ -130,7 +130,7 @@ export const PartnersManager: React.FC = () => {
 
       <AnimatePresence>
         {isAdding && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+          <motion.div key="add-partner-form-card" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
             <Card className="p-6 bg-white/[0.02] border-white/10">
               <form onSubmit={handleAddPartner} className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="space-y-4">
@@ -184,8 +184,8 @@ export const PartnersManager: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {isLoading ? (
           <div className="col-span-full py-12 flex justify-center"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>
-        ) : partners.length > 0 ? partners.map(partner => (
-          <Card key={partner.id} className="p-4 glass-card border-white/5 flex items-center justify-between group">
+        ) : partners.length > 0 ? partners.map((partner, pIdx) => (
+          <Card key={partner.id || `partner-${pIdx}`} className="p-4 glass-card border-white/5 flex items-center justify-between group">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 p-2 flex items-center justify-center overflow-hidden">
                 <img src={partner.logo} alt={partner.name} className="w-full h-full object-contain" />

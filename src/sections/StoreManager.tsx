@@ -436,10 +436,10 @@ export const StoreManager: React.FC = () => {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Brand Name (e.g. Zobo by Liza)</label>
+                    <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Brand Name (e.g. Lagos Munchies)</label>
                     <input 
                       className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs font-bold" 
-                      placeholder="e.g. Zobo by Liza, Small Chops by Sam" 
+                      placeholder="e.g. Lagos Munchies, Campus Treats, Small Chops by Sam" 
                       value={newVendor.name || ''} 
                       onChange={e => setNewVendor({...newVendor, name: e.target.value})} 
                     />
@@ -448,7 +448,7 @@ export const StoreManager: React.FC = () => {
                     <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Tagline / What They Sell</label>
                     <input 
                       className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs" 
-                      placeholder="e.g. Authentic Chilled Hibiscus Drinks & Fruit Blends" 
+                      placeholder="e.g. Authentic Pastries, Gourmet Sips, Burger & Small Chops" 
                       value={newVendor.tagline || ''} 
                       onChange={e => setNewVendor({...newVendor, tagline: e.target.value})} 
                     />
@@ -534,8 +534,8 @@ export const StoreManager: React.FC = () => {
 
           {/* Vendors Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {vendors.map(v => (
-              <Card key={v.id} className="glass-card border-white/10 overflow-hidden flex flex-col justify-between group hover:border-amber-500/30 transition-all">
+            {vendors.map((v, vIdx) => (
+              <Card key={v.id || `vendor-${vIdx}`} className="glass-card border-white/10 overflow-hidden flex flex-col justify-between group hover:border-amber-500/30 transition-all">
                 {editingVendor?.id === v.id ? (
                   <div className="p-4 space-y-3">
                     <div className="flex justify-between items-center">
@@ -560,7 +560,7 @@ export const StoreManager: React.FC = () => {
                         <input 
                           className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-xs" 
                           value={editingVendor.tagline || ''} 
-                          placeholder="e.g. Zobo drinks, small chops"
+                          placeholder="e.g. Fresh Pastries, Fruit Smoothies, Small Chops"
                           onChange={e => setEditingVendor({...editingVendor, tagline: e.target.value})}
                         />
                       </div>
@@ -788,8 +788,8 @@ export const StoreManager: React.FC = () => {
 
           {/* Products List */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {products.map(p => (
-              <Card key={p.id} className="overflow-hidden glass-card border-white/10 flex gap-4 p-3 relative group">
+            {products.map((p, pIdx) => (
+              <Card key={p.id || `prod-${pIdx}`} className="overflow-hidden glass-card border-white/10 flex gap-4 p-3 relative group">
                 <div className="w-20 h-20 rounded-xl overflow-hidden bg-black/40">
                   <img src={p.image} className="w-full h-full object-cover" alt={p.name} />
                 </div>
@@ -889,8 +889,8 @@ export const StoreManager: React.FC = () => {
           </Card>
 
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {partners.map(pt => (
-              <div key={pt.id} className="glass-card p-4 flex flex-col items-center gap-2 relative group">
+            {partners.map((pt, ptIdx) => (
+              <div key={pt.id || `partner-${ptIdx}`} className="glass-card p-4 flex flex-col items-center gap-2 relative group">
                 <div className="w-16 h-16 rounded-2xl overflow-hidden bg-white/5 p-2 flex items-center justify-center border border-white/5">
                   <img src={pt.logo} className="w-full h-full object-contain" alt={pt.name} />
                 </div>
@@ -908,6 +908,7 @@ export const StoreManager: React.FC = () => {
       <AnimatePresence>
         {deleteModal.isOpen && (
           <div 
+            key="store-manager-delete-modal-container"
             className="fixed inset-0 bg-black/80 backdrop-blur-md z-[1000] flex items-center justify-center p-4"
             onClick={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
           >

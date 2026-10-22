@@ -71,13 +71,13 @@ export const CinemaContentManager: React.FC = () => {
 
   useEffect(() => {
     const unsubCarousel = onSnapshot(query(collection(db, 'cinema_carousel')), (snap) => {
-      setCarouselItems(snap.docs.map(d => ({ id: d.id, ...d.data() } as CarouselItem)));
+      setCarouselItems(snap.docs.map(d => ({ ...d.data(), id: d.id } as CarouselItem)));
     });
     const unsubTrailers = onSnapshot(query(collection(db, 'cinema_trailers')), (snap) => {
-      setTrailers(snap.docs.map(d => ({ id: d.id, ...d.data() } as TrailerItem)));
+      setTrailers(snap.docs.map(d => ({ ...d.data(), id: d.id } as TrailerItem)));
     });
     const unsubUpcoming = onSnapshot(query(collection(db, 'cinema_upcoming')), (snap) => {
-      setUpcoming(snap.docs.map(d => ({ id: d.id, ...d.data() } as UpcomingItem)));
+      setUpcoming(snap.docs.map(d => ({ ...d.data(), id: d.id } as UpcomingItem)));
     });
 
     return () => {
@@ -339,8 +339,8 @@ export const CinemaContentManager: React.FC = () => {
           </div>
 
           <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-            {activeSubTab === 'carousel' && carouselItems.map(item => (
-              <div key={item.id} className="glass-card p-3 flex gap-4 items-center group">
+            {activeSubTab === 'carousel' && carouselItems.map((item, idx) => (
+              <div key={item.id || `carousel-${idx}`} className="glass-card p-3 flex gap-4 items-center group">
                 <div className="w-24 aspect-video rounded-lg overflow-hidden border border-white/10 shrink-0">
                   <img src={item.image} className="w-full h-full object-cover" />
                 </div>
@@ -357,8 +357,8 @@ export const CinemaContentManager: React.FC = () => {
               </div>
             ))}
 
-            {activeSubTab === 'trailers' && trailers.map(item => (
-              <div key={item.id} className="glass-card p-3 flex gap-4 items-center group">
+            {activeSubTab === 'trailers' && trailers.map((item, idx) => (
+              <div key={item.id || `trailer-${idx}`} className="glass-card p-3 flex gap-4 items-center group">
                 <div className="w-24 aspect-video rounded-lg overflow-hidden border border-white/10 shrink-0 relative">
                   <img src={item.thumbnail} className="w-full h-full object-cover" />
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
@@ -378,8 +378,8 @@ export const CinemaContentManager: React.FC = () => {
               </div>
             ))}
 
-            {activeSubTab === 'upcoming' && upcoming.map(item => (
-              <div key={item.id} className="glass-card p-3 flex gap-4 items-center group">
+            {activeSubTab === 'upcoming' && upcoming.map((item, idx) => (
+              <div key={item.id || `upcoming-${idx}`} className="glass-card p-3 flex gap-4 items-center group">
                 <div className="w-16 aspect-[2/3] rounded-lg overflow-hidden border border-white/10 shrink-0">
                   <img src={item.poster} className="w-full h-full object-cover" />
                 </div>

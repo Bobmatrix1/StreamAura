@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Store, 
@@ -17,6 +17,7 @@ import {
   UserCheck,
   CreditCard,
   CheckCircle2,
+  Check,
   ChevronDown,
   ChevronUp,
   Maximize2,
@@ -75,6 +76,12 @@ import { API_BASE_URL } from '../api/mediaApi';
 import { fetchBanks, resolveBankAccount } from '../api/paymentApi';
 import { CustomPlatformDropdown } from '../components/ui/CustomPlatformDropdown';
 import { STORE_CATEGORIES } from '../types';
+import { 
+  LAGOS_LOCATIONS, 
+  LAGOS_LOCATION_CATEGORIES, 
+  searchLagosLocations,
+  type LocationItem
+} from '../lib/locations';
 
 interface Product {
   id: string;
@@ -183,6 +190,7 @@ const VendorFilterCustomDropdown: React.FC<VendorFilterDropdownProps> = ({
       <AnimatePresence>
         {isOpen && (
           <motion.div
+            key="custom-vendor-dropdown-menu"
             initial={{ opacity: 0, y: 6, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 6, scale: 0.97 }}
@@ -222,12 +230,12 @@ const VendorFilterCustomDropdown: React.FC<VendorFilterDropdownProps> = ({
 
             {/* Individual Vendors List */}
             <div className="py-1 space-y-1">
-              {vendors.map((v) => {
+              {vendors.map((v, vIdx) => {
                 const count = getItemCount ? getItemCount(v.id) : undefined;
                 const isSelected = selectedVendor === v.id;
                 return (
                   <button
-                    key={v.id}
+                    key={v.id || `vend-${vIdx}`}
                     type="button"
                     onClick={() => {
                       onSelectVendor(v.id);
@@ -558,8 +566,15 @@ export const VendorDashboard: React.FC = () => {
     telegramGroupId: '',
     logo: '',
     flyer: '',
-    phone: ''
+    phone: '',
+    deliveryCoverageType: 'all' as 'all' | 'specific',
+    deliveryLocations: [] as string[]
   });
+
+  // Delivery location selection states inside Brand & Flyer tab
+  const [locationSearchTerm, setLocationSearchTerm] = useState('');
+  const [locationCategoryFilter, setLocationCategoryFilter] = useState<string>('all');
+  const [customLocationInput, setCustomLocationInput] = useState('');
 
   // Background scroll lock
   useEffect(() => {
@@ -577,7 +592,7 @@ export const VendorDashboard: React.FC = () => {
   useEffect(() => {
     if (!isUserAdmin) return;
     const unsubVendors = onSnapshot(collection(db, 'vendors'), (snap) => {
-      const vList = snap.docs.map(d => ({ id: d.id, ...d.data() } as Vendor));
+      const vList = snap.docs.map(d => ({ ...d.data(), id: d.id } as Vendor));
       setAdminVendors(vList);
     });
     return () => unsubVendors();
@@ -735,12 +750,12 @@ export const VendorDashboard: React.FC = () => {
     };
 
     const unsubPayouts = qPay ? onSnapshot(qPay, (snap) => {
-      localPayouts = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      localPayouts = snap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
       mergeAndSort();
     }) : () => {};
 
     const unsubSales = qSales ? onSnapshot(qSales, (snap) => {
-      localSales = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      localSales = snap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
       mergeAndSort();
     }) : () => {};
 
@@ -812,7 +827,7 @@ export const VendorDashboard: React.FC = () => {
     if (targetVendorId) {
       unsubVendorDoc = onSnapshot(doc(db, 'vendors', targetVendorId), (snap) => {
         if (snap.exists()) {
-          const vData = { id: snap.id, ...snap.data() } as Vendor;
+          const vData = { ...snap.data(), id: snap.id } as Vendor;
           setBrandForm({
             name: vData.name || user?.displayName || 'My Brand Store',
             tagline: vData.tagline || '',
@@ -822,7 +837,9 @@ export const VendorDashboard: React.FC = () => {
             telegramGroupId: vData.telegramGroupId || '',
             logo: vData.logo || '',
             flyer: vData.flyer || '',
-            phone: vData.phone || ''
+            phone: vData.phone || '',
+            deliveryCoverageType: vData.deliveryCoverageType || 'all',
+            deliveryLocations: Array.isArray(vData.deliveryLocations) ? vData.deliveryLocations : []
           });
         } else {
           setBrandForm(prev => ({
@@ -1482,7 +1499,7 @@ export const VendorDashboard: React.FC = () => {
       return;
     }
     if (!brandForm.name.trim()) {
-      toast.error('Please provide a brand name (e.g. Zobo by Liza, Small Chops by Sam)');
+      toast.error('Please provide a brand name (e.g. Lagos Munchies, Campus Treats)');
       return;
     }
 
@@ -1497,7 +1514,9 @@ export const VendorDashboard: React.FC = () => {
         telegramGroupId: brandForm.telegramGroupId.trim(),
         logo: brandForm.logo || '',
         flyer: brandForm.flyer || '',
-        phone: brandForm.phone.trim()
+        phone: brandForm.phone.trim(),
+        deliveryCoverageType: brandForm.deliveryCoverageType || 'all',
+        deliveryLocations: brandForm.deliveryLocations || []
       };
 
       await setDoc(doc(db, 'vendors', targetVendorId), vendorPayload, { merge: true });
@@ -1508,6 +1527,95 @@ export const VendorDashboard: React.FC = () => {
     } finally {
       setIsSavingBrand(false);
     }
+  };
+
+  // Location Selector Handlers for Brand & Flyer Form
+  const handleToggleBrandLocation = (locName: string) => {
+    setBrandForm(prev => {
+      const current = prev.deliveryLocations || [];
+      const exists = current.includes(locName);
+      const updated = exists ? current.filter(l => l !== locName) : [...current, locName];
+      return {
+        ...prev,
+        deliveryCoverageType: 'specific',
+        deliveryLocations: updated
+      };
+    });
+  };
+
+  const handleAddBrandCustomLocation = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = customLocationInput.trim();
+    if (!trimmed) return;
+    if (brandForm.deliveryLocations?.some(l => l.toLowerCase() === trimmed.toLowerCase())) {
+      toast.info(`"${trimmed}" is already added to your delivery areas.`);
+      setCustomLocationInput('');
+      return;
+    }
+    setBrandForm(prev => ({
+      ...prev,
+      deliveryCoverageType: 'specific',
+      deliveryLocations: [...(prev.deliveryLocations || []), trimmed]
+    }));
+    setCustomLocationInput('');
+    toast.success(`Added "${trimmed}" to your delivery coverage!`);
+  };
+
+  const handleSelectBrandCategoryLocations = (catId: string) => {
+    const catItems = LAGOS_LOCATIONS.filter(l => l.category === catId).map(l => l.name);
+    setBrandForm(prev => {
+      const current = new Set(prev.deliveryLocations || []);
+      catItems.forEach(item => current.add(item));
+      return {
+        ...prev,
+        deliveryCoverageType: 'specific',
+        deliveryLocations: Array.from(current)
+      };
+    });
+    toast.success(`Added all locations in this group!`);
+  };
+
+  const visibleDirectoryLocations = useMemo(() => {
+    return searchLagosLocations(locationSearchTerm)
+      .filter(item => locationCategoryFilter === 'all' || item.category === locationCategoryFilter);
+  }, [locationSearchTerm, locationCategoryFilter]);
+
+  const isAllVisibleDirectoryLocationsSelected = useMemo(() => {
+    if (visibleDirectoryLocations.length === 0) return false;
+    const currentSelectedSet = new Set(brandForm.deliveryLocations || []);
+    return visibleDirectoryLocations.every((loc: LocationItem) => currentSelectedSet.has(loc.name));
+  }, [visibleDirectoryLocations, brandForm.deliveryLocations]);
+
+  const handleToggleSelectAllDirectoryLocations = () => {
+    if (visibleDirectoryLocations.length === 0) return;
+    
+    if (isAllVisibleDirectoryLocationsSelected) {
+      const visibleNames = new Set(visibleDirectoryLocations.map((loc: LocationItem) => loc.name));
+      setBrandForm(prev => ({
+        ...prev,
+        deliveryLocations: (prev.deliveryLocations || []).filter(name => !visibleNames.has(name))
+      }));
+      toast.info(`Unselected all ${visibleDirectoryLocations.length} locations in current view.`);
+    } else {
+      setBrandForm(prev => {
+        const current = new Set(prev.deliveryLocations || []);
+        visibleDirectoryLocations.forEach((loc: LocationItem) => current.add(loc.name));
+        return {
+          ...prev,
+          deliveryCoverageType: 'specific',
+          deliveryLocations: Array.from(current)
+        };
+      });
+      toast.success(`Selected all ${visibleDirectoryLocations.length} locations in Lagos Directory!`);
+    }
+  };
+
+  const handleClearAllBrandLocations = () => {
+    setBrandForm(prev => ({
+      ...prev,
+      deliveryLocations: []
+    }));
+    toast.info('Cleared all selected delivery areas.');
   };
 
   const handleFlyerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2040,7 +2148,7 @@ export const VendorDashboard: React.FC = () => {
 
               {/* Orders Feed */}
               <div className="space-y-3">
-                {displayedOrders.map((order) => {
+                {displayedOrders.map((order, ordIdx) => {
                   const status = order.status || 'pending';
                   const orderNum = order.orderNumber || order.id.substring(0, 8).toUpperCase();
                   const dateStr = order.createdAt ? new Date(order.createdAt).toLocaleString() : 'Recent';
@@ -2054,7 +2162,7 @@ export const VendorDashboard: React.FC = () => {
 
                   return (
                     <Card 
-                      key={order.id} 
+                      key={order.id || `order-${ordIdx}`} 
                       className={`glass-card border-slate-200 dark:border-white/10 bg-white/90 dark:bg-slate-900/60 shadow-sm overflow-hidden text-left transition-all hover:border-slate-300 dark:hover:border-white/20 ${
                         isExpanded ? 'ring-1 ring-amber-500/40 border-amber-500/30' : ''
                       }`}
@@ -2225,6 +2333,7 @@ export const VendorDashboard: React.FC = () => {
                       <AnimatePresence>
                         {isExpanded && (
                           <motion.div
+                            key={`order-detail-expanded-${order.id}`}
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: 'auto' }}
                             exit={{ opacity: 0, height: 0 }}
@@ -2256,10 +2365,10 @@ export const VendorDashboard: React.FC = () => {
 
                                 <div className="space-y-1.5">
                                   <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 dark:text-muted-foreground flex items-center gap-1.5">
-                                    <MapPin className="w-3.5 h-3.5 text-amber-500" /> Delivery Address / Seat Notes
+                                    <MapPin className="w-3.5 h-3.5 text-amber-500" /> Delivery Address & Notes
                                   </p>
                                   <p className="text-xs text-slate-700 dark:text-white/90 font-medium leading-relaxed">
-                                    {order.deliveryAddress || 'Standard Delivery / In-Cinema Pick-Up'}
+                                    {order.deliveryAddress || 'Standard Express Delivery'}
                                   </p>
                                   {order.estimatedDeliveryTime && (
                                     <div className="flex items-center gap-1.5 text-[10px] font-black uppercase text-purple-700 dark:text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-md w-fit mt-1">
@@ -2512,8 +2621,8 @@ export const VendorDashboard: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-6">
-                {displayedProducts.map(p => (
-                  <Card key={p.id} className="glass-card border-slate-200 dark:border-white/10 bg-white/90 dark:bg-slate-900/60 shadow-sm overflow-hidden group flex flex-col h-full">
+                {displayedProducts.map((p, pIdx) => (
+                  <Card key={p.id || `prod-${pIdx}`} className="glass-card border-slate-200 dark:border-white/10 bg-white/90 dark:bg-slate-900/60 shadow-sm overflow-hidden group flex flex-col h-full">
                     <div className="relative aspect-video bg-slate-100 dark:bg-black/40 overflow-hidden flex items-center justify-center border-b border-slate-200 dark:border-white/10">
                       {p.image ? (
                         <img src={p.image} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt={p.name} />
@@ -2850,14 +2959,14 @@ export const VendorDashboard: React.FC = () => {
                       <div className="space-y-1.5">
                         <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center justify-between">
                           <span>Brand / Store Name <span className="text-rose-500">*</span></span>
-                          <span className="text-[9px] font-normal text-slate-400">e.g. Zobo by Liza, Small Chops by Sam</span>
+                          <span className="text-[9px] font-normal text-slate-400">e.g. Lagos Munchies, Campus Treats</span>
                         </label>
                         <input
                           type="text"
                           required
                           value={brandForm.name}
                           onChange={(e) => setBrandForm(prev => ({ ...prev, name: e.target.value }))}
-                          placeholder="e.g. Zobo by Liza, Small Chops by Sam"
+                          placeholder="e.g. Lagos Munchies, Campus Treats"
                           className="w-full bg-slate-50 dark:bg-black/50 border border-slate-300 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-inner"
                         />
                       </div>
@@ -2872,7 +2981,7 @@ export const VendorDashboard: React.FC = () => {
                           type="text"
                           value={brandForm.tagline}
                           onChange={(e) => setBrandForm(prev => ({ ...prev, tagline: e.target.value }))}
-                          placeholder="e.g. Authentic Chilled Hibiscus Drinks, Fruit Blends & Cocktails"
+                          placeholder="e.g. Authentic Pastries, Gourmet Sips, Burger & Small Chops"
                           className="w-full bg-slate-50 dark:bg-black/50 border border-slate-300 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-inner"
                         />
                         <p className="text-[9px] text-slate-400 font-medium">Displayed right below your brand name in Crave Aura so shoppers know what you sell immediately.</p>
@@ -2918,7 +3027,7 @@ export const VendorDashboard: React.FC = () => {
                             type="tel"
                             value={brandForm.phone}
                             onChange={(e) => setBrandForm(prev => ({ ...prev, phone: e.target.value }))}
-                            placeholder="e.g. 08012345678"
+                            placeholder="080123xxxxx"
                             className="w-full bg-slate-50 dark:bg-black/50 border border-slate-300 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-inner"
                           />
                         </div>
@@ -2966,6 +3075,284 @@ export const VendorDashboard: React.FC = () => {
                           className="w-full bg-slate-50 dark:bg-black/50 border border-slate-300 dark:border-white/10 rounded-xl p-3 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 resize-none shadow-inner"
                         />
                       </div>
+                    </Card>
+
+                    {/* SECTION 4: DELIVERY LOCATIONS & COVERAGE (LAGOS) */}
+                    <Card className="glass-card p-4 sm:p-5 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-white/[0.03] space-y-4 shadow-sm">
+                      <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/5 pb-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-black flex items-center justify-center border border-amber-500/20">4</span>
+                          <h4 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-1.5">
+                            <MapPin className="w-3.5 h-3.5 text-amber-500" /> Delivery Coverage & Areas (Lagos)
+                          </h4>
+                        </div>
+                        <Badge variant="outline" className="text-[8px] font-black uppercase text-amber-600 dark:text-amber-400 border-amber-500/30 bg-amber-500/10">
+                          {brandForm.deliveryCoverageType === 'all' ? 'Statewide' : `${brandForm.deliveryLocations?.length || 0} Areas`}
+                        </Badge>
+                      </div>
+
+                      {/* Coverage Type Switcher */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-1.5 bg-slate-100 dark:bg-black/40 rounded-2xl border border-slate-200 dark:border-white/10">
+                        <button
+                          type="button"
+                          onClick={() => setBrandForm(prev => ({ ...prev, deliveryCoverageType: 'all' }))}
+                          className={`py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                            brandForm.deliveryCoverageType === 'all'
+                              ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-md shadow-amber-500/20'
+                              : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
+                          }`}
+                        >
+                          <Globe className="w-3.5 h-3.5" />
+                          <span>All Lagos Locations (Statewide)</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setBrandForm(prev => ({ ...prev, deliveryCoverageType: 'specific' }))}
+                          className={`py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                            brandForm.deliveryCoverageType === 'specific'
+                              ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-md shadow-amber-500/20'
+                              : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
+                          }`}
+                        >
+                          <MapPin className="w-3.5 h-3.5" />
+                          <span>Choose Areas You Can Deliver To</span>
+                        </button>
+                      </div>
+
+                      {brandForm.deliveryCoverageType === 'all' ? (
+                        <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2.5 text-emerald-800 dark:text-emerald-300">
+                          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
+                          <p className="text-xs font-medium">
+                            Your store is visible and deliverable to customers anywhere in Lagos State (all universities, colleges, mainland and island zones).
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4 pt-1">
+                          {/* Quick Category Chips */}
+                          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+                            <button
+                              type="button"
+                              onClick={() => setLocationCategoryFilter('all')}
+                              className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider shrink-0 cursor-pointer ${
+                                locationCategoryFilter === 'all'
+                                  ? 'bg-amber-500 text-white'
+                                  : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                              }`}
+                            >
+                              All Lagos ({LAGOS_LOCATIONS.length})
+                            </button>
+                            {LAGOS_LOCATION_CATEGORIES.map((cat, catIdx) => (
+                              <button
+                                key={cat.id || `loc-cat-${catIdx}`}
+                                type="button"
+                                onClick={() => setLocationCategoryFilter(cat.id)}
+                                className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider shrink-0 cursor-pointer flex items-center gap-1 ${
+                                  locationCategoryFilter === cat.id
+                                    ? 'bg-amber-500 text-white'
+                                    : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                                }`}
+                              >
+                                <span>{cat.icon}</span>
+                                <span>{cat.name}</span>
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Quick Group Presets & Clear All */}
+                          <div className="flex flex-wrap items-center gap-1.5 text-[9px] font-black uppercase">
+                            <span className="text-slate-400 mr-1">Quick Select:</span>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectBrandCategoryLocations('schools')}
+                              className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/20 cursor-pointer transition-colors"
+                            >
+                              + All Schools & Campuses
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectBrandCategoryLocations('mainland-central')}
+                              className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/20 cursor-pointer transition-colors"
+                            >
+                              + All Yaba & Surulere
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectBrandCategoryLocations('island')}
+                              className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/20 cursor-pointer transition-colors"
+                            >
+                              + All Island & Lekki
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectBrandCategoryLocations('ikeja-central')}
+                              className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/20 cursor-pointer transition-colors"
+                            >
+                              + All Ikeja
+                            </button>
+                            {brandForm.deliveryLocations && brandForm.deliveryLocations.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={handleClearAllBrandLocations}
+                                className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 cursor-pointer transition-colors ml-auto"
+                              >
+                                Clear All ({brandForm.deliveryLocations.length})
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Search Input */}
+                          <div className="relative">
+                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              value={locationSearchTerm}
+                              onChange={(e) => setLocationSearchTerm(e.target.value)}
+                              placeholder="Search schools (UNILAG, LASU, YABATECH...), LGAs, towns, or estates..."
+                              className="w-full bg-slate-50 dark:bg-black/50 border border-slate-300 dark:border-white/10 rounded-xl pl-9 pr-3.5 py-2 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-inner"
+                            />
+                            {locationSearchTerm && (
+                              <button
+                                type="button"
+                                onClick={() => setLocationSearchTerm('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Custom Location Input */}
+                          <div className="p-2.5 rounded-2xl bg-slate-50 dark:bg-black/30 border border-dashed border-amber-500/30 space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                              <span>Add Custom Hostel, Estate, Hall or Landmark</span>
+                              <span className="text-[9px] text-amber-500 font-normal">Custom Input</span>
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={customLocationInput}
+                                onChange={(e) => setCustomLocationInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleAddBrandCustomLocation();
+                                  }
+                                }}
+                                placeholder="e.g. Moremi Hall UNILAG, Block C New Hall, Parkview Gate 2..."
+                                className="flex-1 bg-white dark:bg-black/50 border border-slate-300 dark:border-white/10 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-inner"
+                              />
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => handleAddBrandCustomLocation()}
+                                disabled={!customLocationInput.trim()}
+                                className="h-8 px-3 rounded-xl text-[10px] font-black uppercase gradient-bg !text-white shadow-xs cursor-pointer"
+                              >
+                                <Plus className="w-3 h-3 mr-1" /> Add
+                              </Button>
+                            </div>
+                          </div>
+
+                          {/* Selected Locations Chips Box */}
+                          {brandForm.deliveryLocations && brandForm.deliveryLocations.length > 0 && (
+                            <div className="p-3 rounded-2xl bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-amber-800 dark:text-amber-300">
+                                  Selected Delivery Locations ({brandForm.deliveryLocations.length})
+                                </span>
+                                <span className="text-[9px] text-slate-400 font-medium">Click ✕ to remove</span>
+                              </div>
+                              <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
+                                {brandForm.deliveryLocations.map((loc, locIdx) => (
+                                  <span
+                                    key={loc || `loc-chip-${locIdx}`}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/20 border border-amber-500/40 text-slate-900 dark:text-amber-200 text-[10px] font-bold shadow-xs"
+                                  >
+                                    <MapPin className="w-2.5 h-2.5 text-amber-500" />
+                                    <span>{loc}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleBrandLocation(loc)}
+                                      className="hover:text-rose-500 transition-colors p-0.5"
+                                      title={`Remove ${loc}`}
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Locations Selection Grid */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <label className="text-[10px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                <MapPin className="w-3 h-3 text-amber-500" />
+                                <span>Choose from Lagos Directory</span>
+                              </label>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={handleToggleSelectAllDirectoryLocations}
+                                  className={`px-2.5 py-1 rounded-lg active:scale-95 text-[9px] font-black uppercase tracking-wider shadow-xs transition-all cursor-pointer flex items-center gap-1 ${
+                                    isAllVisibleDirectoryLocationsSelected
+                                      ? 'bg-rose-500 hover:bg-rose-600 text-white'
+                                      : 'bg-amber-500 hover:bg-amber-600 text-white'
+                                  }`}
+                                >
+                                  {isAllVisibleDirectoryLocationsSelected ? (
+                                    <>
+                                      <X className="w-2.5 h-2.5 stroke-[3]" /> Unselect All
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Check className="w-2.5 h-2.5 stroke-[3]" /> Select All
+                                    </>
+                                  )}
+                                </button>
+                                <span className="hidden sm:inline text-[9px] text-slate-400 font-medium">Click to select/deselect</span>
+                              </div>
+                            </div>
+                            <div className="max-h-56 overflow-y-auto rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-black/40 p-2 space-y-1">
+                              {visibleDirectoryLocations.map((loc: LocationItem, locIdx: number) => {
+                                  const isSelected = brandForm.deliveryLocations?.includes(loc.name);
+                                  return (
+                                    <div
+                                      key={loc.id || `loc-row-${locIdx}`}
+                                      onClick={() => handleToggleBrandLocation(loc.name)}
+                                      className={`p-2 rounded-xl flex items-center justify-between gap-2 cursor-pointer transition-all ${
+                                        isSelected
+                                          ? 'bg-amber-500/20 border border-amber-500/50 text-slate-900 dark:text-white font-bold'
+                                          : 'hover:bg-slate-200/60 dark:hover:bg-white/5 border border-transparent text-slate-700 dark:text-slate-300 font-medium'
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <div className={`w-4 h-4 rounded-md flex items-center justify-center text-[10px] border transition-colors ${
+                                          isSelected ? 'bg-amber-500 text-white border-amber-500' : 'border-slate-300 dark:border-white/20'
+                                        }`}>
+                                          {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                                        </div>
+                                        <div className="min-w-0">
+                                          <p className="text-xs truncate">{loc.name}</p>
+                                          {loc.subArea && (
+                                            <p className="text-[9px] text-slate-400 truncate">{loc.subArea}</p>
+                                          )}
+                                        </div>
+                                      </div>
+                                      {loc.isSchool && (
+                                        <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400 shrink-0">
+                                          Campus
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </Card>
 
                     {/* Submit Button */}
@@ -3055,6 +3442,18 @@ export const VendorDashboard: React.FC = () => {
                           {brandForm.description}
                         </p>
                       )}
+
+                      {/* Delivery Coverage Preview Pill */}
+                      <div className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 flex items-center gap-2 text-[10px] font-bold text-slate-700 dark:text-slate-300">
+                        <MapPin className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        <span className="truncate">
+                          {brandForm.deliveryCoverageType === 'all' 
+                            ? 'Delivers Statewide across Lagos' 
+                            : brandForm.deliveryLocations && brandForm.deliveryLocations.length > 0
+                              ? `Delivers to: ${brandForm.deliveryLocations.slice(0, 2).join(', ')}${brandForm.deliveryLocations.length > 2 ? ` +${brandForm.deliveryLocations.length - 2} more` : ''}`
+                              : 'No specific areas selected (Statewide)'}
+                        </span>
+                      </div>
 
                       {/* Products count info & Visit CTA */}
                       <div className="flex items-center justify-between pt-2.5 border-t border-slate-100 dark:border-white/5 text-[9px] font-black uppercase text-slate-500 dark:text-slate-400">
@@ -3325,12 +3724,12 @@ export const VendorDashboard: React.FC = () => {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                          {displayedTransactions.map((item) => {
+                          {displayedTransactions.map((item, txIdx) => {
                             const isSale = item.type === 'sale';
                             const refCode = item.orderNumber ? `#${item.orderNumber}` : item.id.substring(0, 10).toUpperCase();
 
                             return (
-                              <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.02] text-xs font-bold uppercase tracking-tight transition-colors">
+                              <tr key={item.id || `tx-row-${txIdx}`} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.02] text-xs font-bold uppercase tracking-tight transition-colors">
                                 <td className="py-3.5 px-4">
                                   <div className="flex items-center gap-1.5 font-mono text-[11px] text-amber-700 dark:text-amber-400">
                                     <span>{refCode}</span>
@@ -3438,13 +3837,13 @@ export const VendorDashboard: React.FC = () => {
 
                   {/* Mobile Card Feed View */}
                   <div className="space-y-3 md:hidden">
-                    {displayedTransactions.map((item) => {
+                    {displayedTransactions.map((item, txCardIdx) => {
                       const isSale = item.type === 'sale';
                       const refCode = item.orderNumber ? `#${item.orderNumber}` : item.id.substring(0, 10).toUpperCase();
 
                       return (
                         <Card 
-                          key={item.id} 
+                          key={item.id || `tx-card-${txCardIdx}`} 
                           onClick={() => setSelectedTxDetail(item)}
                           className="glass-card p-4 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm space-y-3 text-left active:scale-[0.99] transition-transform cursor-pointer"
                         >
@@ -3730,8 +4129,8 @@ export const VendorDashboard: React.FC = () => {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                            {payouts.map(p => (
-                              <tr key={p.id} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.01] text-xs font-bold uppercase tracking-tight">
+                            {payouts.map((p, pIdx) => (
+                              <tr key={p.id || `payout-${pIdx}`} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.01] text-xs font-bold uppercase tracking-tight">
                                 <td className="py-3.5 px-4 font-mono text-[10px] text-slate-500 dark:text-muted-foreground">{p.id.substring(0, 10)}...</td>
                                 <td className="py-3.5 px-4 font-black text-slate-900 dark:text-white">₦{p.amount.toLocaleString()}</td>
                                 <td className="py-3.5 px-4 text-slate-500 dark:text-muted-foreground font-mono text-[11px]">₦{(p.fee_amount !== undefined ? p.fee_amount : (p.type === 'vendor' ? 0 : p.amount * 0.05)).toLocaleString()}</td>
@@ -3765,8 +4164,8 @@ export const VendorDashboard: React.FC = () => {
                     </div>
 
                     <div className="space-y-3 md:hidden">
-                      {payouts.map(p => (
-                        <Card key={p.id} className="glass-card p-4 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm space-y-2 text-left">
+                      {payouts.map((p, pIdx) => (
+                        <Card key={p.id || `payout-card-${pIdx}`} className="glass-card p-4 border-slate-200 dark:border-white/5 bg-white/90 dark:bg-slate-900/60 shadow-sm space-y-2 text-left">
                           <div className="flex justify-between items-center">
                             <span className="text-[10px] font-mono text-slate-500 dark:text-muted-foreground">ID: {p.id.substring(0, 10)}...</span>
                             <Badge 
@@ -3822,6 +4221,7 @@ export const VendorDashboard: React.FC = () => {
       <AnimatePresence>
         {isProductModalOpen && (
           <div 
+            key="vendor-product-modal-container"
             className="fixed inset-0 bg-black/70 backdrop-blur-md z-[999] flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
             onClick={closeProductModal}
           >
@@ -3886,7 +4286,7 @@ export const VendorDashboard: React.FC = () => {
                       <input 
                         required
                         type="text"
-                        placeholder="e.g. Suya Special, Popcorn Deluxe, Chilled Zobo 500ml"
+                        placeholder="e.g. Suya Special, Popcorn Deluxe, Chilled Berry Mocktail 500ml"
                         className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-muted-foreground/60 outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/40 transition-all font-medium"
                         value={productForm.name}
                         onChange={e => setProductForm({ ...productForm, name: e.target.value })}
@@ -4316,6 +4716,7 @@ export const VendorDashboard: React.FC = () => {
       <AnimatePresence>
         {isWithdrawModalOpen && (
           <div 
+            key="vendor-withdraw-modal-container"
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[999] flex items-center justify-center p-4"
             onClick={handleCloseWithdrawModal}
           >
@@ -4424,7 +4825,7 @@ export const VendorDashboard: React.FC = () => {
                     </div>
                     <AnimatePresence>
                       {showBankDropdown && (
-                        <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute z-[110] left-0 right-0 top-full mt-1.5 max-h-44 overflow-y-auto bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl custom-scrollbar">
+                        <motion.div key="vendor-bank-dropdown-list" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute z-[110] left-0 right-0 top-full mt-1.5 max-h-44 overflow-y-auto bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl custom-scrollbar">
                           {filteredBanks.map((bank, i) => (
                             <button 
                               key={`${bank.code}-${i}`} 
@@ -4557,6 +4958,7 @@ export const VendorDashboard: React.FC = () => {
       <AnimatePresence>
         {deleteModalState.isOpen && (
           <div 
+            key="vendor-product-delete-modal-container"
             className="fixed inset-0 bg-black/80 backdrop-blur-md z-[1000] flex items-center justify-center p-4"
             onClick={() => !isDeletingProduct && setDeleteModalState(prev => ({ ...prev, isOpen: false }))}
           >
@@ -4608,6 +5010,7 @@ export const VendorDashboard: React.FC = () => {
       <AnimatePresence>
         {shippingModal.isOpen && (
           <div 
+            key="vendor-shipping-modal-container"
             className="fixed inset-0 bg-black/70 backdrop-blur-md z-[1000] flex items-center justify-center p-4"
             onClick={() => !shippingModal.isSubmitting && setShippingModal(prev => ({ ...prev, isOpen: false }))}
           >
@@ -4718,6 +5121,7 @@ export const VendorDashboard: React.FC = () => {
       <AnimatePresence>
         {selectedTxDetail && (
           <div 
+            key="vendor-tx-detail-modal-container"
             className="fixed inset-0 bg-black/70 backdrop-blur-md z-[1000] flex items-center justify-center p-4"
             onClick={() => setSelectedTxDetail(null)}
           >
@@ -4878,6 +5282,7 @@ export const VendorDashboard: React.FC = () => {
       <AnimatePresence>
         {deleteRecordModal.isOpen && (
           <div 
+            key="vendor-delete-record-modal-container"
             className="fixed inset-0 bg-black/80 backdrop-blur-md z-[1000] flex items-center justify-center p-4"
             onClick={() => !isDeletingRecord && setDeleteRecordModal(prev => ({ ...prev, isOpen: false }))}
           >

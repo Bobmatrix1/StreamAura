@@ -5,7 +5,7 @@
  * Includes form validation and smooth animations.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Mail, 
@@ -14,11 +14,13 @@ import {
   EyeOff, 
   ArrowRight,
   ArrowLeft,
-  User
+  User,
+  Gift
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { getGreetingName } from '../lib/utils';
+import { getStoredReferralCode, getReferrerDisplayName } from '../lib/referral';
 
 interface SignupProps {
   onToggleView: () => void;
@@ -43,9 +45,21 @@ const Signup: React.FC<SignupProps> = ({ onToggleView, isModal, onBack }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [storedReferral, setStoredReferral] = useState<string | null>(null);
+  const [referrerName, setReferrerName] = useState<string | null>(null);
   
   const { signUp, signInGoogle, clearError } = useAuth();
   const { showError, showSuccess } = useToast();
+
+  useEffect(() => {
+    const code = getStoredReferralCode();
+    if (code) {
+      setStoredReferral(code);
+      getReferrerDisplayName(code).then(name => {
+        if (name) setReferrerName(name);
+      });
+    }
+  }, []);
 
   const validateForm = (): boolean => {
     if (!displayName.trim()) {
@@ -179,9 +193,21 @@ const Signup: React.FC<SignupProps> = ({ onToggleView, isModal, onBack }) => {
             <p className="text-muted-foreground text-sm mb-3">
               Sign up to start streaming
             </p>
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-bold mb-4 shadow-sm">
-              <span>🪙 +1,000 AuraCoins Welcome Bonus</span>
-            </div>
+            {storedReferral ? (
+              <div className="mb-4 p-3 rounded-2xl bg-gradient-to-r from-orange-500/15 via-amber-500/15 to-purple-500/15 border border-orange-500/30 text-center space-y-1 shadow-sm">
+                <div className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-orange-500 dark:text-orange-400">
+                  <Gift className="w-3.5 h-3.5" />
+                  <span>Referral Bonus Active!</span>
+                </div>
+                <p className="text-[11px] font-semibold text-slate-700 dark:text-white/80">
+                  {referrerName ? `Invited by ${referrerName}! ` : ''}Sign up now to claim your <span className="font-bold text-amber-500">1,000 AuraCoins</span> welcome bonus.
+                </p>
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-bold mb-4 shadow-sm">
+                <span>🪙 +1,000 AuraCoins Welcome Bonus</span>
+              </div>
+            )}
           </div>
 
           {/* Google Sign Up */}

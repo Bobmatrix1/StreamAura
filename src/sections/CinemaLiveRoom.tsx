@@ -718,9 +718,23 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
   };
 
   const handleCopyInviteLink = () => {
-    const inviteUrl = `${window.location.origin}/?tab=cinema&room=${roomId}`;
-    navigator.clipboard.writeText(inviteUrl);
-    toast.success("Invite link copied to clipboard!");
+    const origin = typeof window !== 'undefined' && window.location.origin.includes('streamaura')
+      ? window.location.origin
+      : 'https://streamaura.site';
+    const inviteUrl = `${origin}/?tab=cinema&room=${roomId}`;
+    if (navigator.share) {
+      navigator.share({
+        title: `Join StreamAura Cinema - ${roomData?.room_name || 'Theater'}`,
+        text: `🍿 I'm watching ${roomData?.movie_title || 'a movie'} on StreamAura! Come join the cinema room:`,
+        url: inviteUrl
+      }).catch(() => {
+        navigator.clipboard.writeText(inviteUrl);
+        toast.success("Invite link copied to clipboard!");
+      });
+    } else {
+      navigator.clipboard.writeText(inviteUrl);
+      toast.success("Invite link copied to clipboard!");
+    }
   };
 
   // Active Users for Moderation

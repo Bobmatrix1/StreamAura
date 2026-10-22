@@ -36,11 +36,26 @@
     <link rel="manifest" href="/manifest.json" />
     <!-- Preconnect to external domains for faster loading -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     
     <!-- TransactPay Checkout SDK -->
     <script src="https://payment-web-sdk.transactpay.ai/v1/checkout"></script>
+
+    <!-- Early PWA Install Prompt Capture -->
+    <script>
+      (function() {
+        window.__AURA_DEFERRED_PROMPT__ = null;
+        window.addEventListener('beforeinstallprompt', function(e) {
+          e.preventDefault();
+          window.__AURA_DEFERRED_PROMPT__ = e;
+          window.dispatchEvent(new CustomEvent('aura_pwa_prompt_ready'));
+        });
+        window.addEventListener('appinstalled', function() {
+          window.__AURA_DEFERRED_PROMPT__ = null;
+          window.dispatchEvent(new CustomEvent('aura_pwa_installed'));
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

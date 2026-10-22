@@ -448,7 +448,7 @@ export const creditSignupBonus = async (uid: string): Promise<void> => {
     await setDoc(userRef, {
       auraCoins: 1000,
       auraCoin: deleteField()
-    }, { merge: true });
+    }, { merge: true }).catch(e => console.warn('creditSignupBonus user setDoc:', e));
 
     // 2. Notification for 1,000 AuraCoins Signup Bonus
     const notifRef = doc(collection(db, 'users', uid, 'notifications'));
@@ -459,7 +459,7 @@ export const creditSignupBonus = async (uid: string): Promise<void> => {
       badgeText: '1,000 🪙 Bonus',
       read: false,
       timestamp: Date.now()
-    });
+    }).catch(e => console.warn('creditSignupBonus notif setDoc:', e));
 
     // 3. Activity ledger in game_wallets
     const actRef = doc(collection(db, 'game_wallets', uid, 'activity'));
@@ -470,7 +470,7 @@ export const creditSignupBonus = async (uid: string): Promise<void> => {
       title: 'Welcome Signup Bonus',
       desc: 'Welcome Signup Bonus (1,000 AuraCoins)',
       timestamp: Date.now()
-    });
+    }).catch(e => console.warn('creditSignupBonus activity setDoc:', e));
   } catch (e) {
     console.warn('Error creating signup bonus notification/activity:', e);
   }
@@ -485,28 +485,41 @@ export const signInWithGoogle = async (): Promise<GoogleSignInResult | null> => 
     let isNewUser = false;
     let userData: User;
 
-    if (!userDoc.exists()) {
+    if (!userDoc.exists() || !userDoc.data()?.createdAt) {
       isNewUser = true;
       const referralCode = getStoredReferralCode();
       const cleanReferral = (referralCode && referralCode !== user.uid) ? referralCode.trim() : null;
       userData = {
-        uid: user.uid, email: user.email, displayName: user.displayName,
-        photoURL: user.photoURL, isAdmin: false, createdAt: Date.now(),
-        referralBalance: 0, bonusBalance: 0, auraCoins: 1000, referredCount: 0, referredBy: cleanReferral
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName || 'Anonymous',
+        photoURL: user.photoURL,
+        isAdmin: false,
+        createdAt: Date.now(),
+        lastActive: Date.now(),
+        referralBalance: 0,
+        bonusBalance: 0,
+        auraCoins: 1000,
+        referredCount: 0,
+        referredBy: cleanReferral
       };
       await setDoc(userDocRef, { ...userData, auraCoin: deleteField() }, { merge: true });
       await creditSignupBonus(user.uid);
       
       // Securely credit Referrer 500 AuraCoins
       if (cleanReferral) {
-        await processReferralSignup(user.uid, cleanReferral);
+        try {
+          await processReferralSignup(user.uid, cleanReferral);
+        } catch (refErr) {
+          console.warn('Referral signup processing note:', refErr);
+        }
         clearStoredReferralCode();
       }
     } else {
       const existing = userDoc.data() || {};
       const coins = Number(existing.auraCoins ?? existing.auraCoin ?? existing.bonusBalance ?? 1000);
       if (existing.auraCoins === undefined || existing.auraCoin !== undefined) {
-        await setDoc(userDocRef, { auraCoins: coins, auraCoin: deleteField() }, { merge: true });
+        await setDoc(userDocRef, { auraCoins: coins, auraCoin: deleteField() }, { merge: true }).catch(() => {});
         existing.auraCoins = coins;
       }
       userData = { ...existing, uid: user.uid, auraCoins: coins } as User;
@@ -519,21 +532,40 @@ export const signUpWithEmail = async (email: string, password: string, displayNa
   try {
     const result = await createUserWithEmailAndPassword(auth, email, password);
     const user = result.user;
-    await updateProfile(user, { displayName });
+    if (displayName) {
+      try {
+        await updateProfile(user, { displayName: displayName.trim() });
+      } catch (profErr) {
+        console.warn('Failed to update auth profile display name:', profErr);
+      }
+    }
     
     const referralCode = getStoredReferralCode();
     const cleanReferral = (referralCode && referralCode !== user.uid) ? referralCode.trim() : null;
     const userData: User = {
-      uid: user.uid, email: user.email, displayName: displayName,
-      photoURL: null, isAdmin: false, createdAt: Date.now(),
-      referralBalance: 0, bonusBalance: 0, auraCoins: 1000, referredCount: 0, referredBy: cleanReferral
+      uid: user.uid,
+      email: user.email,
+      displayName: displayName.trim() || 'Anonymous',
+      photoURL: null,
+      isAdmin: false,
+      createdAt: Date.now(),
+      lastActive: Date.now(),
+      referralBalance: 0,
+      bonusBalance: 0,
+      auraCoins: 1000,
+      referredCount: 0,
+      referredBy: cleanReferral
     };
     await setDoc(doc(db, 'users', user.uid), { ...userData, auraCoin: deleteField() }, { merge: true });
     await creditSignupBonus(user.uid);
 
     // Securely credit Referrer 500 AuraCoins
     if (cleanReferral) {
-      await processReferralSignup(user.uid, cleanReferral);
+      try {
+        await processReferralSignup(user.uid, cleanReferral);
+      } catch (refErr) {
+        console.warn('Referral signup processing note:', refErr);
+      }
       clearStoredReferralCode();
     }
     return userData;
@@ -550,7 +582,7 @@ export const signInWithEmail = async (email: string, password: string): Promise<
       const existing = userDoc.data() || {};
       const coins = Number(existing.auraCoins ?? existing.auraCoin ?? existing.bonusBalance ?? 1000);
       if (existing.auraCoins === undefined || existing.auraCoin !== undefined) {
-        await setDoc(userDocRef, { auraCoins: coins, auraCoin: deleteField() }, { merge: true });
+        await setDoc(userDocRef, { auraCoins: coins, auraCoin: deleteField() }, { merge: true }).catch(() => {});
         existing.auraCoins = coins;
       }
       return { ...existing, uid: user.uid, auraCoins: coins } as User;
@@ -558,14 +590,27 @@ export const signInWithEmail = async (email: string, password: string): Promise<
     const referralCode = getStoredReferralCode();
     const cleanReferral = (referralCode && referralCode !== user.uid) ? referralCode.trim() : null;
     const userData: User = {
-      uid: user.uid, email: user.email, displayName: user.displayName,
-      photoURL: user.photoURL, isAdmin: false, createdAt: Date.now(),
-      referralBalance: 0, bonusBalance: 0, auraCoins: 1000, referredCount: 0, referredBy: cleanReferral
+      uid: user.uid,
+      email: user.email,
+      displayName: user.displayName || 'Anonymous',
+      photoURL: user.photoURL,
+      isAdmin: false,
+      createdAt: Date.now(),
+      lastActive: Date.now(),
+      referralBalance: 0,
+      bonusBalance: 0,
+      auraCoins: 1000,
+      referredCount: 0,
+      referredBy: cleanReferral
     };
     await setDoc(userDocRef, { ...userData, auraCoin: deleteField() }, { merge: true });
     await creditSignupBonus(user.uid);
     if (cleanReferral) {
-      await processReferralSignup(user.uid, cleanReferral);
+      try {
+        await processReferralSignup(user.uid, cleanReferral);
+      } catch (refErr) {
+        console.warn('Referral signup processing note:', refErr);
+      }
       clearStoredReferralCode();
     }
     return userData;
@@ -1679,7 +1724,7 @@ export const getStatsSummary = async (forceRefresh = false): Promise<SystemStats
     };
 
     // 7. Process Top Engaged Users with accurate time spent & recent activities
-    const downloadsDocs = downloadsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+    const downloadsDocs = downloadsSnap.docs.map(d => ({ ...d.data(), id: d.id } as any));
     
     const topUsers = usersSnap.docs.map(doc => {
       const u = doc.data();
@@ -1857,23 +1902,7 @@ export interface PlatformFinancials {
 }
 
 export const getPlatformFinancials = async (): Promise<PlatformFinancials> => {
-  try {
-    const token = await auth.currentUser?.getIdToken();
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-
-    const res = await fetch(`${API_BASE_URL}/api/admin/financial-stats`, { headers });
-    if (res.ok) {
-      const data = await res.json();
-      if (data && typeof data === 'object') {
-        return data as PlatformFinancials;
-      }
-    }
-  } catch (err) {
-    console.warn('Backend financial stats fetch failed, using direct Firestore fallback:', err);
-  }
-
-  // Fallback to direct Firestore
+  // 1. Direct Firestore is primary (fast, reliable, and real-time synchronized)
   try {
     const finDoc = await getDoc(doc(db, 'system_analytics', 'platform_financials'));
     const finData = finDoc.exists() ? finDoc.data() : {};
@@ -1883,30 +1912,62 @@ export const getPlatformFinancials = async (): Promise<PlatformFinancials> => {
     try {
       const usersSnap = await getDocs(collection(db, 'users'));
       usersSnap.docs.forEach(d => {
-        totalCirculation += Number(d.data().auraCoins || 0);
+        const u = d.data();
+        totalCirculation += Number(u.auraCoins ?? u.auraCoin ?? u.bonusBalance ?? 0);
       });
     } catch {}
 
-    // Get recent events
+    // Get recent events from platform_revenue_events
     const recentEvents: any[] = [];
     try {
       const eventsSnap = await getDocs(query(collection(db, 'platform_revenue_events'), orderBy('timestamp', 'desc'), limit(25)));
       eventsSnap.docs.forEach(d => {
-        recentEvents.push({ id: d.id, ...d.data() });
+        const evData = d.data();
+        let timestamp_str: string | undefined = evData.timestamp_str;
+        if (!timestamp_str && evData.timestamp?.toDate) {
+          try {
+            timestamp_str = evData.timestamp.toDate().toLocaleString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+              hour: 'numeric',
+              minute: 'numeric',
+              hour12: true
+            });
+          } catch {}
+        }
+        recentEvents.push({ ...evData, id: d.id, timestamp_str: timestamp_str || evData.timestamp_str });
       });
     } catch {}
+
+    // Historical aggregation fallback if newly initialized and total_platform_cash_earnings is 0
+    let totalCash = Number(finData.total_platform_cash_earnings || 0);
+    let cinemaCash = Number(finData.cash_from_cinema_tickets || 0);
+    if (totalCash === 0) {
+      try {
+        const txSnap = await getDocs(query(collection(db, 'transactions'), where('status', '==', 'completed')));
+        txSnap.docs.forEach(d => {
+          const t = d.data();
+          if (t.type === 'purchase' || String(t.title || '').toLowerCase().includes('ticket')) {
+            const cut = Math.round(Number(t.amount || 0) * 0.20 * 100) / 100;
+            totalCash += cut;
+            cinemaCash += cut;
+          }
+        });
+      } catch {}
+    }
 
     return {
       success: true,
       total_burned_auracoins: Number(finData.total_burned_auracoins || 0),
-      total_platform_cash_earnings: Number(finData.total_platform_cash_earnings || 0),
+      total_platform_cash_earnings: totalCash,
       auracoins_breakdown: {
         burned_from_entry_fees: Number(finData.burned_from_entry_fees || 0),
         burned_from_forfeits: Number(finData.burned_from_forfeits || 0),
         total_in_circulation: totalCirculation
       },
       cash_breakdown: {
-        cinema_tickets: Number(finData.cash_from_cinema_tickets || 0),
+        cinema_tickets: cinemaCash,
         game_entries: Number(finData.cash_from_game_entries || 0),
         game_forfeits: Number(finData.cash_from_game_forfeits || 0),
         vendor_store: Number(finData.cash_from_vendor_store || 0),
@@ -1914,8 +1975,27 @@ export const getPlatformFinancials = async (): Promise<PlatformFinancials> => {
       },
       recent_events: recentEvents
     };
-  } catch (e) {
-    console.error('Failed to get platform financials fallback:', e);
+  } catch (firestoreErr) {
+    // 2. Fallback to backend API only if Firestore read fails and API_BASE_URL is reachable
+    if (API_BASE_URL && API_BASE_URL.startsWith('http')) {
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(`${API_BASE_URL}/api/admin/financial-stats`, { headers, signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && typeof data === 'object') {
+            return data as PlatformFinancials;
+          }
+        }
+      } catch {}
+    }
+
     return {
       success: false,
       total_burned_auracoins: 0,
@@ -2163,7 +2243,7 @@ export const getPreOrders = async (): Promise<PreOrder[]> => {
   try {
     const q = query(collection(db, 'preorders'), orderBy('requestedAt', 'desc'));
     const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as PreOrder));
+    return snap.docs.map(d => ({ ...d.data(), id: d.id } as PreOrder));
   } catch (error) { return []; }
 };
 
@@ -2318,7 +2398,7 @@ export const deletePreOrder = async (preorderId: string): Promise<void> => {
 
 export const getVendors = async (): Promise<Vendor[]> => {
   const snap = await getDocs(collection(db, 'vendors'));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() } as Vendor));
+  return snap.docs.map(d => ({ ...d.data(), id: d.id } as Vendor));
 };
 
 export const updateVendor = async (vendor: Vendor): Promise<void> => {
@@ -2327,7 +2407,7 @@ export const updateVendor = async (vendor: Vendor): Promise<void> => {
 
 export const getProducts = async (): Promise<Product[]> => {
   const snap = await getDocs(collection(db, 'products'));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() } as Product));
+  return snap.docs.map(d => ({ ...d.data(), id: d.id } as Product));
 };
 
 export const addProduct = async (product: Omit<Product, 'id'>): Promise<void> => {
@@ -2407,7 +2487,7 @@ export const deleteProduct = async (id: string, imageUrl?: string): Promise<void
 
 export const getPartners = async (): Promise<Partner[]> => {
   const snap = await getDocs(collection(db, 'partners'));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() } as Partner));
+  return snap.docs.map(d => ({ ...d.data(), id: d.id } as Partner));
 };
 
 export const addPartner = async (partner: Omit<Partner, 'id'>): Promise<void> => {
@@ -2561,7 +2641,7 @@ export const listenToProductReviews = (productId: string, callback: (reviews: Pr
   if (!productId) return () => {};
   const q = query(collection(db, 'products', productId, 'reviews'), limit(50));
   return onSnapshot(q, (snap) => {
-    const rawList = snap.docs.map(d => ({ id: d.id, ...d.data() } as ProductReview));
+    const rawList = snap.docs.map(d => ({ ...d.data(), id: d.id } as ProductReview));
     rawList.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     
     // Deduplicate reviews by unique (orderId + userId) or id
@@ -3004,7 +3084,7 @@ export const getAds = async (): Promise<AdCampaign[]> => {
   try {
     const q = collection(db, 'ads');
     const snap = await getDocs(q);
-    const ads = snap.docs.map(d => ({ id: d.id, ...d.data() } as AdCampaign));
+    const ads = snap.docs.map(d => ({ ...d.data(), id: d.id } as AdCampaign));
     ads.sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
     return ads;
   } catch (error) {
@@ -3020,7 +3100,7 @@ export const listenToAds = (
   try {
     const q = collection(db, 'ads');
     return onSnapshot(q, (snap) => {
-      const ads = snap.docs.map(d => ({ id: d.id, ...d.data() } as AdCampaign));
+      const ads = snap.docs.map(d => ({ ...d.data(), id: d.id } as AdCampaign));
       ads.sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
       callback(ads);
     }, (error) => {

@@ -120,6 +120,26 @@ export const clearStoredReferralCode = (): void => {
 };
 
 /**
+ * Fetches the public display name of the referring user (e.g., to show "Invited by John").
+ */
+export const getReferrerDisplayName = async (referrerUid: string): Promise<string | null> => {
+  if (!referrerUid || typeof referrerUid !== 'string') return null;
+  const clean = referrerUid.trim();
+  if (!clean || clean.length > 128) return null;
+  try {
+    const apiUrl = API_BASE_URL || import.meta.env.VITE_API_URL || '';
+    const res = await fetch(`${apiUrl}/api/games/referrer-info/${encodeURIComponent(clean)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.displayName) {
+        return data.displayName;
+      }
+    }
+  } catch {}
+  return null;
+};
+
+/**
  * Calls backend to securely process the referral bonus and notifications,
  * with resilient direct Firestore atomic fallback.
  */

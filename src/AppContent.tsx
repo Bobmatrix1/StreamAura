@@ -42,7 +42,7 @@ import {
   auth 
 } from '@/lib/firebase';
 import { API_BASE_URL } from '@/api/mediaApi';
-import { captureReferralFromURL } from '@/lib/referral';
+import { captureReferralFromURL, getStoredReferralCode } from '@/lib/referral';
 import { toast } from 'sonner';
 import { triggerAppUpdate } from '@/lib/appLifecycle';
 import type { ViewType } from '@/types';
@@ -52,7 +52,8 @@ import type { ViewType } from '@/types';
  * Handles the main application logic and routing
  */
 export const AppContent: React.FC = () => {
-  const { isAuthenticated, isLoading, isAdmin, user } = useAuth();
+  const { isAuthenticated, isLoading, isAdmin, user, openAuthModal } = useAuth();
+  const [capturedReferral, setCapturedReferral] = useState<string | null>(null);
   
   const [activeView, setActiveView] = useState<ViewType>(() => {
     if (typeof window !== 'undefined') {
@@ -85,12 +86,24 @@ export const AppContent: React.FC = () => {
   // URL Parameter Sync & View Persistence
   useEffect(() => {
     // Capture referral from query params / hash / path
-    captureReferralFromURL();
+    const captured = captureReferralFromURL();
+    if (captured) {
+      setCapturedReferral(captured);
+    }
 
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as ViewType;
     const allowedTabs = ['home', 'video', 'music', 'movie', 'cinema', 'snacks', 'games', 'wallet', 'bulk', 'admin', 'notifications', 'history', 'referral', 'profile', 'about', 'privacy', 'terms', 'cookies', 'contact', 'vendor'];
     
+    // Explicit Auth tab deep-link
+    const authTab = params.get('tab');
+    if (authTab === 'signup' || authTab === 'login') {
+      openAuthModal(authTab === 'signup' ? 'signup' : 'login');
+      params.delete('tab');
+      const newUrl = window.location.pathname + (params.toString() ? `?${params.toString()}` : '');
+      window.history.replaceState({}, '', newUrl);
+    }
+
     // Handle Referral Code cleanup so URL looks clean
     if (params.has('ref') || params.has('referral') || params.has('referralCode') || params.has('r')) {
       params.delete('ref');
@@ -118,12 +131,57 @@ export const AppContent: React.FC = () => {
       sessionStorage.setItem('aura_active_view', 'snacks');
     }
 
+    const roomParam = params.get('room');
+    if (roomParam) {
+      sessionStorage.setItem('aura_active_cinema_room_id', roomParam);
+      setActiveView('cinema');
+      sessionStorage.setItem('aura_active_view', 'cinema');
+    }
+
     if (tab && allowedTabs.includes(tab)) {
       setActiveView(tab);
       sessionStorage.setItem('aura_active_view', tab);
-      window.history.replaceState({}, '', window.location.pathname);
+      if (!params.has('room') && !params.has('verify') && !params.has('ticket')) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
     }
   }, []);
+
+  // Referral Deep-Link Handling & Automatic Signup Prompt
+  useEffect(() => {
+    if (isLoading) return;
+
+    const activeRef = capturedReferral || getStoredReferralCode();
+    if (!activeRef) return;
+
+    // Only prompt once per session visit
+    const hasHandled = sessionStorage.getItem('aura_referral_prompt_handled');
+    if (hasHandled) return;
+
+    if (user) {
+      sessionStorage.setItem('aura_referral_prompt_handled', 'true');
+      if (user.uid === activeRef) {
+        toast.info("This is your referral invite link! Share it with friends to earn 500 AuraCoins when they join.", {
+          duration: 5000,
+          id: 'self-referral-notice'
+        });
+      } else {
+        toast.info(`You're already logged in as ${user.displayName || user.email || 'a registered user'}. Referral bonuses are for new accounts.`, {
+          duration: 5000,
+          id: 'already-registered-referral'
+        });
+      }
+      return;
+    }
+
+    // Unauthenticated visitor arrived via referral link: direct straight to Signup!
+    sessionStorage.setItem('aura_referral_prompt_handled', 'true');
+    openAuthModal('signup', 'Sign up to claim your 1,000 AuraCoins welcome bonus!');
+    toast.success("🎁 Referral Invite Active! Sign up to claim your 1,000 AuraCoins bonus.", {
+      duration: 6000,
+      id: 'referral-signup-prompt'
+    });
+  }, [isLoading, user, capturedReferral, openAuthModal]);
 
   // Safe Service Worker Update Notification Listener
   useEffect(() => {

@@ -639,3 +639,15 @@
 .light .wallet-card .text-emerald-400 {
   color: #34d399 !important;
 }
+
+/* Modal Body Scroll Lock & Overscroll Prevention */
+body.modal-open,
+html.modal-open {
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+}
+
+body.modal-open main {
+  overflow: hidden !important;
+}
+

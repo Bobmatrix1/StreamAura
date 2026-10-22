@@ -37,8 +37,8 @@ service cloud.firestore {
         request.resource.data.get('isVendor', false) == false &&
         request.resource.data.get('referralBalance', 0) == 0 &&
         request.resource.data.get('bonusBalance', 0) == 0 &&
-        request.resource.data.get('auraCoins', 0) == 0 &&
-        request.resource.data.get('auraCoin', 0) == 0 &&
+        request.resource.data.get('auraCoins', 0) <= 1000 &&
+        request.resource.data.get('auraCoin', 0) <= 1000 &&
         request.resource.data.get('referredCount', 0) == 0;
 
       allow update: if isAdmin() || (
@@ -47,12 +47,24 @@ service cloud.firestore {
         request.resource.data.get('isVendor', false) == resource.data.get('isVendor', false) &&
         request.resource.data.get('referralBalance', 0) == resource.data.get('referralBalance', 0) &&
         request.resource.data.get('bonusBalance', 0) == resource.data.get('bonusBalance', 0) &&
-        request.resource.data.get('auraCoins', 0) == resource.data.get('auraCoins', 0) &&
-        request.resource.data.get('auraCoin', 0) == resource.data.get('auraCoin', 0) &&
+        (
+          request.resource.data.get('auraCoins', 0) == resource.data.get('auraCoins', 0) ||
+          (resource.data.get('auraCoins', 0) == 0 && request.resource.data.get('auraCoins', 0) <= 1000)
+        ) &&
+        (
+          request.resource.data.get('auraCoin', 0) == resource.data.get('auraCoin', 0) ||
+          !('auraCoin' in request.resource.data) ||
+          request.resource.data.get('auraCoin', 0) == 0
+        ) &&
         request.resource.data.get('referredCount', 0) == resource.data.get('referredCount', 0)
       ) || (
         isAuthenticated() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unreadCount', 'lastActive'])
+      ) || (
+        // Allow newly referred authenticated users to credit their referrer
+        isAuthenticated() &&
+        !isOwner(userId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['referredCount', 'bonusBalance', 'auraCoins', 'auraCoin'])
       );
 
       allow delete: if isAdmin();
@@ -68,12 +80,12 @@ service cloud.firestore {
     // =================================================================
 
     match /room_wallets/{userId} {
-      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow read, list: if isAuthenticated() && (isOwner(userId) || isAdmin());
       allow write: if isAdmin();
     }
 
     match /transactions/{txId} {
-      allow read: if isAuthenticated() && (resource.data.user_uid == request.auth.uid || isAdmin());
+      allow read, list: if isAuthenticated() && (resource.data.user_uid == request.auth.uid || isAdmin());
       allow write: if isAdmin();
     }
 
@@ -86,6 +98,12 @@ service cloud.firestore {
       allow read, list: if isAuthenticated() && (resource.data.user_uid == request.auth.uid || isAdmin());
       allow write: if isAdmin();
     }
+
+    match /platform_revenue_events/{eventId} {
+      allow read, list: if isAdmin();
+      allow write: if isAdmin();
+    }
+
 
     // =================================================================
     // === VIRTUAL CINEMA SYSTEM =======================================
@@ -128,7 +146,7 @@ service cloud.firestore {
 
       match /activity/{activityId} {
         allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
-        allow write: if isAdmin();
+        allow write: if isAdmin() || (isAuthenticated() && isOwner(userId)) || (isAuthenticated() && request.resource.data.type == 'referral_bonus');
       }
     }
 
@@ -249,6 +267,11 @@ service cloud.firestore {
     match /notifications_broadcast/{id} {
       allow read: if isAuthenticated();
       allow create, delete: if isAdmin();
+    }
+
+    match /app_updates/{updateId} {
+      allow read, list: if true;
+      allow write: if isAdmin();
     }
 
     // =================================================================
