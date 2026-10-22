@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     TRANSACTPAY_ENCRYPTION_KEY: str = os.getenv("TRANSACTPAY_ENCRYPTION_KEY", "")
     
     # App URLs
-    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "")
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "https://streamaura.site")
     API_BASE_URL: str = os.getenv("API_BASE_URL", "")
     SOCKET_BASE_URL: str = os.getenv("SOCKET_BASE_URL", "")
 

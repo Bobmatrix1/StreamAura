@@ -25,7 +25,8 @@ import {
   DoorOpen,
   Clapperboard,
   ArrowRight,
-  Popcorn
+  Popcorn,
+  RotateCw
 } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -73,6 +74,34 @@ const CinemaRoom: React.FC = () => {
   const [isLoadingTrailerVideo, setIsLoadingTrailerVideo] = useState(false);
   const [isTrailerBuffering, setIsTrailerBuffering] = useState(false);
   const [trailerPlayError, setTrailerPlayError] = useState<string | null>(null);
+  const trailerContainerRef = React.useRef<HTMLDivElement>(null);
+  const [isTrailerLandscape, setIsTrailerLandscape] = useState(false);
+
+  const handleToggleTrailerLandscape = async () => {
+    try {
+      if (!isTrailerLandscape) {
+        if (trailerContainerRef.current?.requestFullscreen) {
+          await trailerContainerRef.current.requestFullscreen().catch(() => {});
+        } else if ((trailerContainerRef.current as any)?.webkitRequestFullscreen) {
+          await (trailerContainerRef.current as any).webkitRequestFullscreen().catch(() => {});
+        }
+        if (screen.orientation && (screen.orientation as any).lock) {
+          await (screen.orientation as any).lock('landscape').catch(() => {});
+        }
+        setIsTrailerLandscape(true);
+      } else {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen().catch(() => {});
+        }
+        if (screen.orientation && (screen.orientation as any).unlock) {
+          (screen.orientation as any).unlock();
+        }
+        setIsTrailerLandscape(false);
+      }
+    } catch {
+      setIsTrailerLandscape(prev => !prev);
+    }
+  };
   
   // Cinema Doors & Curtain Opening Entrance State
   const [selectedDoorRoom, setSelectedDoorRoom] = useState<any | null>(null);
@@ -109,6 +138,7 @@ const CinemaRoom: React.FC = () => {
       setTrailerPlayError(null);
       setIsLoadingTrailerVideo(false);
       setIsTrailerBuffering(false);
+      setIsTrailerLandscape(false);
       return;
     }
 
@@ -243,7 +273,22 @@ const CinemaRoom: React.FC = () => {
 
     if (roomId) {
       logInviteEvent('accepted', roomId, auth.currentUser?.uid);
-      handleJoinRoomById(roomId);
+      if (verifyRef) {
+        handleVerifyPayment(roomId, verifyRef);
+      } else {
+        // Open the grand Cinema Door entrance so user sees poster, metadata, and steps into lobby
+        getDoc(doc(db, 'cinema_rooms', roomId)).then((snap) => {
+          if (snap.exists()) {
+            const data = { ...snap.data(), id: snap.id };
+            handleOpenDoorEntrance(data);
+          } else {
+            handleJoinRoomById(roomId);
+          }
+        }).catch((err) => {
+          console.warn('Could not fetch room doc for entrance door:', err);
+          handleJoinRoomById(roomId);
+        });
+      }
     } else {
       // Seamlessly restore active cinema room if tab was backgrounded / resumed
       const savedRoomId = sessionStorage.getItem('aura_active_cinema_room_id');
@@ -253,7 +298,7 @@ const CinemaRoom: React.FC = () => {
     }
 
     if (verifyRef && roomId) {
-      handleVerifyPayment(roomId, verifyRef);
+      // Handled above in if (verifyRef)
     }
 
     const applyPrefillData = (data: {
@@ -692,7 +737,7 @@ const CinemaRoom: React.FC = () => {
 
   const handleShareRoom = (room: any) => {
     const origin = typeof window !== 'undefined' && window.location.origin.includes('streamaura')
-      ? window.location.origin
+      ? window.location.origin.replace('api.streamaura.site', 'streamaura.site')
       : 'https://streamaura.site';
     const shareUrl = `${origin}/?tab=cinema&room=${room.id}`;
     
@@ -868,11 +913,12 @@ const CinemaRoom: React.FC = () => {
         });
       } else {
         // Handle Episodes Uploads
+        const safeTitle = (movieTitle || 'series').replace(/[^a-zA-Z0-9_-]/g, '_');
         for (const ep of episodes) {
            if (ep.file) {
              setUploadProgress(0);
              showInfo(`Uploading Episode ${ep.number}...`);
-             const epUrl = await uploadFile(ep.file, `cinema/series/${movieTitle}/ep${ep.number}`, 'movies', (p) => setUploadProgress(p));
+             const epUrl = await uploadFile(ep.file, `cinema/series/${safeTitle}/ep${ep.number}`, 'movies', (p) => setUploadProgress(p));
              episodesData.push({
                number: ep.number,
                title: ep.title,
@@ -896,7 +942,7 @@ const CinemaRoom: React.FC = () => {
         room_type: roomType,
         content_type: contentType,
         movie_title: movieTitle,
-        movie_cover_image: coverUrl,
+        movie_cover_image: coverUrl || '',
         movie_file: contentType === 'movie' ? movieUrl : null,
         episodes: episodesData,
         trailer_url: trailerUrl,
@@ -932,8 +978,20 @@ const CinemaRoom: React.FC = () => {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create room on server.');
+        let errMessage = 'Failed to create room on server.';
+        try {
+          const errorData = await response.json();
+          if (typeof errorData.detail === 'string') {
+            errMessage = errorData.detail;
+          } else if (Array.isArray(errorData.detail)) {
+            errMessage = errorData.detail.map((d: any) => d.msg || d.message || JSON.stringify(d)).join(', ');
+          } else if (errorData.error) {
+            errMessage = errorData.error;
+          } else if (errorData.message) {
+            errMessage = errorData.message;
+          }
+        } catch (_) {}
+        throw new Error(errMessage);
       }
       
       const result = await response.json();
@@ -2548,16 +2606,62 @@ const CinemaRoom: React.FC = () => {
                   <h3 className="text-base md:text-lg font-black text-white truncate">{selectedTrailer.title || selectedTrailer.movie_title}</h3>
                 </div>
               </div>
-              <button 
-                onClick={() => setSelectedTrailer(null)}
-                className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/60 hover:text-white transition-colors shrink-0 ml-2"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={handleToggleTrailerLandscape}
+                  className={`w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white transition-colors shrink-0 ${
+                    isTrailerLandscape ? 'text-amber-400 bg-amber-400/20' : ''
+                  }`}
+                  title={isTrailerLandscape ? "Restore Portrait" : "Rotate to Landscape"}
+                >
+                  <RotateCw className={`w-4 h-4 ${isTrailerLandscape ? 'rotate-90 text-amber-400' : ''}`} />
+                </Button>
+                <button 
+                  onClick={() => {
+                    if (isTrailerLandscape) handleToggleTrailerLandscape();
+                    setSelectedTrailer(null);
+                  }}
+                  className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/60 hover:text-white transition-colors shrink-0 ml-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* Video Player Container */}
-            <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden">
+            <div 
+              ref={trailerContainerRef}
+              className={`relative aspect-video bg-black flex items-center justify-center overflow-hidden transition-all duration-300 ${
+                isTrailerLandscape ? 'fixed inset-0 z-[6000] w-full h-full aspect-auto' : ''
+              }`}
+            >
+              {/* Landscape Mode Floating Controls */}
+              {isTrailerLandscape && (
+                <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleToggleTrailerLandscape}
+                    className="bg-black/80 backdrop-blur-md border-white/20 text-white hover:bg-white/20 rounded-full text-xs font-bold flex items-center gap-1.5 h-8 px-3 shadow-lg"
+                  >
+                    <RotateCw className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Portrait</span>
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={() => {
+                      handleToggleTrailerLandscape();
+                      setSelectedTrailer(null);
+                    }}
+                    className="w-8 h-8 bg-black/80 backdrop-blur-md border-white/20 text-white hover:bg-white/20 rounded-full shadow-lg"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              )}
               {isLoadingTrailerVideo ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20 gap-3">
                   <div className="w-10 h-10 border-2 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
@@ -2594,7 +2698,9 @@ const CinemaRoom: React.FC = () => {
                     controls 
                     autoPlay 
                     playsInline
-                    className="w-full h-full object-contain"
+                    className={`w-full h-full object-contain transition-transform duration-300 ${
+                      isTrailerLandscape ? 'rotate-90 md:rotate-0 scale-125 md:scale-100' : ''
+                    }`}
                     onWaiting={() => setIsTrailerBuffering(true)}
                     onPlaying={() => setIsTrailerBuffering(false)}
                     onCanPlay={() => setIsTrailerBuffering(false)}

@@ -807,22 +807,30 @@ async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(ge
             if referral_to_deduct > 0:
                 user_updates["referralBalance"] = firestore.Increment(-referral_to_deduct)
             if user_updates:
-                transaction.update(user_ref, user_updates)
+                if user_snapshot.exists:
+                    transaction.update(user_ref, user_updates)
+                else:
+                    transaction.set(user_ref, user_updates, merge=True)
                 
             if normal_to_deduct > 0:
                 fb = w_data.get("funded_balance", 0)
+                wallet_updates = {}
                 if fb >= normal_to_deduct:
-                    transaction.update(wallet_ref, {
+                    wallet_updates = {
                         "funded_balance": firestore.Increment(-normal_to_deduct),
                         "balance": firestore.Increment(-normal_to_deduct)
-                    })
+                    }
                 else:
                     remaining = normal_to_deduct - fb
-                    transaction.update(wallet_ref, {
+                    wallet_updates = {
                         "funded_balance": 0,
                         "host_balance": firestore.Increment(-remaining),
                         "balance": firestore.Increment(-normal_to_deduct)
-                    })
+                    }
+                if wallet_snapshot.exists:
+                    transaction.update(wallet_ref, wallet_updates)
+                else:
+                    transaction.set(wallet_ref, wallet_updates, merge=True)
 
             # Record AuraCoins spend activity
             if auracoin_to_deduct > 0:
@@ -839,7 +847,8 @@ async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(ge
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error creating cinema room transaction: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     
     room_data = request.dict()
     room_data.update({
@@ -900,7 +909,10 @@ async def create_cinema_room(request: RoomCreateRequest, user: dict = Depends(ge
     }
     await set_room_state(room_id, initial_state)
     
-    invite_link = f"{settings.FRONTEND_URL}/?tab=cinema&room={room_id}"
+    frontend = (settings.FRONTEND_URL or "https://streamaura.site").replace("api.streamaura.site", "streamaura.site").rstrip('/')
+    if not frontend:
+        frontend = "https://streamaura.site"
+    invite_link = f"{frontend}/?tab=cinema&room={room_id}"
     return {"success": True, "room_id": room_id, "invite_link": invite_link}
 
 @router.post("/rooms/{room_id}/pay")
@@ -926,7 +938,10 @@ async def init_room_payment(room_id: str, user: dict = Depends(get_current_user)
     # Price is in Naira, paystack expects Kobo
     amount_in_kobo = int(price * 100)
     
-    callback_url = f"{settings.FRONTEND_URL}/?tab=cinema&room={room_id}&verify={reference}"
+    frontend = (settings.FRONTEND_URL or "https://streamaura.site").replace("api.streamaura.site", "streamaura.site").rstrip('/')
+    if not frontend:
+        frontend = "https://streamaura.site"
+    callback_url = f"{frontend}/?tab=cinema&room={room_id}&verify={reference}"
     
     email = user.get("email")
     if not email:

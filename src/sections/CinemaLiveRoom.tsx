@@ -387,6 +387,19 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [roomState]);
 
+  // Host Playback Heartbeat Sync: Authoritatively broadcasts time to all viewers every 5s while playing
+  useEffect(() => {
+    if (!canControl) return;
+
+    const interval = setInterval(() => {
+      if (videoRef.current && !videoRef.current.paused) {
+        syncPlayback('play', videoRef.current.currentTime);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [canControl, syncPlayback]);
+
   // Host/Admin Controls: Explicit Play / Pause
   const handleHostPlayPause = (forcePlay?: boolean) => {
     if (!canControl || !videoRef.current) return;
@@ -432,7 +445,7 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
     handleSeekCommit(newTime);
   };
 
-  // Native Video Event Handlers (With anti-loop protection)
+  // Native Video Event Handlers (With anti-loop and host authority protection)
   const handleNativeTimeUpdate = () => {
     if (videoRef.current && !isUserScrubbing) {
       setCurrentTime(videoRef.current.currentTime);
@@ -442,9 +455,18 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
   const handleNativeLoadedMetadata = () => {
     if (videoRef.current) {
       setDuration(videoRef.current.duration || 0);
-      if (roomState?.movieTime && roomState.movieTime > 0) {
+      isProgrammaticUpdateRef.current = true;
+      if (roomState && typeof roomState.movieTime === 'number' && roomState.movieTime > 0) {
         videoRef.current.currentTime = roomState.movieTime;
       }
+      if (roomState?.status === 'playing') {
+        videoRef.current.play().catch(() => {});
+      } else {
+        videoRef.current.pause();
+      }
+      setTimeout(() => {
+        isProgrammaticUpdateRef.current = false;
+      }, 400);
     }
   };
 
@@ -452,9 +474,12 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
     if (isProgrammaticUpdateRef.current) return;
     if (canControl && videoRef.current) {
       syncPlayback('play', videoRef.current.currentTime);
-    } else if (!canControl && roomState?.status === 'paused' && videoRef.current) {
-      // Non-hosts cannot override room pause
-      videoRef.current.pause();
+    } else if (!canControl && videoRef.current) {
+      // Non-hosts cannot start playback if host is paused
+      if (roomState?.status !== 'playing') {
+        videoRef.current.pause();
+        toast.info("Screening is controlled by the host. Waiting for host to play.");
+      }
     }
   };
 
@@ -462,9 +487,11 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
     if (isProgrammaticUpdateRef.current) return;
     if (canControl && videoRef.current) {
       syncPlayback('pause', videoRef.current.currentTime);
-    } else if (!canControl && roomState?.status === 'playing' && videoRef.current) {
-      // Non-hosts cannot pause the room for others
-      videoRef.current.play().catch(() => {});
+    } else if (!canControl && videoRef.current) {
+      // Non-hosts cannot pause playback if host is actively playing
+      if (roomState?.status === 'playing') {
+        videoRef.current.play().catch(() => {});
+      }
     }
   };
 
@@ -473,6 +500,57 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
     if (canControl && videoRef.current) {
       const status = videoRef.current.paused ? 'pause' : 'play';
       syncPlayback(status, videoRef.current.currentTime);
+    } else if (!canControl && videoRef.current && roomState) {
+      // Non-hosts cannot seek: snap back to host position
+      if (typeof roomState.movieTime === 'number') {
+        isProgrammaticUpdateRef.current = true;
+        videoRef.current.currentTime = roomState.movieTime;
+        setTimeout(() => { isProgrammaticUpdateRef.current = false; }, 350);
+      }
+    }
+  };
+
+  // Mobile Landscape Rotation State & Handlers
+  const [isLandscapeForced, setIsLandscapeForced] = useState(false);
+
+  const handleToggleRotateLandscape = async () => {
+    try {
+      // 1. Try Screen Orientation API (Android Chrome, Edge, PWA)
+      if (typeof window !== 'undefined' && 'orientation' in window.screen && (window.screen.orientation as any).lock) {
+        if (!isLandscapeForced) {
+          try {
+            await (window.screen.orientation as any).lock('landscape');
+            setIsLandscapeForced(true);
+            toast.success("Locked to landscape orientation");
+            return;
+          } catch (e) {
+            console.debug("Native orientation lock note:", e);
+          }
+        } else {
+          try {
+            (window.screen.orientation as any).unlock();
+            setIsLandscapeForced(false);
+            toast.info("Restored portrait orientation");
+            return;
+          } catch (e) {}
+        }
+      }
+
+      // 2. Request Fullscreen if not in fullscreen
+      if (!document.fullscreenElement && videoContainerRef.current) {
+        if (videoContainerRef.current.requestFullscreen) {
+          await videoContainerRef.current.requestFullscreen();
+          if ('orientation' in window.screen && (window.screen.orientation as any).lock) {
+            try { await (window.screen.orientation as any).lock('landscape'); } catch {}
+          }
+        }
+      }
+
+      // 3. Fallback toggle CSS landscape transformation
+      setIsLandscapeForced(prev => !prev);
+      toast.info(!isLandscapeForced ? "Switched to landscape view" : "Restored standard view");
+    } catch (err) {
+      setIsLandscapeForced(prev => !prev);
     }
   };
 
@@ -719,7 +797,7 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
 
   const handleCopyInviteLink = () => {
     const origin = typeof window !== 'undefined' && window.location.origin.includes('streamaura')
-      ? window.location.origin
+      ? window.location.origin.replace('api.streamaura.site', 'streamaura.site')
       : 'https://streamaura.site';
     const inviteUrl = `${origin}/?tab=cinema&room=${roomId}`;
     if (navigator.share) {
@@ -1062,10 +1140,19 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
                    <span className="text-[10px] font-black text-white">{currentEpTitle}</span>
                 </div>
              )}
-             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md">
+             <div className="flex items-center gap-1.5 md:gap-2 px-2.5 md:px-3 py-1 md:py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md">
                 <Users className="w-3.5 h-3.5 text-rose-500" />
-                <span className="text-[10px] font-black text-white">{viewers} VIEWERS</span>
+                <span className="text-[9px] md:text-[10px] font-black text-white">{Math.max(viewers, 1)} {Math.max(viewers, 1) === 1 ? 'VIEWER' : 'VIEWERS'}</span>
              </div>
+             <Button 
+               variant="ghost" 
+               size="icon" 
+               onClick={handleToggleRotateLandscape} 
+               className="text-white hover:bg-white/10 rounded-full h-8 w-8 md:h-9 md:w-9"
+               title={isLandscapeForced ? "Restore Portrait" : "Rotate to Landscape"}
+             >
+                <RotateCw className={`w-4 h-4 text-amber-400 transition-transform ${isLandscapeForced ? 'rotate-90' : ''}`} />
+             </Button>
              {canControl && (
                 <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} className="text-white hover:bg-white/10 rounded-full hidden md:flex h-9 w-9">
                    <Settings className="w-4 h-4" />
@@ -1078,7 +1165,12 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
         </div>
 
         {/* Video Player Display */}
-        <div className="flex-1 bg-black flex items-center justify-center relative overflow-hidden group">
+        <div 
+          ref={videoContainerRef}
+          className={`flex-1 bg-black flex items-center justify-center relative overflow-hidden group transition-all duration-300 ${
+            isLandscapeForced ? 'fixed inset-0 z-[600] w-full h-full' : ''
+          }`}
+        >
            {isResolvingStream ? (
              <div className="flex flex-col items-center gap-4">
                 <Loader2 className="w-10 h-10 text-primary animate-spin" />
@@ -1089,9 +1181,10 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
                <video
                  key={currentVideoSrc}
                  ref={videoRef}
-                 className="w-full h-full object-contain cursor-pointer"
+                 className={`w-full h-full object-contain cursor-pointer transition-transform duration-300 ${
+                   isLandscapeForced ? 'rotate-90 md:rotate-0 scale-125 md:scale-100' : ''
+                 }`}
                  playsInline
-                 autoPlay
                  onTimeUpdate={handleNativeTimeUpdate}
                  onLoadedMetadata={handleNativeLoadedMetadata}
                  onPlay={handleNativePlay}
@@ -1320,6 +1413,18 @@ export const CinemaLiveRoom: React.FC<CinemaLiveRoomProps> = ({ roomId, roomData
                          title={showChat ? "Hide Chat" : "Show Chat"}
                        >
                           <MessageSquare className="w-4 h-4" />
+                       </Button>
+
+                       <Button
+                         variant="ghost"
+                         size="icon"
+                         onClick={handleToggleRotateLandscape}
+                         className={`text-white hover:bg-white/10 rounded-xl h-9 w-9 ${
+                           isLandscapeForced ? 'text-amber-400 bg-amber-400/20' : ''
+                         }`}
+                         title={isLandscapeForced ? "Restore Portrait" : "Rotate to Landscape"}
+                       >
+                          <RotateCw className={`w-4 h-4 ${isLandscapeForced ? 'rotate-90 text-amber-400' : ''}`} />
                        </Button>
 
                        <Button

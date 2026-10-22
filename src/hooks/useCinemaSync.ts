@@ -130,9 +130,22 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
             const data = JSON.parse(event.data);
             
             switch (data.type) {
-              case 'init':
-                setRoomState(data.state);
+              case 'init': {
+                const playback = data.playback || {};
+                const mergedState: CinemaState = {
+                  status: playback.status || data.state?.status || 'paused',
+                  movieTime: typeof playback.time === 'number' ? playback.time : (data.state?.movieTime || 0),
+                  hostUid: data.state?.host_uid || '',
+                  mutedAll: Boolean(data.state?.mutedAll),
+                  currentEpisodeIndex: data.state?.currentEpisodeIndex ?? 0
+                };
+                setRoomState(mergedState);
+                if (data.users && Array.isArray(data.users)) {
+                  setActiveUserUids(data.users);
+                  setViewers(data.users.length);
+                }
                 break;
+              }
               case 'playback_sync':
                 setRoomState(prev => prev ? { ...prev, status: data.status, movieTime: data.time } : null);
                 break;
@@ -253,6 +266,23 @@ export const useCinemaSync = (roomId: string | null, user: any, onKicked?: () =>
         ...doc.data()
       })) as ChatMessage[];
       setMessages(newMessages);
+    });
+
+    return () => unsubscribe();
+  }, [roomId]);
+
+  // Live Firestore Room Document Listener (Realtime Active Viewers Fallback)
+  useEffect(() => {
+    if (!roomId) return;
+
+    const roomRef = doc(db, 'cinema_rooms', roomId);
+    const unsubscribe = onSnapshot(roomRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (typeof data.active_viewers === 'number') {
+          setViewers(prev => Math.max(prev, data.active_viewers));
+        }
+      }
     });
 
     return () => unsubscribe();

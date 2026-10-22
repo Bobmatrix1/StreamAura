@@ -206,11 +206,13 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str = No
         # Fetch current state and send to the newly connected user
         current_state = await get_room_state(room_id)
         current_time = await get_room_time(room_id)
+        current_users = await get_room_users(room_id)
         
         await websocket.send_json({
             "type": "init",
             "state": current_state,
-            "playback": current_time
+            "playback": current_time,
+            "users": current_users
         })
         
         while True:
@@ -275,6 +277,11 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str = No
                 await add_user_to_room(room_id, uid)
                 await update_activity(room_id)
                 users = await get_room_users(room_id)
+                try:
+                    db = firestore.client()
+                    await asyncio.to_thread(lambda: db.collection("cinema_rooms").document(room_id).update({"active_viewers": len(users)}))
+                except Exception as ve:
+                    print(f"Notice updating active_viewers on join: {ve}")
                 await manager.broadcast({"type": "user_list", "users": users}, room_id)
                 
             elif event_type in ["play", "pause", "seek"]:
@@ -376,6 +383,10 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str = No
             await remove_user_from_room(room_id, uid)
         await update_activity(room_id)
         users = await get_room_users(room_id)
+        try:
+            db = firestore.client()
+            await asyncio.to_thread(lambda: db.collection("cinema_rooms").document(room_id).update({"active_viewers": len(users)}))
+        except Exception: pass
         await manager.broadcast({"type": "user_list", "users": users}, room_id)
     except Exception as e:
         print(f"WS Error: {e}")
@@ -383,3 +394,9 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str = No
         if uid:
             await remove_user_from_room(room_id, uid)
         await update_activity(room_id)
+        users = await get_room_users(room_id)
+        try:
+            db = firestore.client()
+            await asyncio.to_thread(lambda: db.collection("cinema_rooms").document(room_id).update({"active_viewers": len(users)}))
+        except Exception: pass
+        await manager.broadcast({"type": "user_list", "users": users}, room_id)

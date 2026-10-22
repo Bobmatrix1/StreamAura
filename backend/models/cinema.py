@@ -6,7 +6,7 @@ class RoomCreateRequest(BaseModel):
     room_type: str # 'free', 'paid', 'private'
     content_type: str # 'movie', 'series'
     movie_title: str
-    movie_cover_image: str
+    movie_cover_image: Optional[str] = ""
     movie_file: Optional[str] = None # For movies
     episodes: Optional[List[Dict[str, Any]]] = None # For series
     
