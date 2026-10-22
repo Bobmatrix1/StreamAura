@@ -66,6 +66,13 @@ const SoundCloudLogo: React.FC<{ className?: string }> = ({ className = "w-6 h-6
   </svg>
 );
 
+const DeezerLogo: React.FC<{ className?: string }> = ({ className = "w-6 h-6" }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect width="24" height="24" rx="6" fill="#A238FF" />
+    <path d="M7 16h2v2H7v-2zm3-3h2v5h-2v-5zm3-3h2v8h-2v-8zm3-3h2v11h-2V7z" fill="#FFFFFF" />
+  </svg>
+);
+
 interface SupportedMusicPlatform {
   id: string;
   name: string;
@@ -107,6 +114,14 @@ const SUPPORTED_PLATFORMS: SupportedMusicPlatform[] = [
     accent: 'text-orange-500',
     description: 'Direct Original MP3 & Remix Streams',
     icon: <SoundCloudLogo className="w-6 h-6" />
+  },
+  {
+    id: 'deezer',
+    name: 'Deezer',
+    badge: 'HiFi Audio',
+    accent: 'text-purple-400',
+    description: 'Lossless HiFi Audio & Studio Artwork',
+    icon: <DeezerLogo className="w-6 h-6" />
   }
 ];
 

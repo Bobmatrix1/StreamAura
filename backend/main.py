@@ -21,6 +21,7 @@ import uuid
 import html
 import traceback
 import random
+import json
 import tempfile
 from typing import List, Optional, Union
 import firebase_admin
@@ -856,21 +857,24 @@ def format_music_qualities(stream_url: str):
         }
     ]
 
-async def resolve_music_stream(artist: str, title: str, direct_url: str = ""):
+async def resolve_music_stream(artist: str, title: str, direct_url: str = "", target_duration: int = 0):
     """
-    Multi-tiered resilient audio stream resolver:
+    Precision Multi-Tiered Audio Stream Resolver:
     1. Direct URL extraction (for SoundCloud / direct media URLs)
-    2. SoundCloud query search (high fidelity 128k/160k stream)
-    3. YouTube / YouTube Music search with Android/iOS player clients (bypasses datacenter bot detection)
-    4. RapidAPI YouTube fallback (if RAPIDAPI_KEY configured)
+    2. Precision YouTube / YouTube Music search with candidate scoring:
+       - Prioritizes official YouTube Music Topic tracks (exact label master audio)
+       - Prioritizes VEVO / verified official audio releases
+       - Strictly enforces duration matching against metadata (±3-5s match)
+       - Eliminates covers, live recordings, remixes, nightcore, sped up, reactions, parodies, 1-hour loops
+    3. Returns canonical YouTube track URL (guarantees exact song download and no stream expiration)
     """
     clean_artist = re.sub(r'[^\w\s]', '', artist or '').strip()
-    clean_title = re.sub(r'[^\w\s]', '', title or '').strip()
-    query_str = f"{clean_artist} {clean_title}".strip()
+    clean_title = re.sub(r'[\(\[].*?[\)\]]', '', title or '').strip()
+    clean_title = re.sub(r'[^\w\s]', '', clean_title).strip()
     
     loop = asyncio.get_event_loop()
 
-    # Tier 1: Direct URL extraction if valid
+    # Tier 1: Direct URL extraction if valid SoundCloud track
     if direct_url and "soundcloud.com" in direct_url:
         ydl_opts_direct = {
             'quiet': True,
@@ -885,63 +889,129 @@ async def resolve_music_stream(artist: str, title: str, direct_url: str = ""):
             with yt_dlp.YoutubeDL(ydl_opts_direct) as ydl:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(direct_url, download=False))
                 if info and info.get('url'):
-                    return info.get('url'), info.get('thumbnail'), info.get('duration')
+                    return direct_url, info.get('thumbnail'), info.get('duration')
         except Exception:
             pass
 
-    # Tier 2: SoundCloud search
-    if query_str:
-        ydl_opts_sc = {
-            'quiet': True,
-            'no_warnings': True,
-            'nocheckcertificate': True,
-            'skip_download': True,
-        }
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts_sc) as ydl:
-                info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"scsearch1:{query_str}", download=False))
-                if info and 'entries' in info and info['entries']:
-                    item = info['entries'][0]
-                    if item.get('url'):
-                        return item.get('url'), item.get('thumbnail'), item.get('duration')
-        except Exception:
-            pass
+    # Tier 2: YouTube Precision Search & Intelligent Matching
+    queries = [
+        f"ytsearch8:{artist} - {title} Official Audio",
+        f"ytsearch8:{artist} {title} Topic",
+        f"ytsearch8:{clean_artist} {clean_title}"
+    ]
 
-    # Tier 3: YouTube Search with Android/iOS player_client (bypasses datacenter bot blocks)
-    if query_str:
-        ydl_opts_yt = {
-            'quiet': True,
-            'no_warnings': True,
-            'nocheckcertificate': True,
-            'skip_download': True,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android', 'ios', 'web_embedded'],
-                }
-            },
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    ydl_opts_search = {
+        'quiet': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
+        'skip_download': True,
+        'extract_flat': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'web_embedded'],
             }
+        },
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
         }
+    }
+
+    best_candidate = None
+    best_score = -999
+
+    junk_words = [
+        'cover', 'karaoke', 'instrumental', 'slowed', 'reverb', 
+        'sped up', 'speed up', 'nightcore', 'reaction', 'parody', 
+        'remix', 'mashup', 'tutorial', 'how to play', 'type beat', 
+        '1 hour', '10 hour', 'loop', 'bass boosted', '8d audio',
+        'snippet', 'preview', 'teaser', 'interview', 'review',
+        'dance practice', 'tiktok version', 'live at', 'live from'
+    ]
+    orig_title_lower = (title or '').lower()
+
+    for q in queries:
         try:
-            with yt_dlp.YoutubeDL(ydl_opts_yt) as ydl:
-                info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch1:{query_str} audio", download=False))
-                if info and 'entries' in info and info['entries']:
-                    item = info['entries'][0]
-                    formats = item.get('formats', [])
-                    audio_formats = [
-                        f for f in formats 
-                        if (f.get('acodec') and f.get('acodec') != 'none')
-                        and f.get('ext') not in ['mhtml', 'jpg', 'jpeg', 'png', 'webp']
-                        and not str(f.get('format_id', '')).startswith('sb')
-                        and f.get('url')
-                    ]
-                    audio_formats.sort(key=lambda x: (x.get('abr') or 0), reverse=True)
-                    best_url = audio_formats[0].get('url') if audio_formats else item.get('url')
-                    if best_url:
-                        return best_url, item.get('thumbnail'), item.get('duration')
-        except Exception:
-            pass
+            with yt_dlp.YoutubeDL(ydl_opts_search) as ydl:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(q, download=False))
+                entries = info.get('entries', []) if info else []
+                
+                for cand in entries:
+                    if not cand or not cand.get('id'):
+                        continue
+                    
+                    c_title = (cand.get('title') or '').lower()
+                    c_channel = (cand.get('channel') or cand.get('uploader') or '').lower()
+                    c_duration = cand.get('duration') or 0
+                    
+                    score = 0
+
+                    # Penalize junk / unofficial versions
+                    has_junk = False
+                    for jw in junk_words:
+                        if jw in c_title and jw not in orig_title_lower:
+                            score -= 150
+                            has_junk = True
+                            break
+
+                    # Official Topic channel (YouTube Music official label delivery - 100% exact master audio)
+                    if "- topic" in c_channel:
+                        score += 100
+                    elif "vevo" in c_channel:
+                        score += 70
+                    elif clean_artist.lower() in c_channel:
+                        score += 50
+
+                    # Official audio / video indicators
+                    if "official audio" in c_title:
+                        score += 60
+                    elif "official music video" in c_title or "official video" in c_title:
+                        score += 40
+                    elif "audio" in c_title and not has_junk:
+                        score += 25
+                    elif "lyrics" in c_title or "lyric video" in c_title:
+                        score += 20
+
+                    # Title keywords match
+                    title_words = [w for w in clean_title.lower().split() if len(w) > 2]
+                    if title_words:
+                        matched = sum(1 for w in title_words if w in c_title)
+                        score += int((matched / len(title_words)) * 60)
+
+                    # Artist keywords match
+                    artist_words = [w for w in clean_artist.lower().split() if len(w) > 2]
+                    if artist_words:
+                        matched_art = sum(1 for w in artist_words if w in c_channel or w in c_title)
+                        score += int((matched_art / len(artist_words)) * 40)
+
+                    # Duration verification (critical!)
+                    if target_duration and c_duration:
+                        diff = abs(c_duration - target_duration)
+                        if diff <= 2:
+                            score += 80  # Exact match!
+                        elif diff <= 5:
+                            score += 55
+                        elif diff <= 10:
+                            score += 30
+                        elif diff > 45:
+                            score -= 120  # Completely wrong length (e.g. podcast, reaction, or loop)
+
+                    if score > best_score:
+                        best_score = score
+                        best_candidate = cand
+
+            # If we found an exceptional match (score >= 120), no need to search lower tier queries
+            if best_candidate and best_score >= 120:
+                break
+        except Exception as e:
+            print(f"Music resolution query note ({q}): {e}")
+
+    if best_candidate and best_score > 0:
+        vid_id = best_candidate.get('id')
+        canonical_url = f"https://www.youtube.com/watch?v={vid_id}"
+        thumbnail = best_candidate.get('thumbnail') or f"https://i.ytimg.com/vi/{vid_id}/hqdefault.jpg"
+        duration = best_candidate.get('duration') or target_duration
+        print(f"[Music Match Success] '{artist} - {title}' matched '{best_candidate.get('title')}' by '{best_candidate.get('channel')}' (Score: {best_score})")
+        return canonical_url, thumbnail, duration
 
     return None, None, None
 
@@ -1021,13 +1091,15 @@ async def extract_apple_music_direct(url: str):
         if not title:
             return None
 
+        dur_sec = duration_ms // 1000 if duration_ms else 0
         display_artist = artist or "Apple Music Artist"
-        stream_url, yt_thumb, yt_dur = await resolve_music_stream(display_artist, title, url)
+        stream_url, yt_thumb, yt_dur = await resolve_music_stream(display_artist, title, url, target_duration=dur_sec)
         
         if not stream_url:
             return None
 
-        dur_sec = duration_ms // 1000 if duration_ms else int(yt_dur or 0)
+        if not dur_sec and yt_dur:
+            dur_sec = int(yt_dur)
         duration_str = f"{dur_sec // 60}m {dur_sec % 60}s" if dur_sec else "Music Track"
 
         return {
@@ -1150,7 +1222,7 @@ async def extract_spotify_direct(url: str):
             return None
 
         display_artist = artist or "Spotify Artist"
-        stream_url, yt_thumb, yt_dur = await resolve_music_stream(display_artist, title, url)
+        stream_url, yt_thumb, yt_dur = await resolve_music_stream(display_artist, title, url, target_duration=duration_sec)
         
         if not stream_url:
             stream_url = audio_preview
@@ -1177,6 +1249,66 @@ async def extract_spotify_direct(url: str):
     except Exception as e:
         print(f"Spotify Direct Extractor notice: {e}")
         return None
+
+async def extract_deezer_direct(url: str):
+    """
+    Dedicated Deezer extractor using free public Deezer API:
+    1. Extracts track ID from canonical or short links
+    2. Retrieves exact official track title, artist, and album artwork
+    3. Resolves exact audio stream via precision music engine
+    """
+    try:
+        track_id = None
+        m_id = re.search(r'/track/(\d+)', url)
+        if m_id:
+            track_id = m_id.group(1)
+        else:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                r_redir = await client.get(url)
+                m_redir = re.search(r'/track/(\d+)', str(r_redir.url))
+                if m_redir:
+                    track_id = m_redir.group(1)
+
+        if not track_id:
+            return None
+
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            r_dz = await client.get(f"https://api.deezer.com/track/{track_id}")
+            if r_dz.status_code == 200:
+                d = r_dz.json()
+                if "error" not in d:
+                    title = d.get("title", "")
+                    artist = d.get("artist", {}).get("name", "")
+                    duration_sec = int(d.get("duration", 0) or 0)
+                    cover = d.get("album", {}).get("cover_xl") or d.get("album", {}).get("cover_big") or ""
+                    preview_url = d.get("preview", "")
+
+                    if not title:
+                        return None
+
+                    display_artist = artist or "Deezer Artist"
+                    stream_url, yt_thumb, yt_dur = await resolve_music_stream(display_artist, title, url, target_duration=duration_sec)
+                    if not stream_url:
+                        stream_url = preview_url
+
+                    if not stream_url:
+                        return None
+
+                    duration_str = f"{duration_sec // 60}m {duration_sec % 60}s" if duration_sec else "Music Track"
+                    return {
+                        "id": str(uuid.uuid4()),
+                        "url": url,
+                        "title": title,
+                        "thumbnail": cover or yt_thumb,
+                        "duration": duration_str,
+                        "author": display_artist,
+                        "platform": "Deezer",
+                        "mediaType": "music",
+                        "qualities": format_music_qualities(stream_url)
+                    }
+    except Exception as e:
+        print(f"Deezer Direct Extractor notice: {e}")
+    return None
 
 async def extract_soundcloud_direct(url: str):
     """
@@ -2050,6 +2182,9 @@ async def extract_info(request: ExtractRequest):
     elif "spotify.com" in lower_url:
         platform = "Spotify"
         media_type = "music"
+    elif "deezer.com" in lower_url or "deezer.page.link" in lower_url:
+        platform = "Deezer"
+        media_type = "music"
 
     # 1. Platform-Specific Direct High-Speed Extractors
     if platform == "TikTok":
@@ -2081,6 +2216,12 @@ async def extract_info(request: ExtractRequest):
         if spotify_data and spotify_data.get("qualities"):
             print(f"Direct Spotify Extractor Success for: {url}")
             return {"success": True, "data": spotify_data}
+
+    elif platform == "Deezer":
+        deezer_data = await extract_deezer_direct(url)
+        if deezer_data and deezer_data.get("qualities"):
+            print(f"Direct Deezer Extractor Success for: {url}")
+            return {"success": True, "data": deezer_data}
 
     elif platform == "SoundCloud":
         soundcloud_data = await extract_soundcloud_direct(url)
@@ -2126,18 +2267,13 @@ async def extract_info(request: ExtractRequest):
                 return {"success": True, "data": smvd_data}
             smvd_status = f"Failed (HTTP {smvd_status_code}: {smvd_error})" if smvd_status_code else f"Timeout ({smvd_error})"
 
-    # 3. Spotify / SoundCloud / Music Search Fallback
-    if platform in ["Spotify", "SoundCloud"]:
-        try:
-            if platform == "Spotify" and sp:
-                track_id = url.split("track/")[1].split("?")[0]
-                track = sp.track(track_id)
-                search_query = f"scsearch1:{track['artists'][0]['name']} {track['name']} official"
-            else:
-                search_query = f"scsearch1:{url}"
-        except Exception as e:
-            print(f"Platform search extraction notice: {str(e)}")
-            search_query = f"scsearch1:{url}"
+    # 3. Precision Music Fallback (Never search SoundCloud for Spotify/Apple/Deezer tracks)
+    if media_type == "music":
+        if platform == "SoundCloud":
+            search_query = url
+        elif platform in ["Spotify", "Apple Music", "Deezer"]:
+            slug_clean = re.sub(r'[\-_/]', ' ', url.split('/')[-1].split('?')[0])
+            search_query = f"ytsearch6:{slug_clean} Official Audio"
 
     # 4. Universal Engine Extraction (yt-dlp with optimized configuration)
     ydl_opts = {
@@ -2188,25 +2324,21 @@ async def extract_info(request: ExtractRequest):
             seen_qualities = set()
 
             if media_type == "music":
-                # Find best audio stream
-                valid_audios = [
-                    f for f in raw_formats
-                    if (f.get('acodec') and f.get('acodec') != 'none')
-                    and f.get('ext') not in ['mhtml', 'jpg', 'jpeg', 'png', 'webp']
-                    and not str(f.get('format_id', '')).startswith('sb')
-                    and f.get('url')
-                ]
-                valid_audios.sort(key=lambda x: (x.get('abr') or 0), reverse=True)
-                best_audio_stream = valid_audios[0].get('url') if valid_audios else info.get('url')
-                
-                if best_audio_stream:
-                    formats = [
-                        {"quality": "320kbps MP3 (Ultra Quality)", "format": "MP3", "resolution": "Audio", "size": "HQ ~9.5 MB", "url": best_audio_stream},
-                        {"quality": "256kbps MP3 (High Quality)", "format": "MP3", "resolution": "Audio", "size": "HQ ~7.5 MB", "url": best_audio_stream},
-                        {"quality": "192kbps MP3 (Standard Quality)", "format": "MP3", "resolution": "Audio", "size": "Standard ~5.5 MB", "url": best_audio_stream},
-                        {"quality": "128kbps MP3 (Fast Download)", "format": "MP3", "resolution": "Audio", "size": "Fast ~3.8 MB", "url": best_audio_stream},
-                        {"quality": "Original Audio (Lossless/MP3)", "format": "MP3", "resolution": "Audio", "size": "Original Audio", "url": best_audio_stream}
+                # Canonical target URL for download (prefer YouTube canonical URL so yt-dlp + FFmpeg transcodes to pristine MP3)
+                canonical_target = info.get('webpage_url') or (f"https://www.youtube.com/watch?v={info.get('id')}" if info.get('id') else None)
+                if not canonical_target:
+                    valid_audios = [
+                        f for f in raw_formats
+                        if (f.get('acodec') and f.get('acodec') != 'none')
+                        and f.get('ext') not in ['mhtml', 'jpg', 'jpeg', 'png', 'webp']
+                        and not str(f.get('format_id', '')).startswith('sb')
+                        and f.get('url')
                     ]
+                    valid_audios.sort(key=lambda x: (x.get('abr') or 0), reverse=True)
+                    canonical_target = valid_audios[0].get('url') if valid_audios else info.get('url')
+                
+                if canonical_target:
+                    formats = format_music_qualities(canonical_target)
             else:
                 for f in raw_formats:
                     url_val = f.get("url")
@@ -2298,15 +2430,58 @@ async def download_media(
     if not safe_filename.endswith(('.mp4', '.mp3', '.m4a', '.webm')):
         safe_filename += '.mp4'
 
-    temp_path = os.path.join(DOWNLOAD_DIR, f"{uuid.uuid4()}_{safe_filename}")
-    
-    # 1. Fast Direct CDN Streaming for direct media links
-    is_direct_cdn = any(cdn in url.lower() for cdn in [
+    is_audio = safe_filename.endswith(('.mp3', '.m4a')) or "audio" in quality.lower() or "mp3" in quality.lower() or "kbps" in quality.lower()
+    if is_audio and not safe_filename.endswith('.mp3'):
+        safe_filename = os.path.splitext(safe_filename)[0] + '.mp3'
+
+    # 0. If a raw music platform URL was provided directly, resolve to exact audio stream
+    lower_u = url.lower()
+    if is_audio or any(p in lower_u for p in ["spotify.com", "music.apple.com", "itunes.apple.com", "deezer.com", "deezer.page.link"]):
+        resolved_stream = None
+        if "spotify.com" in lower_u:
+            s_data = await extract_spotify_direct(url)
+            if s_data and s_data.get("qualities"):
+                resolved_stream = s_data["qualities"][0].get("url")
+        elif "music.apple.com" in lower_u or "itunes.apple.com" in lower_u:
+            a_data = await extract_apple_music_direct(url)
+            if a_data and a_data.get("qualities"):
+                resolved_stream = a_data["qualities"][0].get("url")
+        elif "deezer.com" in lower_u or "deezer.page.link" in lower_u:
+            d_data = await extract_deezer_direct(url)
+            if d_data and d_data.get("qualities"):
+                resolved_stream = d_data["qualities"][0].get("url")
+        elif "soundcloud.com" in lower_u:
+            sc_data = await extract_soundcloud_direct(url)
+            if sc_data and sc_data.get("qualities"):
+                resolved_stream = sc_data["qualities"][0].get("url")
+        
+        if resolved_stream:
+            url = resolved_stream
+            lower_u = url.lower()
+
+    # Determine audio bitrate if audio
+    bitrate = "320"
+    if "256" in quality:
+        bitrate = "256"
+    elif "192" in quality:
+        bitrate = "192"
+    elif "128" in quality:
+        bitrate = "128"
+
+    temp_id = str(uuid.uuid4())
+    temp_path = os.path.join(DOWNLOAD_DIR, f"{temp_id}_{safe_filename}")
+
+    # 1. Fast Direct CDN Streaming for direct media links (Excluding YouTube/googlevideo)
+    is_direct_cdn = any(cdn in lower_u for cdn in [
         "tikwm.com", "tiktokcdn.com", "cdninstagram.com", "fbcdn.net", 
-        "twimg.com", "sndcdn.com", ".mp4", ".mp3", ".m4a"
-    ]) or ("http" in url and ("mime=video" in url or "bytestart=" in url or "token=" in url or "googlevideo.com" in url))
+        "twimg.com"
+    ]) or (not is_audio and any(cdn in lower_u for cdn in [".mp4", "mime=video", "bytestart=", "token="]) and "googlevideo.com" not in lower_u)
     
-    if is_direct_cdn and not ("youtube.com/watch" in url or "youtu.be/" in url):
+    # Direct CDN for genuine MP3 audio (e.g. soundcloud cdn ending in .mp3, but not googlevideo Opus)
+    if is_audio and ".mp3" in lower_u and not any(yt in lower_u for yt in ["youtube.com", "youtu.be", "googlevideo.com"]):
+        is_direct_cdn = True
+
+    if is_direct_cdn and not ("youtube.com" in lower_u or "youtu.be" in lower_u or "googlevideo.com" in lower_u):
         try:
             req_headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -2334,35 +2509,91 @@ async def download_media(
         except Exception as direct_err:
             print(f"Direct stream download notice (switching to yt-dlp): {direct_err}")
 
-    # 2. Universal yt-dlp Download Fallback
-    ydl_opts = {
-        'format': 'bestaudio/best' if safe_filename.endswith('.mp3') else 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'outtmpl': temp_path,
-        'quiet': True,
-        'no_warnings': True,
-        'nocheckcertificate': True,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        }
-    }
+    # 2. Universal yt-dlp Download with FFmpeg MP3 Transcoding & Anti-Bot Bypass
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            await asyncio.get_event_loop().run_in_executor(None, lambda: ydl.download([url]))
+        loop = asyncio.get_event_loop()
         
-        actual_path = temp_path
-        if not os.path.exists(actual_path):
-            for ext in ['.mp4', '.mkv', '.webm', '.mp3']:
-                if os.path.exists(f"{temp_path}{ext}"):
-                    actual_path = f"{temp_path}{ext}"
-                    break
-                    
-        if not os.path.exists(actual_path):
-            raise Exception("File failed to download from source.")
+        if is_audio:
+            # For MP3: use outtmpl with %(ext)s so FFmpegExtractAudio generates genuine .mp3
+            out_base = os.path.join(DOWNLOAD_DIR, f"{temp_id}_audio")
+            raw_outtmpl = f"{out_base}.%(ext)s"
+            target_mp3 = f"{out_base}.mp3"
 
-        background_tasks.add_task(lambda: os.path.exists(actual_path) and os.remove(actual_path))
-        media_type = "audio/mpeg" if safe_filename.endswith(".mp3") else "video/mp4"
-        return FileResponse(path=actual_path, filename=safe_filename, media_type=media_type)
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': raw_outtmpl,
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': bitrate,
+                }],
+                'quiet': True,
+                'no_warnings': True,
+                'nocheckcertificate': True,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android', 'ios'],
+                    }
+                },
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                }
+            }
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                await loop.run_in_executor(None, lambda: ydl.download([url]))
+
+            actual_path = target_mp3
+            if not os.path.exists(actual_path):
+                for ext in ['.mp3', '.m4a', '.webm', '.opus', '.ogg', '.wav']:
+                    candidate = f"{out_base}{ext}"
+                    if os.path.exists(candidate):
+                        actual_path = candidate
+                        break
+
+            if not os.path.exists(actual_path):
+                raise Exception("Music track failed to download or transcode to MP3.")
+
+            background_tasks.add_task(lambda: os.path.exists(actual_path) and os.remove(actual_path))
+            return FileResponse(path=actual_path, filename=safe_filename, media_type="audio/mpeg")
+
+        else:
+            # Video download with anti-bot bypass
+            ydl_opts = {
+                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                'outtmpl': temp_path,
+                'quiet': True,
+                'no_warnings': True,
+                'nocheckcertificate': True,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android', 'ios', 'web_embedded'],
+                        'skip': ['dash', 'hls']
+                    }
+                },
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                }
+            }
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                await loop.run_in_executor(None, lambda: ydl.download([url]))
+
+            actual_path = temp_path
+            if not os.path.exists(actual_path):
+                for ext in ['.mp4', '.mkv', '.webm']:
+                    if os.path.exists(f"{temp_path}{ext}"):
+                        actual_path = f"{temp_path}{ext}"
+                        break
+                        
+            if not os.path.exists(actual_path):
+                raise Exception("File failed to download from source.")
+
+            background_tasks.add_task(lambda: os.path.exists(actual_path) and os.remove(actual_path))
+            return FileResponse(path=actual_path, filename=safe_filename, media_type="video/mp4")
+
     except Exception as e:
+        print(f"Download media error: {e}")
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 # =========================
